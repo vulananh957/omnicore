@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Changed
+- `admin/channel-create.jsp`: field **API Endpoint URL** và **App Key** chỉ bắt buộc (`required`) khi Platform = Lazada. Kênh Website không dùng 2 field này (omnicore-main không gọi ra ngoài cho kênh Website, chỉ nhận request từ omnicore-web qua HMAC bằng `app_secret`) nên bỏ bắt buộc, ẩn dấu `*` tương ứng. Toggle bằng JS theo `platform`, đồng bộ cả lúc load trang (create lẫn edit mode), không sửa validate phía server (`ChannelConfigServlet` vốn không validate required).
 - Đổi `platform` của channel storefront từ `'OwnWebsite'` → `'Website'` (`BaseApiServlet`, `WebsiteOrderApiServlet`, seed SQL, dòng dữ liệu thật trong `channels`) — khớp đúng giá trị dropdown có sẵn trong `admin/channel-create.jsp` ("Website (Online Shop)"). Trước khi đổi, form Sửa kênh trong admin sẽ không khớp được tuỳ chọn nào, có nguy cơ ghi đè nhầm platform khi admin lưu form.
 
 ### Fixed

@@ -56,8 +56,8 @@
                 </div>
 
                 <div>
-                    <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">API Endpoint URL <span style="color: #ef4444;">*</span></label>
-                    <input type="url" id="apiUrl" name="apiUrl" required placeholder="https://api.lazada.vn/rest"
+                    <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">API Endpoint URL <span id="apiUrlRequiredMark" style="color: #ef4444;">*</span></label>
+                    <input type="url" id="apiUrl" name="apiUrl" placeholder="https://api.lazada.vn/rest"
                            value="<c:out value='${channel.apiUrl}' default=''/>"
                            style="width: 100%; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
                 </div>
@@ -94,8 +94,8 @@
             <div style="display: flex; flex-direction: column; gap: 1rem;">
                 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem;">
                     <div>
-                        <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">App Key <span style="color: #ef4444;">*</span></label>
-                        <input type="text" id="apiKey" name="apiKey" required placeholder="Lấy từ Console"
+                        <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">App Key <span id="apiKeyRequiredMark" style="color: #ef4444;">*</span></label>
+                        <input type="text" id="apiKey" name="apiKey" placeholder="Lấy từ Console"
                                value="<c:out value='${channel.apiKey}' default=''/>"
                                style="width: 100%; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
                     </div>
@@ -174,9 +174,12 @@
         'Website': { endpoint: '', webhook: '' }
     };
 
-    var platformSelect   = document.getElementById('platform');
-    var apiUrlInput      = document.getElementById('apiUrl');
-    var webhookUrlInput  = document.getElementById('webhookUrl');
+    var platformSelect      = document.getElementById('platform');
+    var apiUrlInput         = document.getElementById('apiUrl');
+    var apiKeyInput         = document.getElementById('apiKey');
+    var webhookUrlInput     = document.getElementById('webhookUrl');
+    var apiUrlRequiredMark  = document.getElementById('apiUrlRequiredMark');
+    var apiKeyRequiredMark  = document.getElementById('apiKeyRequiredMark');
 
     function handlePlatformChange() {
         var platform = platformSelect.value;
@@ -186,14 +189,21 @@
             apiUrlInput.value = config.endpoint;
         }
         webhookUrlInput.value = config.webhook;
+
+        // API Endpoint URL / App Key chỉ cần thiết với sàn TMĐT ngoài (Lazada) —
+        // kênh Website tự có (omnicore-web gọi vào, không gọi ra ngoài) nên không bắt buộc.
+        var needsExternalApi = (platform === 'Lazada');
+        apiUrlInput.required = needsExternalApi;
+        apiKeyInput.required = needsExternalApi;
+        apiUrlRequiredMark.style.display = needsExternalApi ? '' : 'none';
+        apiKeyRequiredMark.style.display = needsExternalApi ? '' : 'none';
     }
 
     platformSelect.addEventListener('change', handlePlatformChange);
 
-    // Pre-fill endpoint if field is blank (create mode)
-    if (!apiUrlInput.value.trim()) {
-        handlePlatformChange();
-    }
+    // Luôn chạy lúc load trang (kể cả edit mode) để required/dấu * khớp đúng
+    // platform hiện tại — value chỉ bị ghi đè bên trong hàm khi đang trống.
+    handlePlatformChange();
 
     // Copy Webhook URL to clipboard
     var btnCopyWebhook = document.getElementById('btnCopyWebhook');
