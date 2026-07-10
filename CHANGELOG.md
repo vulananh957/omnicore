@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Đổi `platform` của channel storefront từ `'OwnWebsite'` → `'Website'` (`BaseApiServlet`, `WebsiteOrderApiServlet`, seed SQL, dòng dữ liệu thật trong `channels`) — khớp đúng giá trị dropdown có sẵn trong `admin/channel-create.jsp` ("Website (Online Shop)"). Trước khi đổi, form Sửa kênh trong admin sẽ không khớp được tuỳ chọn nào, có nguy cơ ghi đè nhầm platform khi admin lưu form.
+
+### Fixed
+- **Bug nghiêm trọng**: trang "Đơn hàng" (Sales Staff, `/sales/orders`) hiện **danh sách rỗng hoàn toàn** — `OrderDAO.getAllOrders()` ném `SQLSyntaxErrorException: Unknown column 'o.shipment_provider'` (servlet nuốt lỗi im lặng, không log ra JSP). Cột `shipment_provider` được code dùng để lưu đơn vị vận chuyển cho **mọi kênh** (không riêng Lazada) nhưng chưa từng được tạo trong `SchemaInitListener.ensureOrdersTable()`. Đã thêm `addColumnIfMissing`. Verify lại: query gốc chạy đúng, trả về đủ 8 đơn hàng.
+
 ### Added
 - `com.wms.controller.api.BaseApiServlet`: xác thực HMAC-SHA256 (`X-Timestamp`/`X-Signature`, hash cả body, chống replay 300s) cho API phục vụ `omnicore-web`.
 - `CategoryApiServlet`, `ProductApiServlet`, `InventoryApiServlet`, `WebsiteOrderApiServlet` — 6 endpoint REST cho storefront (`GET /api/categories`, `GET /api/products`, `GET /api/products/{id}`, `GET /api/inventory/{productId}`, `POST /api/website/orders`, `GET /api/website/orders/{id}`).

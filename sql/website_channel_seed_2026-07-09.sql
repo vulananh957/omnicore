@@ -7,9 +7,13 @@
 -- chỉ copy sang đây để 2 bên tính ra cùng 1 signature).
 --
 -- Chạy 1 lần, thủ công, sau khi Tomcat đã tạo xong bảng `channels` (qua SchemaInitListener).
+--
+-- platform='Website' (không phải 'OwnWebsite') — khớp đúng giá trị dropdown có sẵn trong
+-- admin/channel-create.jsp ("Website (Online Shop)"), phát hiện 2026-07-10 sau khi ban đầu
+-- lỡ dùng tên khác không khớp UI.
 
 INSERT INTO channels (channel_name, platform, api_url, api_key, app_secret, webhook_secret, buffer_stock, is_active)
-VALUES ('Own Website', 'OwnWebsite', NULL, NULL, 'OCW-W8SSS2TTNNE52NQESVOP594YZP9X8TCS', NULL, 0, 1);
+VALUES ('Own Website', 'Website', NULL, NULL, 'OCW-W8SSS2TTNNE52NQESVOP594YZP9X8TCS', NULL, 0, 1);
 
 -- Rollback:
--- DELETE FROM channels WHERE platform = 'OwnWebsite';
+-- DELETE FROM channels WHERE platform = 'Website';

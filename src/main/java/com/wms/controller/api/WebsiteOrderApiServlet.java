@@ -39,7 +39,7 @@ import java.util.logging.Logger;
 public class WebsiteOrderApiServlet extends BaseApiServlet {
 
     private static final Logger LOGGER = Logger.getLogger(WebsiteOrderApiServlet.class.getName());
-    private static final String PLATFORM = "OwnWebsite";
+    private static final String PLATFORM = "Website";
 
     private final ChannelDAO channelDAO = new ChannelDAO();
     private final WarehouseDAO warehouseDAO = new WarehouseDAO();

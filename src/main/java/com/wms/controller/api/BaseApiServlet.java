@@ -33,7 +33,7 @@ import java.util.logging.Logger;
 public abstract class BaseApiServlet extends HttpServlet {
 
     private static final Logger LOGGER = Logger.getLogger(BaseApiServlet.class.getName());
-    private static final String PLATFORM = "OwnWebsite";
+    private static final String PLATFORM = "Website";
     private static final long MAX_CLOCK_SKEW_SECONDS = 300;
 
     private final ChannelDAO channelDAO = new ChannelDAO();

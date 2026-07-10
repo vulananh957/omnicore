@@ -582,6 +582,8 @@ public class SchemaInitListener implements ServletContextListener {
                     "VARCHAR(100) DEFAULT NULL COMMENT 'Dedup key for orders created by omnicore-web'");
             addColumnIfMissing(conn, md, "orders", "web_customer_ref",
                     "VARCHAR(100) DEFAULT NULL COMMENT 'omnicore-web customers.customer_id — reference only, not a real FK'");
+            addColumnIfMissing(conn, md, "orders", "shipment_provider",
+                    "VARCHAR(100) DEFAULT NULL COMMENT 'Assigned shipping carrier — any channel, not Lazada-specific'");
             createIndexIfNotExists(conn, "orders", "uq_web_order_ref",
                     "CREATE UNIQUE INDEX uq_web_order_ref ON orders (web_order_ref)");
         }

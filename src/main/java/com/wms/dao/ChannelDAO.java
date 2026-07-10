@@ -330,7 +330,7 @@ public class ChannelDAO {
     }
 
     /**
-     * Finds the single active channel for a given platform (e.g. "OwnWebsite").
+     * Finds the single active channel for a given platform (e.g. "Website").
      * Used by the storefront API auth layer to look up the shared HMAC secret.
      *
      * @param platform The platform identifier to look up.
