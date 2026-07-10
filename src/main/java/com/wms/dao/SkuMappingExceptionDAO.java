@@ -26,9 +26,12 @@ public class SkuMappingExceptionDAO {
         List<Map<String, Object>> list = new ArrayList<>();
         String sql = "SELECT me.exception_id, me.channel_id, me.external_sku, "
                    + "me.order_code, me.reason, me.created_at, me.resolved, "
-                   + "c.channel_name, c.platform "
+                   + "c.channel_name, c.platform, "
+                   + "cp.channel_item_id, cp.channel_sku_code, cp.channel_sku_code AS seller_sku "
                    + "FROM mapping_exceptions me "
                    + "LEFT JOIN channels c ON me.channel_id = c.channel_id "
+                   + "LEFT JOIN channel_products cp ON cp.channel_id = me.channel_id "
+                   + "    AND cp.channel_sku_code = me.external_sku "
                    + "WHERE me.resolved = 0 "
                    + "ORDER BY me.created_at DESC";
 
@@ -43,6 +46,9 @@ public class SkuMappingExceptionDAO {
                 row.put("channelName", rs.getString("channel_name"));
                 row.put("platform", rs.getString("platform"));
                 row.put("externalSku", rs.getString("external_sku"));
+                row.put("channelItemId", rs.getString("channel_item_id"));
+                row.put("channelSkuCode", rs.getString("channel_sku_code"));
+                row.put("sellerSku", rs.getString("seller_sku"));
                 row.put("orderCode", rs.getString("order_code"));
                 row.put("reason", rs.getString("reason"));
                 row.put("createdAt", rs.getTimestamp("created_at"));

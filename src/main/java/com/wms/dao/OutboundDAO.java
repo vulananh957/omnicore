@@ -23,6 +23,19 @@ public class OutboundDAO extends BaseDAO {
 
     private static final Logger LOGGER = Logger.getLogger(OutboundDAO.class.getName());
 
+    private static final java.util.Map<Integer, String> warehouseStaffCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private String getPrimaryWarehouseStaffName(int warehouseId) {
+        return warehouseStaffCache.computeIfAbsent(warehouseId, id -> {
+            try {
+                com.wms.model.User u = new com.wms.dao.UserDAO().findPrimaryWarehouseStaff(id);
+                return u != null ? u.getFullName() : "";
+            } catch (Exception e) {
+                return "";
+            }
+        });
+    }
+
     /**
      * Retrieves all outbound orders (top 100, newest first).
      */
@@ -30,11 +43,14 @@ public class OutboundDAO extends BaseDAO {
         List<OutboundOrder> list = new ArrayList<>();
         String sql = "SELECT o.outbound_id, o.outbound_code, o.order_id, o.warehouse_id, "
                    + "w.warehouse_name, o.status, o.note, o.created_at, o.picked_by, o.shipped_at, "
-                   + "ord.order_code, sd.shipping_address, sd.courier_name, sd.recipient_name "
+                   + "ord.order_code, ord.tracking_no, ord.is_label_printed, sd.shipping_address, sd.courier_name, sd.recipient_name, "
+                   + "ch.platform AS channel_name, p.full_name AS picker_name "
                    + "FROM outbound_orders o "
                    + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                    + "LEFT JOIN orders ord ON o.order_id = ord.order_id "
                    + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
+                   + "LEFT JOIN channels ch ON ord.channel_id = ch.channel_id "
+                   + "LEFT JOIN users p ON o.picked_by = p.user_id "
                    + "ORDER BY o.created_at DESC LIMIT 100";
 
         try (Connection conn = DBConnection.getConnection();
@@ -58,11 +74,14 @@ public class OutboundDAO extends BaseDAO {
     public OutboundOrder findById(int id) {
         String sql = "SELECT o.outbound_id, o.outbound_code, o.order_id, o.warehouse_id, "
                    + "w.warehouse_name, o.status, o.note, o.created_at, o.picked_by, o.shipped_at, "
-                   + "ord.order_code, sd.shipping_address, sd.courier_name, sd.recipient_name "
+                   + "ord.order_code, ord.tracking_no, ord.is_label_printed, sd.shipping_address, sd.courier_name, sd.recipient_name, "
+                   + "ch.platform AS channel_name, p.full_name AS picker_name "
                    + "FROM outbound_orders o "
                    + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                    + "LEFT JOIN orders ord ON o.order_id = ord.order_id "
                    + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
+                   + "LEFT JOIN channels ch ON ord.channel_id = ch.channel_id "
+                   + "LEFT JOIN users p ON o.picked_by = p.user_id "
                    + "WHERE o.outbound_id = ?";
 
         try (Connection conn = DBConnection.getConnection();
@@ -89,11 +108,14 @@ public class OutboundDAO extends BaseDAO {
         List<OutboundOrder> list = new ArrayList<>();
         String sql = "SELECT o.outbound_id, o.outbound_code, o.order_id, o.warehouse_id, "
                    + "w.warehouse_name, o.status, o.note, o.created_at, o.picked_by, o.shipped_at, "
-                   + "ord.order_code, sd.shipping_address, sd.courier_name, sd.recipient_name "
+                   + "ord.order_code, ord.tracking_no, ord.is_label_printed, sd.shipping_address, sd.courier_name, sd.recipient_name, "
+                   + "ch.platform AS channel_name, p.full_name AS picker_name "
                    + "FROM outbound_orders o "
                    + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                    + "LEFT JOIN orders ord ON o.order_id = ord.order_id "
                    + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
+                   + "LEFT JOIN channels ch ON ord.channel_id = ch.channel_id "
+                   + "LEFT JOIN users p ON o.picked_by = p.user_id "
                    + "WHERE o.status = ? "
                    + "ORDER BY o.created_at DESC LIMIT 100";
 
@@ -121,11 +143,14 @@ public class OutboundDAO extends BaseDAO {
         List<OutboundOrder> list = new ArrayList<>();
         String sql = "SELECT o.outbound_id, o.outbound_code, o.order_id, o.warehouse_id, "
                    + "w.warehouse_name, o.status, o.note, o.created_at, o.picked_by, o.shipped_at, "
-                   + "ord.order_code, sd.shipping_address, sd.courier_name, sd.recipient_name "
+                   + "ord.order_code, ord.tracking_no, ord.is_label_printed, sd.shipping_address, sd.courier_name, sd.recipient_name, "
+                   + "ch.platform AS channel_name, p.full_name AS picker_name "
                    + "FROM outbound_orders o "
                    + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                    + "LEFT JOIN orders ord ON o.order_id = ord.order_id "
                    + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
+                   + "LEFT JOIN channels ch ON ord.channel_id = ch.channel_id "
+                   + "LEFT JOIN users p ON o.picked_by = p.user_id "
                    + "WHERE o.warehouse_id = ? "
                    + "ORDER BY o.created_at DESC LIMIT 100";
 
@@ -147,12 +172,30 @@ public class OutboundDAO extends BaseDAO {
     }
 
     /**
+     * Returns true if any non-cancelled outbound already exists for the given order.
+     * Used by autoCreateFromOrder to prevent duplicate outbound sheets on re-approve.
+     */
+    public boolean hasActiveOutboundForOrder(int orderId) {
+        String sql = "SELECT 1 FROM outbound_orders WHERE order_id = ? AND status != 'CANCELLED' LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "hasActiveOutboundForOrder failed orderId=" + orderId, e);
+            return false;
+        }
+    }
+
+    /**
      * Inserts a new outbound order and returns the generated outboundId.
      */
     public int insert(OutboundOrder order) {
         String sql = "INSERT INTO outbound_orders "
-                   + "(outbound_code, order_id, warehouse_id, status, note, created_at, picked_by, shipped_at) "
-                   + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                   + "(outbound_code, order_id, warehouse_id, created_by, status, note, created_at, picked_by, shipped_at) "
+                   + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -160,15 +203,20 @@ public class OutboundDAO extends BaseDAO {
             ps.setString(1, order.getOutboundCode());
             ps.setInt(2, order.getOrderId());
             ps.setInt(3, order.getWarehouseId());
-            ps.setString(4, order.getStatus() != null ? order.getStatus() : OutboundOrder.STATUS_PENDING);
-            ps.setString(5, order.getNotes());
-            ps.setTimestamp(6, order.getCreatedAt() != null ? Timestamp.valueOf(order.getCreatedAt()) : new Timestamp(System.currentTimeMillis()));
-            if (order.getPickedBy() != null) {
-                ps.setInt(7, order.getPickedBy());
+            if (order.getCreatedBy() != null) {
+                ps.setInt(4, order.getCreatedBy());
             } else {
-                ps.setNull(7, java.sql.Types.INTEGER);
+                ps.setNull(4, java.sql.Types.INTEGER);
             }
-            ps.setTimestamp(8, order.getPickedAt() != null ? Timestamp.valueOf(order.getPickedAt()) : null);
+            ps.setString(5, order.getStatus() != null ? order.getStatus() : OutboundOrder.STATUS_PENDING);
+            ps.setString(6, order.getNotes());
+            ps.setTimestamp(7, order.getCreatedAt() != null ? Timestamp.valueOf(order.getCreatedAt()) : new Timestamp(System.currentTimeMillis()));
+            if (order.getPickedBy() != null) {
+                ps.setInt(8, order.getPickedBy());
+            } else {
+                ps.setNull(8, java.sql.Types.INTEGER);
+            }
+            ps.setTimestamp(9, order.getPickedAt() != null ? Timestamp.valueOf(order.getPickedAt()) : null);
 
             int rows = ps.executeUpdate();
             if (rows > 0) {
@@ -362,6 +410,27 @@ public class OutboundDAO extends BaseDAO {
             o.setRecipientName(rs.getString("recipient_name"));
         } catch (SQLException e) { /* ignore */ }
 
+        try {
+            o.setTrackingNo(rs.getString("tracking_no"));
+        } catch (SQLException e) { /* ignore */ }
+
+        try {
+            o.setLabelPrinted(rs.getInt("is_label_printed") == 1);
+        } catch (SQLException e) { /* ignore */ }
+
+        try {
+            o.setChannelName(rs.getString("channel_name"));
+        } catch (SQLException e) { /* ignore */ }
+
+        String pickerName = null;
+        try {
+            pickerName = rs.getString("picker_name");
+        } catch (SQLException e) { /* ignore */ }
+        if (pickerName == null || pickerName.trim().isEmpty()) {
+            pickerName = getPrimaryWarehouseStaffName(o.getWarehouseId());
+        }
+        o.setPickerName(pickerName);
+
         return o;
     }
 
@@ -491,21 +560,75 @@ public class OutboundDAO extends BaseDAO {
      */
     public List<OutboundOrder> findByWarehouseAndStatus(int warehouseId, String status) {
         List<OutboundOrder> list = new ArrayList<>();
-        String sql = "SELECT outbound_id, outbound_code, order_id, warehouse_id, status, note, "
-                   + "created_at, picked_by, shipped_at "
-                   + "FROM outbound_orders WHERE warehouse_id = ? AND status = ? "
-                   + "ORDER BY created_at DESC LIMIT 100";
+        String sql = "SELECT o.outbound_id, o.outbound_code, o.order_id, o.warehouse_id, "
+                   + "w.warehouse_name, o.status, o.note, o.created_at, o.picked_by, o.shipped_at, "
+                   + "ord.order_code, ord.tracking_no, ord.is_label_printed, sd.shipping_address, sd.courier_name, sd.recipient_name, "
+                   + "ch.platform AS channel_name, p.full_name AS picker_name "
+                   + "FROM outbound_orders o "
+                   + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
+                   + "LEFT JOIN orders ord ON o.order_id = ord.order_id "
+                   + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
+                   + "LEFT JOIN channels ch ON ord.channel_id = ch.channel_id "
+                   + "LEFT JOIN users p ON o.picked_by = p.user_id "
+                   + "WHERE o.warehouse_id = ? AND o.status = ? "
+                   + "ORDER BY o.created_at DESC LIMIT 100";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, warehouseId);
             ps.setString(2, status);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) list.add(mapRow(rs));
+                while (rs.next()) {
+                    OutboundOrder order = mapRow(rs);
+                    order.setItems(findItemsByOutboundId(order.getOutboundId()));
+                    list.add(order);
+                }
             }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "OutboundDAO: Failed to find by warehouse=" + warehouseId + " status=" + status, e);
         }
         return list;
+    }
+
+    /**
+     * Cancels all pending outbound orders for a given order code (legacy string).
+     * Looks up the numeric order_id from orders table first.
+     */
+    public int cancelByOrderId(String orderCode) {
+        // First find the numeric order_id
+        int numericOrderId = -1;
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT order_id FROM orders WHERE order_code = ?")) {
+            ps.setString(1, orderCode);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    numericOrderId = rs.getInt("order_id");
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "cancelByOrderId: failed to find order_id for " + orderCode, e);
+            return 0;
+        }
+
+        if (numericOrderId <= 0) {
+            LOGGER.warning("cancelByOrderId: order not found for code: " + orderCode);
+            return 0;
+        }
+
+        String sql = "UPDATE outbound_orders SET status = 'CANCELLED', note = CONCAT(COALESCE(note, ''), ' [Hủy theo đơn hàng gốc]') "
+                   + "WHERE order_id = ? AND status NOT IN ('CANCELLED', 'DELIVERED')";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, numericOrderId);
+            int updated = ps.executeUpdate();
+            if (updated > 0) {
+                LOGGER.info("Cancelled " + updated + " outbound order(s) for orderCode: " + orderCode + " (orderId: " + numericOrderId + ")");
+            }
+            return updated;
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "cancelByOrderId failed: " + orderCode, e);
+            return 0;
+        }
     }
 }

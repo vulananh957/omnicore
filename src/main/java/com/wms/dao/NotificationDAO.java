@@ -105,7 +105,7 @@ public class NotificationDAO extends BaseDAO {
         );
         List<Object> params = new ArrayList<>();
         params.add(recipientRole);
-        params.add(warehouseId != null ? warehouseId : java.sql.Types.INTEGER);
+        params.add(warehouseId);
         params.add(tmpl.getNotificationType());
         params.add(tmpl.getTitle());
         params.add(tmpl.getMessage());
@@ -123,7 +123,12 @@ public class NotificationDAO extends BaseDAO {
             if (conn == null) return 0;
             try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
                 for (int i = 0; i < params.size(); i++) {
-                    ps.setObject(i + 1, params.get(i));
+                    Object val = params.get(i);
+                    if (val == null) {
+                        ps.setNull(i + 1, java.sql.Types.NULL);
+                    } else {
+                        ps.setObject(i + 1, val);
+                    }
                 }
                 return ps.executeUpdate();
             }
@@ -222,13 +227,16 @@ public class NotificationDAO extends BaseDAO {
             "  AND n.recipient_role = ? " +
             "  AND n.is_read = 0 " +
             "  AND (n.warehouse_id = ? OR n.warehouse_id IS NULL)";
-        try {
-            Connection conn = openConnection(LOGGER);
+        try (Connection conn = openConnection(LOGGER)) {
             if (conn == null) return 0;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, userId);
                 ps.setString(2, role);
-                ps.setInt(3, warehouseId != null ? warehouseId : 0);
+                if (warehouseId != null) {
+                    ps.setInt(3, warehouseId);
+                } else {
+                    ps.setNull(3, java.sql.Types.INTEGER);
+                }
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) return rs.getInt(1);
                 }
@@ -246,6 +254,21 @@ public class NotificationDAO extends BaseDAO {
      */
     public boolean markAsRead(long notificationId) {
         return update(LOGGER, MARK_READ, notificationId) >= 0;
+    }
+
+    /**
+     * Claims a broadcast notification (recipient_user_id = 0) for a specific user,
+     * then marks it as read. This ensures that when other sessions/reloads query
+     * for unread notifications, the notification is correctly shown as read for
+     * this user only — without affecting other users' broadcast copies.
+     */
+    public boolean claimAndMarkRead(long notificationId, int userId, String role) {
+        String claimSql =
+            "UPDATE notifications " +
+            "SET recipient_user_id = ?, is_read = 1, read_at = NOW() " +
+            "WHERE id = ? AND recipient_user_id = 0 AND recipient_role = ? AND is_read = 0";
+        int affected = update(LOGGER, claimSql, userId, notificationId, role);
+        return affected >= 0;
     }
 
     /**

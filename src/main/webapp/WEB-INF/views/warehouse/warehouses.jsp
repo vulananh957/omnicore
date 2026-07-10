@@ -131,10 +131,6 @@
                     <label class="form-label" for="whCode">Mã kho *</label>
                     <input class="form-input" type="text" id="whCode" placeholder="VD: WH-HCM-01"/>
                 </div>
-                <div class="form-group">
-                    <label class="form-label" for="whPhone">Số điện thoại *</label>
-                    <input class="form-input" type="text" id="whPhone" placeholder="VD: 028 3823 4567"/>
-                </div>
             </div>
 
             <div class="form-group">
@@ -280,7 +276,6 @@
         var toggleIcon = document.getElementById('toggleIcon');
         var statusTextIndicator = document.getElementById('statusTextIndicator');
         var whCode = document.getElementById('whCode');
-        var whPhone = document.getElementById('whPhone');
         var whName = document.getElementById('whName');
         var whAddress = document.getElementById('whAddress');
         
@@ -331,7 +326,7 @@
         });
 
         // Form Validation triggers
-        var formFields = [whCode, whPhone, whName, whAddress];
+        var formFields = [whCode, whName, whAddress];
         formFields.forEach(function(field) {
             field.addEventListener('input', validateForm);
         });
@@ -395,14 +390,12 @@
             });
         }
 
-        // Form fields validator
         function validateForm() {
             var codeVal = whCode.value.trim();
-            var phoneVal = whPhone.value.trim();
             var nameVal = whName.value.trim();
             var addressVal = whAddress.value.trim();
 
-            var isValid = codeVal && phoneVal && nameVal && addressVal;
+            var isValid = codeVal && nameVal && addressVal;
             btnModalSave.disabled = !isValid;
         }
 
@@ -414,7 +407,6 @@
                 modalTitleText.textContent = "Sửa thông tin kho chi nhánh";
                 
                 whCode.value = warehouse.code;
-                whPhone.value = warehouse.phone;
                 whName.value = warehouse.name;
                 whAddress.value = warehouse.address;
 
@@ -442,7 +434,6 @@
                 modalTitleText.textContent = "Thêm kho mới (Chi nhánh vật lý)";
 
                 whCode.value = "";
-                whPhone.value = "";
                 whName.value = "";
                 whAddress.value = "";
 
@@ -468,7 +459,6 @@
         // Save Modal Form
         function saveForm() {
             var codeVal = whCode.value.trim().toUpperCase();
-            var phoneVal = whPhone.value.trim();
             var nameVal = whName.value.trim();
             var addressVal = whAddress.value.trim();
 
@@ -538,7 +528,6 @@
             var payload = {
                 id: editingWarehouseId ? parseInt(editingWarehouseId) : 0,
                 code: codeVal,
-                phone: phoneVal,
                 name: nameVal,
                 address: addressVal,
                 status: currentFormStatus,

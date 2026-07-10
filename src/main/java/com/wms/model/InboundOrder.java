@@ -12,19 +12,40 @@ import java.util.List;
 public class InboundOrder {
 
     public static final String STATUS_PENDING    = "PENDING";
+    public static final String STATUS_PURCHASED  = "PURCHASED";
     public static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
     public static final String STATUS_CONFIRMED  = "CONFIRMED";
     public static final String STATUS_RECEIVED   = "RECEIVED";
     public static final String STATUS_CANCELLED  = "CANCELLED";
 
+    /**
+     * Workflow: PENDING → PURCHASED → IN_PROGRESS → RECEIVED.
+     * - PENDING: phiếu mua hàng vừa tạo (chưa đặt mua).
+     * - PURCHASED: đã mua hàng từ NCC, sẵn sàng để nhập kho.
+     * - IN_PROGRESS: đang trong quá trình nhập kho (chưa hoàn tất).
+     * - RECEIVED: đã nhập kho xong.
+     * - CANCELLED: huỷ phiếu.
+     */
+
     private int inboundId;
     private String inboundCode;
     private String supplierName;
+    private Integer supplierId;       // FK -> suppliers.supplier_id (NULL nếu PO cũ chưa liên kết)
+    private String supplierCode;      // NCC-YYMM-NNN từ suppliers
+    private String supplierContact;   // Người liên hệ từ suppliers
+    private String supplierPhone;     // SĐT từ suppliers
+    private String supplierAddress;   // Địa chỉ từ suppliers
+    private String supplierEmail;     // Email từ suppliers
+    private String paymentTerms;      // Kỳ hạn thanh toán
     private int warehouseId;
     private String warehouseName;
+    private Integer zoneId;           // Khu vực nhận hàng trong kho (zones.zone_id)
+    private String zoneName;          // Tên zone
     private String status;
     private LocalDate expectedDate;
     private LocalDate receivedDate;
+    private String deliveryPerson;    // Tên người giao hàng / tài xế
+    private String deliveryPhone;     // SĐT người giao hàng
     private int createdBy;
     private String notes;
     private LocalDateTime createdAt;
@@ -85,6 +106,62 @@ public class InboundOrder {
         this.supplierName = supplierName;
     }
 
+    public Integer getSupplierId() {
+        return supplierId;
+    }
+
+    public void setSupplierId(Integer supplierId) {
+        this.supplierId = supplierId;
+    }
+
+    public String getSupplierCode() {
+        return supplierCode;
+    }
+
+    public void setSupplierCode(String supplierCode) {
+        this.supplierCode = supplierCode;
+    }
+
+    public String getSupplierContact() {
+        return supplierContact;
+    }
+
+    public void setSupplierContact(String supplierContact) {
+        this.supplierContact = supplierContact;
+    }
+
+    public String getSupplierPhone() {
+        return supplierPhone;
+    }
+
+    public void setSupplierPhone(String supplierPhone) {
+        this.supplierPhone = supplierPhone;
+    }
+
+    public String getSupplierAddress() {
+        return supplierAddress;
+    }
+
+    public void setSupplierAddress(String supplierAddress) {
+        this.supplierAddress = supplierAddress;
+    }
+
+    public String getSupplierEmail() {
+        return supplierEmail;
+    }
+
+    public void setSupplierEmail(String supplierEmail) {
+        this.supplierEmail = supplierEmail;
+    }
+
+    public String getPaymentTerms() {
+        return paymentTerms;
+    }
+
+    public void setPaymentTerms(String paymentTerms) {
+        this.paymentTerms = paymentTerms;
+    }
+
     public int getWarehouseId() {
         return warehouseId;
     }
@@ -99,6 +176,22 @@ public class InboundOrder {
 
     public void setWarehouseName(String warehouseName) {
         this.warehouseName = warehouseName;
+    }
+
+    public Integer getZoneId() {
+        return zoneId;
+    }
+
+    public void setZoneId(Integer zoneId) {
+        this.zoneId = zoneId;
+    }
+
+    public String getZoneName() {
+        return zoneName;
+    }
+
+    public void setZoneName(String zoneName) {
+        this.zoneName = zoneName;
     }
 
     public String getStatus() {
@@ -131,6 +224,22 @@ public class InboundOrder {
 
     public void setCreatedBy(int createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getDeliveryPerson() {
+        return deliveryPerson;
+    }
+
+    public void setDeliveryPerson(String deliveryPerson) {
+        this.deliveryPerson = deliveryPerson;
+    }
+
+    public String getDeliveryPhone() {
+        return deliveryPhone;
+    }
+
+    public void setDeliveryPhone(String deliveryPhone) {
+        this.deliveryPhone = deliveryPhone;
     }
 
     public String getNotes() {
@@ -169,8 +278,10 @@ public class InboundOrder {
               .append(",\"receivedQty\":").append(it.getReceivedQty())
               .append(",\"acceptedQty\":").append(it.getAcceptedQty() != null ? it.getAcceptedQty() : 0)
               .append(",\"rejectedQty\":").append(it.getRejectedQty() != null ? it.getRejectedQty() : 0)
-              .append(",\"price\":").append(it.getUnitCost() != null ? it.getUnitCost() : 0)
-              .append("}");
+              .append(",\"rejectReason\":\"").append(escapeJson(it.getRejectReason() != null ? it.getRejectReason() : ""))
+              .append("\",\"price\":").append(it.getUnitCost() != null ? it.getUnitCost() : 0)
+              .append(",\"note\":\"").append(escapeJson(it.getNote() != null ? it.getNote() : ""))
+              .append("\"}");
         }
         sb.append("]");
         return sb.toString();

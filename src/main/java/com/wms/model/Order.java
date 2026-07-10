@@ -26,6 +26,7 @@ public class Order {
 
     // Custom WMS fields
     private String trackingNo;
+    private String shipmentProvider;
     private String reviewNote;
     private String rmaReason;
     private String rmaPhysicalStatus;
@@ -51,6 +52,8 @@ public class Order {
     private boolean packRequested;
     // True after a successful /order/package/rts call.
     private boolean rtsPushed;
+    // True after the Lazada AWB label PDF has been fetched and sent to the printer.
+    private boolean labelPrinted;
 
     // Constructors
     public Order() {}
@@ -184,6 +187,14 @@ public class Order {
         this.trackingNo = trackingNo;
     }
 
+    public String getShipmentProvider() {
+        return shipmentProvider;
+    }
+
+    public void setShipmentProvider(String shipmentProvider) {
+        this.shipmentProvider = shipmentProvider;
+    }
+
     public String getReviewNote() {
         return reviewNote;
     }
@@ -243,6 +254,9 @@ public class Order {
 
     public boolean isRtsPushed() { return rtsPushed; }
     public void setRtsPushed(boolean rtsPushed) { this.rtsPushed = rtsPushed; }
+
+    public boolean isLabelPrinted() { return labelPrinted; }
+    public void setLabelPrinted(boolean labelPrinted) { this.labelPrinted = labelPrinted; }
 
     public String getCustomerName() {
         return customerName;

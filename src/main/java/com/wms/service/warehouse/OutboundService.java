@@ -4,8 +4,10 @@ import com.wms.dao.InventoryDAO;
 import com.wms.dao.OutboundDAO;
 import com.wms.dao.OrderDAO;
 import com.wms.dao.ProductDAO;
+import com.wms.dao.UserDAO;
 import com.wms.dao.WarehouseIssueDAO;
 import com.wms.model.Product;
+import com.wms.model.User;
 import com.wms.model.Order;
 import com.wms.model.OutboundOrder;
 import com.wms.model.OutboundItem;
@@ -33,6 +35,7 @@ public class OutboundService {
     private final InventoryDAO inventoryDAO = new InventoryDAO();
     private final ProductDAO productDAO = new ProductDAO();
     private final WarehouseIssueDAO warehouseIssueDAO = new WarehouseIssueDAO();
+    private final UserDAO userDAO = new UserDAO();
 
     public List<OutboundOrder> findAll() {
         return outboundDAO.findAll();
@@ -44,12 +47,67 @@ public class OutboundService {
 
     /** Outbound orders for one warehouse (warehouse-scoped list). */
     public List<OutboundOrder> findByWarehouse(int warehouseId) {
-        return outboundDAO.findByWarehouse(warehouseId);
+        List<OutboundOrder> list = outboundDAO.findByWarehouse(warehouseId);
+        syncOutboundStatuses(list);
+        return list;
     }
 
     /** Outbound orders for one warehouse filtered by status. */
     public List<OutboundOrder> findByWarehouseAndStatus(int warehouseId, String status) {
-        return outboundDAO.findByWarehouseAndStatus(warehouseId, status.trim().toUpperCase());
+        List<OutboundOrder> list = outboundDAO.findByWarehouseAndStatus(warehouseId, status.trim().toUpperCase());
+        syncOutboundStatuses(list);
+        return list;
+    }
+
+    private void syncOutboundStatuses(List<OutboundOrder> list) {
+        if (list == null || list.isEmpty()) return;
+        for (OutboundOrder oo : list) {
+            String code = oo.getOrderCode();
+            if (code != null && !code.trim().isEmpty()) {
+                try {
+                    Order order = orderDAO.findByOrderCode(code);
+                    if (order != null) {
+                        String orderStatus = order.getStatus();
+                        if (orderStatus != null) {
+                            String normalized = orderStatus.trim().toUpperCase();
+                            String currentOutboundStatus = oo.getStatus();
+                            
+                            // Check if status needs update
+                            String targetStatus = null;
+                            if ("CANCELLED".equals(normalized) || "CANCELED".equals(normalized)) {
+                                if (!"CANCELLED".equals(currentOutboundStatus)) {
+                                    targetStatus = "CANCELLED";
+                                }
+                            } else if ("PACKED".equals(normalized)) {
+                                if (!"PACKED".equals(currentOutboundStatus) && !"SHIPPED".equals(currentOutboundStatus) && !"DELIVERED".equals(currentOutboundStatus)) {
+                                    targetStatus = "PACKED";
+                                }
+                            } else if ("SHIPPED".equals(normalized) || "DELIVERED".equals(normalized) || "COMPLETED".equals(normalized) || "HANDED_OVER".equals(normalized)) {
+                                if (!"SHIPPED".equals(currentOutboundStatus) && !"DELIVERED".equals(currentOutboundStatus)) {
+                                    targetStatus = "SHIPPED";
+                                }
+                            }
+                            
+                            if (targetStatus != null) {
+                                log.info("syncOutboundStatuses: Syncing status of outboundId={} to {} to match order status={}", 
+                                    oo.getOutboundId(), targetStatus, normalized);
+                                outboundDAO.updateStatus(oo.getOutboundId(), targetStatus);
+                                oo.setStatus(targetStatus); // update local object too
+                                
+                                // Additional lifecycle updates if transitioning to PACKED
+                                if ("PACKED".equals(targetStatus)) {
+                                    outboundDAO.markAllPicked(oo.getOutboundId());
+                                    outboundDAO.completePickingSheet(oo.getOutboundId());
+                                    outboundDAO.createShippingLabel(oo.getOutboundId());
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("syncOutboundStatuses failed for outboundId=" + oo.getOutboundId(), e);
+                }
+            }
+        }
     }
 
     public OutboundOrder findById(int outboundId) {
@@ -72,12 +130,13 @@ public class OutboundService {
         return ValidationResult.success();
     }
 
-    public int createOutbound(int orderId, int warehouseId, String notes) {
+    public int createOutbound(int orderId, int warehouseId, String notes, Integer userId) {
         String outboundCode = generateOutboundCode();
         OutboundOrder order = new OutboundOrder();
         order.setOutboundCode(outboundCode);
         order.setOrderId(orderId);
         order.setWarehouseId(warehouseId);
+        order.setCreatedBy(userId);
         order.setStatus(OutboundOrder.STATUS_PENDING);
         order.setNotes(notes != null ? notes.trim() : null);
         order.setCreatedAt(LocalDateTime.now());
@@ -123,6 +182,21 @@ public class OutboundService {
             return StatusUpdateResult.failure("Trạng thái '" + newStatus + "' không hợp lệ hoặc không thể chuyển đổi.");
         }
 
+        String normalized = newStatus.trim().toUpperCase();
+        if ("PACKED".equals(normalized) || "SHIPPED".equals(normalized)) {
+            OutboundOrder outbound = outboundDAO.findById(outboundId);
+            if (outbound != null && outbound.getOrderCode() != null) {
+                Order order = orderDAO.findByOrderCode(outbound.getOrderCode());
+                if (order != null && ("LAZADA".equalsIgnoreCase(order.getChannel())
+                        || "SHOPEE".equalsIgnoreCase(order.getChannel())
+                        || "TIKTOK".equalsIgnoreCase(order.getChannel()))) {
+                    if (order.getTrackingNo() == null || order.getTrackingNo().trim().isEmpty()) {
+                        return StatusUpdateResult.failure("Không thể đóng gói/xuất kho: Đơn hàng trên sàn chưa được cấp mã vận đơn (tracking). Vui lòng cấp mã vận đơn trước.");
+                    }
+                }
+            }
+        }
+
         if ("SHIPPED".equalsIgnoreCase(newStatus)) {
             if (isOmnichannelOutbound(outboundId)) {
                 OutboundOrder order = outboundDAO.findById(outboundId);
@@ -153,7 +227,7 @@ public class OutboundService {
             }
         }
 
-        String normalized = newStatus.trim().toUpperCase();
+        normalized = newStatus.trim().toUpperCase();
         boolean updated = outboundDAO.updateStatus(outboundId, normalized);
         if (!updated) {
             log.error("Outbound status update failed: DAO returned false outboundId={} status={}", outboundId, newStatus);
@@ -168,19 +242,30 @@ public class OutboundService {
             outboundDAO.markAllPicked(outboundId);
             outboundDAO.completePickingSheet(outboundId);
             outboundDAO.createShippingLabel(outboundId);
+            // Sync sales order status to PACKED
+            OutboundOrder order = outboundDAO.findById(outboundId);
+            if (order != null && order.getOrderCode() != null) {
+                new com.wms.dao.OrderDAO().updateOrderStatus(order.getOrderCode(), "PACKED");
+            }
         } else if (OutboundOrder.STATUS_SHIPPED.equals(normalized)) {
             // On SHIPPED, deduct actual on-hand stock.
             // Previously only the status was updated, so on_hand stayed inflated.
             OutboundOrder order = outboundDAO.findById(outboundId);
-            if (order != null && order.getItems() != null) {
-                for (OutboundItem item : order.getItems()) {
-                    java.math.BigDecimal qty = item.getQty();
-                    if (qty != null && qty.compareTo(java.math.BigDecimal.ZERO) > 0) {
-                        boolean ok = inventoryDAO.deductShippedInventory(
-                            item.getProductId(), order.getWarehouseId(), qty);
-                        if (!ok) {
-                            log.warn("SHIPPED: deduct thất bại cho productId={} qty={} (tồn không đủ)",
-                                item.getProductId(), qty);
+            if (order != null) {
+                // Sync sales order status to SHIPPED
+                if (order.getOrderCode() != null) {
+                    new com.wms.dao.OrderDAO().updateOrderStatus(order.getOrderCode(), "SHIPPED");
+                }
+                if (order.getItems() != null) {
+                    for (OutboundItem item : order.getItems()) {
+                        java.math.BigDecimal qty = item.getQty();
+                        if (qty != null && qty.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                            boolean ok = inventoryDAO.deductShippedInventory(
+                                item.getProductId(), order.getWarehouseId(), qty);
+                            if (!ok) {
+                                log.warn("SHIPPED: deduct thất bại cho productId={} qty={} (tồn không đủ)",
+                                    item.getProductId(), qty);
+                            }
                         }
                     }
                 }
@@ -207,7 +292,6 @@ public class OutboundService {
                     String channelName = rs.getString("channel_name");
                     String rawChannel = rs.getString("channel");
                     String note = rs.getString("note");
-                    String trackingNo = rs.getString("tracking_no");
 
                     if (channelName == null) {
                         channelName = "Khách mua lẻ";
@@ -290,13 +374,51 @@ public class OutboundService {
 
     /**
      * Auto-creates an outbound order from an approved sales order.
-     * Called by OrderService when a sales order is approved.
      * Also soft-allocates inventory for each order item.
+     *
+     * @param orderCode    mã đơn hàng sales
+     * @param warehouseId  kho nhận xử lý
+     * @param userId       userId của người thao tác (từ session)
+     * @param userRole     role của người thao tác ("SALES_STAFF" | "WAREHOUSE_STAFF" | ...)
      */
-    public void autoCreateFromOrder(String orderCode, int warehouseId, int userId) {
+    public void autoCreateFromOrder(String orderCode, int warehouseId, int userId, String userRole) {
         Order order = orderDAO.findByOrderCode(orderCode);
         if (order == null) {
             log.warn("autoCreateFromOrder: order not found orderCode={}", orderCode);
+            return;
+        }
+
+        // Xác định ai là người tạo phiếu xuất:
+        //   - WAREHOUSE_STAFF thao tác trực tiếp → dùng chính họ
+        //   - SALES_STAFF (hoặc role khác) approve đơn → giao cho warehouse staff của kho
+        int resolvedUserId;
+        if ("WAREHOUSE_STAFF".equals(userRole) && userId > 0 && userId != 1) {
+            resolvedUserId = userId;
+            log.info("autoCreateFromOrder: warehouse staff direct action userId={}", resolvedUserId);
+        } else {
+            try {
+                User whStaff = userDAO.findPrimaryWarehouseStaff(warehouseId);
+                if (whStaff != null) {
+                    resolvedUserId = whStaff.getUserId();
+                    log.info("autoCreateFromOrder: resolved warehouse staff userId={} for warehouseId={} (role={})",
+                            resolvedUserId, warehouseId, userRole);
+                } else {
+                    resolvedUserId = (userId > 0 && userId != 1) ? userId : 1;
+                    log.warn("autoCreateFromOrder: no warehouse staff for warehouseId={}, fallback userId={}",
+                            warehouseId, resolvedUserId);
+                }
+            } catch (Exception ex) {
+                resolvedUserId = (userId > 0 && userId != 1) ? userId : 1;
+                log.error("autoCreateFromOrder: failed to resolve warehouse staff for warehouseId={}", warehouseId, ex);
+            }
+        }
+
+        // Idempotency guard: skip if a non-cancelled outbound already exists for this order.
+        // Prevents duplicate outbound sheets when Sales Staff approves the same order more than once
+        // (e.g. due to a UI bug that kept showing it as pending after the first approval).
+        if (outboundDAO.hasActiveOutboundForOrder(order.getOrderId())) {
+            log.warn("autoCreateFromOrder: skipped — active outbound already exists for orderCode={} orderId={}",
+                    orderCode, order.getOrderId());
             return;
         }
 
@@ -308,6 +430,7 @@ public class OutboundService {
         outbound.setNotes("Tạo tự động từ đơn hàng " + orderCode);
         outbound.setCreatedAt(java.time.LocalDateTime.now());
 
+        outbound.setCreatedBy(resolvedUserId);
         int outboundId = outboundDAO.insert(outbound);
         if (outboundId <= 0) {
             log.error("autoCreateFromOrder: failed to insert outbound for orderCode={}", orderCode);
@@ -393,5 +516,34 @@ public class OutboundService {
 
         public boolean isSuccess() { return success; }
         public String getMessage() { return message; }
+    }
+
+    /**
+     * Releases inventory allocations for a cancelled outbound order.
+     * This restores the temporarily held stock back to available inventory.
+     */
+    public boolean releaseAllocationsForOutbound(int outboundId) {
+        try {
+            OutboundOrder outbound = outboundDAO.findById(outboundId);
+            if (outbound == null) {
+                log.warn("releaseAllocationsForOutbound: outbound not found: {}", outboundId);
+                return false;
+            }
+
+            List<OutboundItem> items = outboundDAO.findItemsByOutboundId(outboundId);
+            for (OutboundItem item : items) {
+                // Release the full allocated quantity (not just picked qty)
+                double qtyToRelease = item.getQty().doubleValue();
+                if (qtyToRelease > 0) {
+                    inventoryDAO.releaseSoftAllocateInventory(item.getProductId(), outbound.getWarehouseId(), java.math.BigDecimal.valueOf(qtyToRelease));
+                    log.info("Released {} units of product {} from warehouse {} for cancelled outbound {}",
+                            qtyToRelease, item.getProductId(), outbound.getWarehouseId(), outboundId);
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            log.error("releaseAllocationsForOutbound failed for outbound {}: {}", outboundId, e.getMessage(), e);
+            return false;
+        }
     }
 }

@@ -3,13 +3,8 @@ package com.wms.service.product;
 import com.wms.dao.CategoryDAO;
 import com.wms.dao.ProductDAO;
 import com.wms.model.Category;
-import com.wms.model.Product;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -27,8 +22,6 @@ import java.util.regex.Pattern;
  */
 public class SkuGeneratorService {
 
-    private static final Logger log = LoggerFactory.getLogger(SkuGeneratorService.class);
-    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Pattern CODE_PATTERN = Pattern.compile("^[A-Z0-9]{3,4}$");
 
     private final CategoryDAO categoryDAO = new CategoryDAO();

@@ -1,13 +1,12 @@
 package com.wms.controller.warehouse;
 
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.wms.controller.BaseController;
 import com.wms.model.Product;
 import com.wms.model.User;
 import com.wms.service.product.ProductService;
 import com.wms.service.warehouse.WarehouseService;
-import com.wms.service.NotificationService;
+import com.wms.service.warehouse.InventoryCheckService;
+import com.wms.service.common.NotificationService;
 import com.wms.util.AppConstants;
 
 import jakarta.servlet.ServletException;
@@ -17,9 +16,7 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,6 +34,7 @@ public class WarehouseInventoryCheckServlet extends BaseController {
     private static final Logger LOGGER = Logger.getLogger(WarehouseInventoryCheckServlet.class.getName());
     private final ProductService productService = new ProductService();
     private final WarehouseService warehouseService = new WarehouseService();
+    private final InventoryCheckService inventoryCheckService = new InventoryCheckService();
     private final NotificationService notificationService = new NotificationService();
 
     @Override
@@ -238,15 +236,8 @@ public class WarehouseInventoryCheckServlet extends BaseController {
         resultsJson = com.wms.util.JsonUtil.toJson(updatedList);
         
         warehouseService.submitInventoryCheckResults(checkId, resultsJson);
-        // Notify managers: inventory check submitted — pending approval
-        String whName;
-        try {
-            com.wms.model.Warehouse wh = warehouseService.findById(myWarehouseId);
-            whName = wh != null ? wh.getWarehouseName() : String.valueOf(myWarehouseId);
-        } catch (Exception e) {
-            whName = String.valueOf(myWarehouseId);
-        }
-        notificationService.notifyInventoryCheckPending(myWarehouseId, whName, checkId, check.getCheckCode());
+        // Approve + notify via service (Controller → Service → DAO, never call DAO directly)
+        inventoryCheckService.approveInventoryAdjustments(check, userId);
     }
 
     private void handleAdjust(java.util.Map<String, Object> payload, int userId, int myWarehouseId) throws Exception {

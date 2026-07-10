@@ -2,17 +2,16 @@ package com.wms.service.lazada;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.wms.dao.ChannelDAO;
-import com.wms.dao.OrderDAO;
 import com.wms.model.Channel;
-import com.wms.model.Order;
 import com.wms.service.channel.ChannelGateway;
 import com.wms.service.channel.ChannelRegistry;
 import com.wms.service.channel.ChannelSyncAudit;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -43,8 +42,6 @@ public class LazadaReverseService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ChannelGateway gateway;
-    private final ChannelDAO channelDAO = new ChannelDAO();
-    private final OrderDAO orderDAO = new OrderDAO();
 
     public LazadaReverseService() {
         this.gateway = ChannelRegistry.get("Lazada");
@@ -85,7 +82,7 @@ public class LazadaReverseService {
     }
 
     private boolean persistOne(Channel ch, JsonNode rev) {
-        String reverseId = rev.path("reverse_order_id").asText("");
+        String reverseId = rev.path("reverse_order_id").isMissingNode() ? "" : rev.path("reverse_order_id").asText();
         if (reverseId.isEmpty()) return false;
         String sql = "INSERT INTO lazada_reverse_orders "
                 + "(channel_id, lazada_reverse_order_id, lazada_order_id, return_type, "
@@ -101,11 +98,11 @@ public class LazadaReverseService {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, ch.getChannelId());
             ps.setString(2, reverseId);
-            ps.setString(3, rev.path("order_id").asText(""));
-            ps.setString(4, rev.path("return_type").asText(""));
-            ps.setString(5, rev.path("status").asText(""));
-            ps.setString(6, rev.path("reason").asText(""));
-            ps.setString(7, rev.path("tracking_number").asText(""));
+            ps.setString(3, rev.path("order_id").isMissingNode() ? "" : rev.path("order_id").asText());
+            ps.setString(4, rev.path("return_type").isMissingNode() ? "" : rev.path("return_type").asText());
+            ps.setString(5, rev.path("status").isMissingNode() ? "" : rev.path("status").asText());
+            ps.setString(6, rev.path("reason").isMissingNode() ? "" : rev.path("reason").asText());
+            ps.setString(7, rev.path("tracking_number").isMissingNode() ? "" : rev.path("tracking_number").asText());
             ps.setString(8, rev.toString());
             return ps.executeUpdate() > 0;
         } catch (Exception e) {
@@ -150,9 +147,10 @@ public class LazadaReverseService {
                     reverseOrderId, 200, "action=" + action, response, dt);
 
             JsonNode root = MAPPER.readTree(response);
-            String code = root.path("code").asText("0");
-            if (!"0".equals(code)) {
-                String msg = root.path("message").asText("Lazada rejected the RMA update");
+            String code = root.path("code").isMissingNode() ? "" : root.path("code").asText();
+            if (!"0".equals(code) && !code.isEmpty()) {
+                String msg = root.path("message").isMissingNode() ? "" : root.path("message").asText();
+                if (msg.isEmpty()) msg = "Lazada rejected the RMA update";
                 return DisputeResult.fail(msg);
             }
             // Update local state to reflect the dispute action
@@ -160,7 +158,6 @@ public class LazadaReverseService {
             updateQcStatus(channel.getChannelId(), reverseOrderId, qcStatus, action);
             return DisputeResult.ok();
         } catch (Exception e) {
-            long dt = System.currentTimeMillis() - t0;
             ChannelSyncAudit.logFailure(channel.getChannelId(), "RMA_UPDATE",
                     reverseOrderId, 500, "action=" + action, e.getMessage());
             return DisputeResult.fail(e.getMessage());
@@ -184,6 +181,79 @@ public class LazadaReverseService {
         }
     }
 
+    // ── Cancel Order ─────────────────────────────────────────────
+
+    /**
+     * Step 1 — calls GET /order/reverse/cancel/validate to check if the order
+     * can be cancelled and receive the available reason options.
+     *
+     * @param orderItemIdList JSON array string of order_item_ids, e.g. ["100827","..."]
+     * @return CancelValidateResult with success flag, reason_options list, and tip
+     */
+    public CancelValidateResult cancelValidate(Channel channel, String orderId, String orderItemIdList) {
+        if (gateway == null) return CancelValidateResult.fail("No gateway");
+        try {
+            String response = gateway.cancelValidate(channel, orderId, orderItemIdList);
+            JsonNode root = MAPPER.readTree(response);
+            String code = root.path("code").asText();
+            String message = root.path("message").asText();
+
+            if (!"0".equals(code) && !code.isEmpty()) {
+                return CancelValidateResult.fail("Lazada: " + message);
+            }
+
+            JsonNode data = root.path("data");
+            String tipType = data.path("tip_type").asText();
+            String tipContent = data.path("tip_content").asText();
+
+            List<ReasonOption> reasons = new ArrayList<>();
+            JsonNode reasonOptions = data.path("reason_options");
+            if (reasonOptions.isArray()) {
+                for (JsonNode opt : reasonOptions) {
+                    reasons.add(new ReasonOption(
+                            opt.path("reason_id").asText(),
+                            opt.path("reason_name").asText()));
+                }
+            }
+            return CancelValidateResult.ok(reasons, tipType, tipContent);
+
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "cancelValidate failed for orderId=" + orderId, e);
+            return CancelValidateResult.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * Step 2 — calls GET /order/reverse/cancel/create to submit the cancel request.
+     *
+     * @param orderItemIdList JSON array string of order_item_ids, e.g. ["100827","..."]
+     * @param reasonId       reason ID selected by staff from the validate step
+     * @return CancelCreateResult with success flag and optional tip from Lazada
+     */
+    public CancelCreateResult cancelCreate(Channel channel, String orderId,
+                                          String orderItemIdList, String reasonId) {
+        if (gateway == null) return CancelCreateResult.fail("No gateway");
+        try {
+            String response = gateway.cancelCreate(channel, orderId, orderItemIdList, reasonId);
+            JsonNode root = MAPPER.readTree(response);
+            String code = root.path("code").asText();
+            String message = root.path("message").asText();
+
+            if (!"0".equals(code) && !code.isEmpty()) {
+                return CancelCreateResult.fail("Lazada: " + message);
+            }
+
+            JsonNode data = root.path("data");
+            String tipType = data.path("tip_type").asText();
+            String tipContent = data.path("tip_content").asText();
+            return CancelCreateResult.ok(tipType, tipContent);
+
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "cancelCreate failed for orderId=" + orderId, e);
+            return CancelCreateResult.fail(e.getMessage());
+        }
+    }
+
     // ── DTO ────────────────────────────────────────────────────
 
     public static final class SyncResult {
@@ -193,5 +263,47 @@ public class LazadaReverseService {
         private SyncResult(boolean o, int s, String e) { ok = o; saved = s; error = e; }
         public static SyncResult ok(int s) { return new SyncResult(true, s, null); }
         public static SyncResult fail(String e) { return new SyncResult(false, 0, e); }
+    }
+
+    public static final class ReasonOption {
+        public final String reasonId;
+        public final String reasonName;
+        public ReasonOption(String reasonId, String reasonName) {
+            this.reasonId = reasonId;
+            this.reasonName = reasonName;
+        }
+    }
+
+    public static final class CancelValidateResult {
+        public final boolean success;
+        public final List<ReasonOption> reasons;
+        public final String tipType;
+        public final String tipContent;
+        public final String error;
+        private CancelValidateResult(boolean s, List<ReasonOption> r, String tt, String tc, String e) {
+            success = s; reasons = r; tipType = tt; tipContent = tc; error = e;
+        }
+        public static CancelValidateResult ok(List<ReasonOption> r, String tt, String tc) {
+            return new CancelValidateResult(true, r, tt, tc, null);
+        }
+        public static CancelValidateResult fail(String e) {
+            return new CancelValidateResult(false, null, null, null, e);
+        }
+    }
+
+    public static final class CancelCreateResult {
+        public final boolean success;
+        public final String tipType;
+        public final String tipContent;
+        public final String error;
+        private CancelCreateResult(boolean s, String tt, String tc, String e) {
+            success = s; tipType = tt; tipContent = tc; error = e;
+        }
+        public static CancelCreateResult ok(String tt, String tc) {
+            return new CancelCreateResult(true, tt, tc, null);
+        }
+        public static CancelCreateResult fail(String e) {
+            return new CancelCreateResult(false, null, null, e);
+        }
     }
 }

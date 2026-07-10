@@ -11,53 +11,6 @@
 
 <!-- ══ VIEW 1: RECEIPTS TAB ══════════════════════════════════ -->
 <div id="view-receipts">
-    <!-- Summary Cards -->
-    <div class="inbound-stats-grid-4">
-        <!-- Card: Pending Items -->
-        <div class="inbound-kpi-card tone-blue">
-            <div class="inbound-kpi-card__icon-box">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div class="inbound-kpi-card__info">
-                <div class="inbound-kpi-card__val" id="stat-pending">0</div>
-                <div class="inbound-kpi-card__lbl">Phiếu chờ hàng</div>
-            </div>
-        </div>
-
-        <!-- Card: In Progress -->
-        <div class="inbound-kpi-card tone-orange">
-            <div class="inbound-kpi-card__icon-box">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
-            </div>
-            <div class="inbound-kpi-card__info">
-                <div class="inbound-kpi-card__val" id="stat-in-progress">0</div>
-                <div class="inbound-kpi-card__lbl">Đang nhập kho</div>
-            </div>
-        </div>
-
-        <!-- Card: Completed Weekly -->
-        <div class="inbound-kpi-card tone-emerald">
-            <div class="inbound-kpi-card__icon-box">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
-            <div class="inbound-kpi-card__info">
-                <div class="inbound-kpi-card__val" id="stat-completed">0</div>
-                <div class="inbound-kpi-card__lbl">Hoàn thành tuần này</div>
-            </div>
-        </div>
-
-        <!-- Card: SKU Received -->
-        <div class="inbound-kpi-card tone-violet">
-            <div class="inbound-kpi-card__icon-box">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-            </div>
-            <div class="inbound-kpi-card__info">
-                <div class="inbound-kpi-card__val" id="stat-sku-received">0</div>
-                <div class="inbound-kpi-card__lbl">SKU đã nhập</div>
-            </div>
-        </div>
-    </div>
-
     <!-- GRN List Container (rendered by JavaScript) -->
     <!-- Toolbar -->
     <div class="toolbar" style="margin-bottom:12px;">
@@ -65,9 +18,8 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"></svg>
             <input type="text" placeholder="Tìm mã phiếu hoặc nhà cung cấp..." id="grnSearchInput"/>
         </div>
-        <button class="btn-create" id="btnCreateGRNTrigger">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Tạo phiếu nhập
+        <button class="btn-create btn-create--emerald" id="btnCreatePOTrigger">
+            Tạo phiếu mua hàng
         </button>
     </div>
 
@@ -80,13 +32,13 @@
 
 
 
-<!-- ══ MODAL: CREATE / DUPLICATE DRAFT GRN ════════════════════ -->
+<!-- ══ MODAL: CREATE / EDIT PURCHASE ORDER (PHIẾU MUA HÀNG) ═══ -->
 <div class="modal-overlay" id="draftModalOverlay">
     <div class="modal-box" style="max-width: 800px;">
         <div class="modal-hdr">
             <div>
-                <h2 class="modal-title" id="draftModalTitle">Tạo phiếu nhập nháp</h2>
-                <p class="modal-subtitle">Lưu cục bộ ở trạng thái DRAFT, chưa ghi nhận tồn kho.</p>
+                <h2 class="modal-title" id="draftModalTitle">Tạo phiếu mua hàng</h2>
+                <p class="modal-subtitle">Tạo phiếu mua → đặt hàng từ NCC → chờ hàng về → nhập kho</p>
             </div>
             <button class="modal-close" onclick="closeDraftModal()">&times;</button>
         </div>
@@ -94,7 +46,10 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                 <div class="form-group">
                     <label class="form-label" for="draft-supplier">Nhà cung cấp *</label>
-                    <input class="form-input" style="background:#fff;" type="text" id="draft-supplier" placeholder="Tên nhà cung cấp"/>
+                    <select class="form-input" style="background:#fff;" id="draft-supplier">
+                        <option value="">— Chọn nhà cung cấp —</option>
+                    </select>
+                    <small style="font-size:10px; color:rgba(16,55,92,0.50);">Chọn từ danh sách NCC do Manager tạo</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="draft-date">Ngày dự kiến *</label>
@@ -103,13 +58,13 @@
             </div>
             <div class="form-group">
                 <label class="form-label" for="draft-note">Ghi chú</label>
-                <textarea class="form-textarea" style="background:#fff;" id="draft-note" rows="3" placeholder="Ghi chú cho phiếu nhập nháp..."></textarea>
+                <textarea class="form-textarea" style="background:#fff;" id="draft-note" rows="3" placeholder="Ghi chú cho phiếu mua..."></textarea>
             </div>
 
             <!-- Draft Items grid -->
             <div class="draft-items-box">
                 <div class="draft-items-hdr">
-                    <span class="draft-items-title">Danh sách SKU</span>
+                    <span class="draft-items-title">Danh sách SKU đặt mua</span>
                     <button class="btn-add-row" onclick="addDraftItemRow()">Thêm dòng</button>
                 </div>
                 <div id="draftRowsContainer">
@@ -119,8 +74,106 @@
         </div>
         <div class="modal-ftr" style="background:#fff;">
             <button class="modal-btn-cancel" onclick="closeDraftModal()">Hủy</button>
-            <button class="modal-btn-submit" onclick="submitDraftGRN()">Lưu nháp</button>
+            <button class="modal-btn-submit modal-btn-blue" id="btnSubmitGRN" onclick="submitDraftGRN()">Tạo phiếu mua hàng</button>
         </div>
+    </div>
+</div>
+
+<!-- ══ MODAL: CREATE RECEIPT NOTE (TẠO PHIẾU NHẬP KHO) ═══════ -->
+<div class="modal-overlay" id="receiptModalOverlay">
+    <div class="modal-box" style="max-width: 960px;">
+        <div class="modal-hdr">
+            <div>
+                <h2 class="modal-title">Tạo phiếu nhập kho</h2>
+                <p class="modal-subtitle" id="receiptModalSubtitle">Chọn phiếu mua hàng đã mua để tạo phiếu nhập kho</p>
+            </div>
+            <button class="modal-close" onclick="closeReceiptModal()">&times;</button>
+        </div>
+        <form method="POST" action="${pageContext.request.contextPath}/warehouse/inbound" id="receiptForm">
+            <input type="hidden" name="action" value="receive"/>
+            <div class="modal-body">
+                <!-- Bước 1: Chọn phiếu mua hàng đã mua (PURCHASED) -->
+                <div id="receiptSelectStep">
+                    <p style="font-size:12px; color:rgba(16,55,92,0.60); margin-bottom:8px;">
+                        Chỉ tạo được phiếu nhập kho khi phiếu mua hàng đã được mua (trạng thái "Đã mua").
+                    </p>
+                    <div class="form-group">
+                        <label class="form-label" for="receipt-po-select">Phiếu mua hàng *</label>
+                        <select class="form-input" style="background:#fff;" id="receipt-po-select" required>
+                            <option value="">— Chọn phiếu mua hàng đã mua —</option>
+                        </select>
+                    </div>
+                    <div id="receiptEmptyMsg" style="display:none; padding:24px; text-align:center; color:rgba(16,55,92,0.40); background:var(--alice); border-radius:8px; font-size:12px;">
+                        Chưa có phiếu mua hàng nào ở trạng thái "Đã mua". Hãy mua phiếu trước rồi quay lại.
+                    </div>
+                </div>
+
+                <!-- Bước 2: Form chi tiết (auto fill từ PO) -->
+                <div id="receiptDetailStep" style="display:none;">
+                    <input type="hidden" id="receipt-po-id" name="inboundId"/>
+                    <!-- Header info row -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; padding:10px 14px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+                        <div class="form-group" style="margin:0;">
+                            <label class="form-label" style="font-size:10px;">Zone nhận hàng</label>
+                            <select class="form-input" style="background:#fff; font-size:12px;" name="zoneId" id="receipt-zone">
+                                <option value="">— Chọn zone —</option>
+                                <c:forEach items="${zones}" var="z">
+                                    <option value="${z.zoneId}">${z.zoneName} (${z.zoneType})</option>
+                                </c:forEach>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label class="form-label" style="font-size:10px;">Người giao hàng</label>
+                            <input class="form-input" style="background:#fff; font-size:12px;" type="text" name="deliveryPerson" id="receipt-delivery-person" placeholder="Tên tài xế / shipper..."/>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label class="form-label" style="font-size:10px;">Ngày nhập hàng</label>
+                            <input class="form-input" style="background:#fff; font-size:12px;" type="date" name="receivedDate" id="receipt-received-date"/>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom:12px;">
+                        <div class="form-group">
+                            <label class="form-label">Nhà cung cấp</label>
+                            <input class="form-input" style="background:#f1f5f9;" type="text" id="receipt-supplier-name" readonly/>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="receipt-note">Ghi chú</label>
+                            <textarea class="form-textarea" style="background:#fff;" id="receipt-note" name="notes" rows="2" placeholder="Ghi chú phiếu nhập..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Danh sách SKU nhập kho -->
+                    <div class="draft-items-box">
+                        <div class="draft-items-hdr">
+                            <span class="draft-items-title">Danh sách SKU nhập kho</span>
+                            <span style="font-size:11px; color:rgba(16,55,92,0.50);">SL Thực nhận = SL Chấp nhận + SL Trả NCC</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table class="grn-body-table" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th style="padding-left:16px; min-width:90px;">SKU</th>
+                                        <th style="min-width:140px;">Sản phẩm</th>
+                                        <th style="text-align:right; width:60px;">Đặt mua</th>
+                                        <th style="text-align:right; width:80px; color:#1d4ed8;">SL Thực nhận</th>
+                                        <th style="text-align:right; width:80px; color:#059669;">SL Chấp nhận</th>
+                                        <th style="text-align:right; width:80px; color:#b45309;">SL Trả NCC</th>
+                                        <th style="min-width:140px; font-size:10px; color:rgba(16,55,92,0.60);">Lý do trả / Từ chối</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="receiptItemsTableBody">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-ftr" style="background:#fff;">
+                <button type="button" class="modal-btn-cancel" onclick="closeReceiptModal()">Hủy</button>
+                <button type="submit" class="modal-btn-submit modal-btn-emerald" id="btnSubmitReceipt" disabled>Xác nhận nhập kho</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -129,13 +182,13 @@
     <div class="modal-box">
         <div class="modal-hdr">
             <div>
-                <h2 class="modal-title">Xác nhận nhập thực tế</h2>
-                <p class="modal-subtitle" id="receiveModalSubtitle">Mã phiếu: GRN-XXXX · NCC: ABC</p>
+                <h2 class="modal-title">Nhập hàng thực tế</h2>
+                <p class="modal-subtitle" id="receiveModalSubtitle">Mã phiếu nhập kho: ...</p>
             </div>
             <button class="modal-close" onclick="closeReceiveModal()">&times;</button>
         </div>
         <div class="modal-body">
-            <p style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-bottom: 8px;">Nhập số lượng thực tế kiểm đếm cho từng SKU: SL Thực Nhận → SL Chấp Nhận (phần còn lại = SL Từ Chối).</p>
+            <p style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-bottom: 8px;">Nhập SL thực nhận cho từng SKU. Phần chênh lệch (PO đặt − SL thực nhận) sẽ tự động ghi nhận là "Đã trả NCC tại chỗ" và không lưu vào tồn kho.</p>
             <input type="hidden" id="receive-grn-id"/>
             <div id="receiveItemsContainer" style="display:flex; flex-direction:column; gap:12px;">
                 <!-- Populate items with 3 inputs: received / accepted / rejected -->
@@ -150,11 +203,11 @@
 
 <!-- ══ MODAL: CREATE PO (Server-side) ════════════════════════════════ -->
 <div class="modal-overlay" id="createPOModal">
-    <div class="modal-box" style="max-width:560px;">
+    <div class="modal-box" style="max-width:600px;">
         <div class="modal-hdr">
             <div>
-                <h2 class="modal-title">Tạo phiếu nhập mới</h2>
-                <p class="modal-subtitle">Tạo đơn nhập hàng từ nhà cung cấp</p>
+                <h2 class="modal-title">Tạo phiếu mua hàng mới</h2>
+                <p class="modal-subtitle">Tạo đơn mua hàng từ nhà cung cấp</p>
             </div>
             <button class="modal-close" onclick="closeCreatePOModal()">&times;</button>
         </div>
@@ -163,20 +216,44 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label class="form-label" for="po-supplier">Nhà cung cấp *</label>
-                    <input class="form-input" style="background:#fff;" type="text" id="po-supplier" name="supplierName" placeholder="Tên nhà cung cấp..." required/>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="po-warehouse">Kho nhập *</label>
-                    <select class="form-input" style="background:#fff;" id="po-warehouse" name="warehouseId" required>
-                        <option value="">— Chọn kho —</option>
-                        <c:forEach items="${warehouses}" var="w">
-                            <option value="${w.warehouseId}">${w.warehouseName}</option>
-                        </c:forEach>
+                    <select class="form-input" id="po-supplier" name="supplierId" required>
+                        <option value="">-- Chọn nhà cung cấp --</option>
                     </select>
+                    <small class="form-hint">Danh sách lấy từ <a href="${pageContext.request.contextPath}/business/suppliers" target="_blank">trang quản lý NCC</a> (chỉ NCC ACTIVE).</small>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="form-group">
+                        <label class="form-label" for="po-warehouse">Kho nhập *</label>
+                        <select class="form-input" style="background:#f0f4fa;" id="po-warehouse" name="warehouseId" required>
+                            <option value="">— Chọn kho —</option>
+                            <c:forEach items="${warehouses}" var="w">
+                                <option value="${w.warehouseId}">${w.warehouseName}</option>
+                            </c:forEach>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="po-zone">Zone nhận hàng</label>
+                        <select class="form-input" style="background:#fff;" id="po-zone" name="zoneId">
+                            <option value="">— Chọn zone —</option>
+                            <c:forEach items="${zones}" var="z">
+                                <option value="${z.zoneId}">${z.zoneName} (${z.zoneType})</option>
+                            </c:forEach>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="po-date">Ngày dự kiến nhận</label>
+                    <label class="form-label">Ngày dự kiến nhận hàng</label>
                     <input class="form-input" style="background:#fff;" type="date" id="po-date" name="expectedDate"/>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="form-group">
+                        <label class="form-label" for="po-delivery-person">Người giao hàng</label>
+                        <input class="form-input" style="background:#fff;" type="text" id="po-delivery-person" name="deliveryPerson" placeholder="Tên tài xế / shipper..."/>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="po-delivery-phone">SĐT người giao</label>
+                        <input class="form-input" style="background:#fff;" type="text" id="po-delivery-phone" name="deliveryPhone" placeholder="0xxx-xxx-xxx"/>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="po-notes">Ghi chú</label>
@@ -185,7 +262,7 @@
             </div>
             <div class="modal-ftr" style="background:#fff;">
                 <button type="button" class="modal-btn-cancel" onclick="closeCreatePOModal()">Hủy</button>
-                <button type="submit" class="modal-btn-submit">Tạo phiếu nhập</button>
+                <button type="submit" class="modal-btn-submit modal-btn-blue">Tạo phiếu mua hàng</button>
             </div>
         </form>
     </div>
@@ -196,8 +273,8 @@
     <div class="modal-box" style="max-width:600px;">
         <div class="modal-hdr">
             <div>
-                <h2 class="modal-title">Xác nhận nhập kho thực tế</h2>
-                <p class="modal-subtitle" id="receiveDB-subtitle">Mã phiếu: ...</p>
+                <h2 class="modal-title">Nhập hàng thực tế</h2>
+                <p class="modal-subtitle" id="receiveDB-subtitle">Mã phiếu nhập kho: ...</p>
             </div>
             <button class="modal-close" onclick="closeReceiveDBModal()">&times;</button>
         </div>
@@ -205,16 +282,52 @@
             <input type="hidden" name="action" value="receive"/>
             <input type="hidden" name="inboundId" id="receiveDB-inboundId"/>
             <div class="modal-body">
-                <p style="font-size:12px; color:rgba(16,55,92,0.60); margin-bottom:8px;">
-                    Nhập số lượng thực tế cho từng sản phẩm. Hệ thống sẽ cộng tồn kho khả dụng và tạo ledger entry.
-                </p>
-                <div id="receiveDBItemsContainer" style="display:flex; flex-direction:column; gap:10px;">
-                    <!-- Dynamic items -->
+                <!-- Header: Zone / Người giao / Ngày giờ -->
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; padding:12px 16px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; margin-bottom:14px;">
+                    <div>
+                        <label style="font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.50); letter-spacing:0.04em; display:block; margin-bottom:4px;">Zone nhận hàng</label>
+                        <select class="form-input" style="background:#fff; font-size:12px;" name="zoneId" id="receiveDB-zone">
+                            <option value="">— Chọn zone —</option>
+                            <c:forEach items="${zones}" var="z">
+                                <option value="${z.zoneId}">${z.zoneName} (${z.zoneType})</option>
+                            </c:forEach>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.50); letter-spacing:0.04em; display:block; margin-bottom:4px;">Người giao hàng</label>
+                        <input class="form-input" style="background:#fff; font-size:12px;" type="text" name="deliveryPerson" id="receiveDB-deliveryPerson" placeholder="Tên tài xế / shipper..."/>
+                    </div>
+                    <div>
+                        <label style="font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.50); letter-spacing:0.04em; display:block; margin-bottom:4px;">Ngày nhập hàng</label>
+                        <input class="form-input" style="background:#fff; font-size:12px;" type="date" name="receivedDate" id="receiveDB-receivedDate"/>
+                    </div>
+                </div>
+                <!-- Table: chi tiết kiểm đếm -->
+                <div style="margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                    <span style="font-size:12px; font-weight:700; color:var(--navy); text-transform:uppercase; letter-spacing:0.04em;">Chi tiết kiểm đếm</span>
+                    <span style="font-size:11px; color:rgba(16,55,92,0.50);">SL Thực nhận = Chấp nhận + Trả NCC</span>
+                </div>
+                <div style="border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+                    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                        <thead>
+                            <tr style="background:#f0f4fa;">
+                                <th style="padding:8px 10px; text-align:left; font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.60); letter-spacing:0.04em; border-bottom:1px solid var(--border);">SKU / Sản phẩm</th>
+                                <th style="padding:8px 6px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.60); letter-spacing:0.04em; border-bottom:1px solid var(--border); width:60px;">Đặt mua</th>
+                                <th style="padding:8px 6px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; color:#1d4ed8; border-bottom:1px solid var(--border); width:70px;">SL Thực nhận</th>
+                                <th style="padding:8px 6px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; color:#059669; border-bottom:1px solid var(--border); width:70px;">SL Chấp nhận</th>
+                                <th style="padding:8px 6px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; color:#b45309; border-bottom:1px solid var(--border); width:70px;">SL Trả NCC</th>
+                                <th style="padding:8px 6px; text-align:left; font-size:10px; font-weight:700; text-transform:uppercase; color:rgba(16,55,92,0.60); border-bottom:1px solid var(--border); min-width:140px;">Lý do trả / Từ chối</th>
+                            </tr>
+                        </thead>
+                        <tbody id="receiveDBItemsContainer">
+                            <!-- Dynamic rows -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
             <div class="modal-ftr" style="background:#fff;">
                 <button type="button" class="modal-btn-cancel" onclick="closeReceiveDBModal()">Hủy</button>
-                <button type="submit" class="modal-btn-submit modal-btn-emerald">Xác nhận nhập kho</button>
+                <button type="submit" class="modal-btn-submit modal-btn-emerald">Xác nhận nhập hàng</button>
             </div>
         </form>
     </div>
@@ -225,21 +338,35 @@
     <div class="modal-box" style="max-width: 960px;">
         <div class="modal-hdr">
             <div>
-                <h2 class="modal-title">Chi tiết Phiếu nhập kho</h2>
+                <h2 class="modal-title">Chi tiết Phiếu mua hàng</h2>
                 <p class="modal-subtitle" id="detailModalSubtitle">GRN-XXXX</p>
             </div>
             <button class="modal-close" onclick="closeDetailModal()">&times;</button>
         </div>
         <div class="modal-body" style="gap: 16px;">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; font-size:13px; color:var(--navy);">
-                <div><strong>Nhà cung cấp:</strong> <span id="detail-supplier">NCC</span></div>
-                <div><strong>Trạng thái:</strong> <span id="detail-status-badge">Badge</span></div>
-                <div><strong>Ngày tạo:</strong> <span id="detail-created-at">Date</span></div>
-                <div><strong>Ngày nhận hàng:</strong> <span id="detail-expected-date">Date</span></div>
+
+            <!-- Metadata 2-column grid -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 24px; font-size:13px; color:var(--navy); background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:16px;">
+                <div><strong>Mã NCC:</strong> <span id="detail-supplier-code">—</span></div>
+                <div><strong>Trạng thái:</strong> <span id="detail-status-badge">—</span></div>
+                <div><strong>Nhà cung cấp:</strong> <span id="detail-supplier">—</span></div>
+                <div><strong>Kho nhận hàng:</strong> <span id="detail-warehouse">—</span></div>
+                <div><strong>Kỳ hạn thanh toán:</strong> <span id="detail-payment-terms">—</span></div>
+                <div><strong>Ngày tạo:</strong> <span id="detail-created-at">—</span></div>
+                <div><strong>Ngày nhận dự kiến:</strong> <span id="detail-expected-date">—</span></div>
+                <div style="grid-column:1/-1; border-top:1px solid var(--border); padding-top:10px; margin-top:4px;">
+                    <strong>Chi tiết liên hệ:</strong>
+                    <span id="detail-contact">—</span> &nbsp;|&nbsp;
+                    <span id="detail-phone">—</span> &nbsp;|&nbsp;
+                    <span id="detail-email">—</span> &nbsp;|&nbsp;
+                    <span id="detail-address">—</span>
+                </div>
             </div>
+
+            <!-- Items table -->
             <div class="draft-items-box">
                 <div class="draft-items-hdr" style="background:var(--alice);">
-                    <span class="draft-items-title" style="font-weight:700;">Danh sách mặt hàng nhập kho</span>
+                    <span class="draft-items-title" style="font-weight:700;">Danh sách mặt hàng đặt mua</span>
                 </div>
                 <table class="grn-body-table">
                     <thead>
@@ -247,20 +374,35 @@
                             <th style="padding-left:16px; min-width:90px;">SKU</th>
                             <th style="min-width:140px;">Sản phẩm</th>
                             <th style="text-align:right; width:90px; white-space:nowrap;">Đơn giá</th>
-                            <th style="text-align:right; width:70px; white-space:nowrap;">Yêu cầu</th>
-                            <th style="text-align:right; width:80px; white-space:nowrap;">Thực nhận</th>
-                            <th style="text-align:right; width:80px; white-space:nowrap; color:#047857;">Đạt chuẩn</th>
-                            <th style="text-align:right; width:80px; white-space:nowrap; color:#dc2626;">Hỏng/Lỗi</th>
-                            <th style="text-align:right; width:100px; white-space:nowrap; padding-right:16px;">Thành tiền</th>
+                            <th style="text-align:right; width:70px; white-space:nowrap;">Đặt mua</th>
+                            <th style="text-align:right; width:110px; white-space:nowrap; padding-right:16px;">Thành tiền</th>
                         </tr>
                     </thead>
-                    <tbody id="detailItemsTableBody">
-                        <!-- Populate -->
-                    </tbody>
+                    <tbody id="detailItemsTableBody"><!-- Populate --></tbody>
+                    <tfoot id="detailItemsFooter" style="background:#f1f5f9; font-size:12px; font-weight:700; color:var(--navy);">
+                        <tr>
+                            <td colspan="3" style="padding:10px 16px; text-align:right; border-top:2px solid var(--border);">
+                                Tổng: <span id="detail-total-items">0</span> mặt hàng · <span id="detail-total-qty">0</span> sản phẩm
+                            </td>
+                            <td style="text-align:right; padding:10px 0 10px 16px; border-top:2px solid var(--border);">
+                                &nbsp;
+                            </td>
+                            <td style="text-align:right; padding:10px 16px 10px 0; border-top:2px solid var(--border);">
+                                <span id="detail-grand-total">—</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="5" style="padding:3px 16px 8px; text-align:right; color:#b45309; font-size:11px; border-top:1px solid var(--border);">
+                                (Chưa bao gồm VAT)
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
+
+            <!-- Notes -->
             <div class="modal-note" id="detail-notes-box" style="display:none; padding:12px; border:1px solid #ffebc2; background:#fffcf5; border-radius:6px; font-size:12px; color:rgba(16, 55, 92, 0.75);">
-                <strong>Ghi chú:</strong> <span id="detail-note-content">Note</span>
+                <strong>Ghi chú:</strong> <span id="detail-note-content">—</span>
             </div>
         </div>
         <div class="modal-ftr">
@@ -270,10 +412,11 @@
 </div>
 
 <script id="db-products-data" type="application/json"><c:out value="${productsJson}" escapeXml="false"/></script>
-<script id="db-page-flags-data" type="application/json">{"hasInboundList": ${not empty inboundList ? 'true' : 'false'}}</script>
+<script id="db-suppliers-data" type="application/json"><c:out value="${suppliersJson}" escapeXml="false"/></script>
+<script id="db-page-flags-data" type="application/json">{"hasInboundList": ${not empty inboundList ? 'true' : 'false'}, "myWarehouseId": ${myWarehouseId}}</script>
 <script id="db-user-data" type="application/json">{"fullName":"<c:out value='${loggedInUser.fullName}'/>","role":"<c:out value='${loggedInUser.role}'/>"}</script>
 <script id="db-inbound-list-data" type="application/json">[
-<c:forEach items="${inboundList}" var="io" varStatus="s">{"inboundId":${io.inboundId},"inboundCode":"<c:out value='${io.inboundCode}'/>","supplierName":"<c:out value='${io.supplierName}'/>","warehouseName":"<c:out value='${io.warehouseName}'/>","status":"<c:out value='${io.status}'/>","createdAt":"<c:out value='${io.createdAt}'/>","items":${io.itemsJson}}${!s.last ? ',' : ''}
+<c:forEach items="${inboundList}" var="io" varStatus="s">{"inboundId":${io.inboundId},"inboundCode":"<c:out value="${io.inboundCode}"/>","supplierName":"<c:out value="${io.supplierName}"/>","supplierId":<c:out value="${io.supplierId != null ? io.supplierId : 'null'}"/>,"supplierCode":"<c:out value="${io.supplierCode != null ? io.supplierCode : ''}"/>","supplierContact":"<c:out value="${io.supplierContact != null ? io.supplierContact : ''}"/>","supplierPhone":"<c:out value="${io.supplierPhone != null ? io.supplierPhone : ''}"/>","supplierAddress":"<c:out value="${io.supplierAddress != null ? io.supplierAddress : ''}"/>","supplierEmail":"<c:out value="${io.supplierEmail != null ? io.supplierEmail : ''}"/>","warehouseName":"<c:out value="${io.warehouseName}"/>","zoneId":<c:out value="${io.zoneId != null ? io.zoneId : 'null'}"/>,"zoneName":"<c:out value="${io.zoneName != null ? io.zoneName : ''}"/>","deliveryPerson":"<c:out value="${io.deliveryPerson != null ? io.deliveryPerson : ''}"/>","deliveryPhone":"<c:out value="${io.deliveryPhone != null ? io.deliveryPhone : ''}"/>","paymentTerms":"<c:out value="${io.paymentTerms != null ? io.paymentTerms : ''}"/>","status":"<c:out value="${io.status}"/>","createdAt":"<c:out value="${io.createdAt}"/>","expectedDate":"<c:out value="${io.expectedDate}"/>","receivedDate":"<c:out value="${io.receivedDate != null ? io.receivedDate : ''}"/>","note":"<c:out value="${io.notes != null ? io.notes : ''}"/>","items":${io.itemsJson}}${!s.last ? ',' : ''}
 </c:forEach>]
 </script>
 
@@ -307,6 +450,8 @@ function escapeHtml(string) {
 var WMS_USER_DATA = safeJsonParse(document.getElementById('db-user-data') && document.getElementById('db-user-data').textContent, {});
 var PAGE_FLAGS = safeJsonParse(document.getElementById('db-page-flags-data') && document.getElementById('db-page-flags-data').textContent, {});
 var DB_PRODUCTS = safeJsonParse(document.getElementById('db-products-data') && document.getElementById('db-products-data').textContent, []);
+var DB_SUPPLIERS = safeJsonParse(document.getElementById('db-suppliers-data') && document.getElementById('db-suppliers-data').textContent, []);
+window.myWarehouseId = PAGE_FLAGS.myWarehouseId;
 
 window.WMS_USER = {
     fullName: WMS_USER_DATA.fullName || 'Guest',
@@ -314,74 +459,53 @@ window.WMS_USER = {
     myWarehouseId: parseInt("${myWarehouseId}") || 1
 };
 
-// Inbound Receipts (from server database)
-var savedGRNs = localStorage.getItem('wh_inbound_grns');
-var grns = safeJsonParse(savedGRNs, []);
-// Clean up any corrupted drafts from localStorage and sanitize items
-grns = grns.filter(function(g) {
-    return g && g.id && g.id !== 'undefined' && g.inboundCode !== 'undefined';
-}).map(function(g) {
-    if (g.items) {
-        g.items = g.items.map(function(item) {
-            return {
-                productId: item.productId || 0,
-                skuCode: item.skuCode || '',
-                skuName: item.skuName || '',
-                orderedQty: parseFloat(item.orderedQty || 0),
-                receivedQty: parseFloat(item.receivedQty || 0),
-                price: parseFloat(item.price || 0)
-            };
-        });
-    }
-    return g;
-});
-
-// Load from server data if available
+// Inbound Receipts — server data is single source of truth.
+// Local drafts are no longer used; all GRNs are created directly on the server.
 var serverInboundList = safeJsonParse(document.getElementById('db-inbound-list-data') && document.getElementById('db-inbound-list-data').textContent, []);
 console.log('[INBOUND] serverInboundList:', serverInboundList.length, serverInboundList);
-if (serverInboundList && serverInboundList.length > 0) {
-    var dbGrns = serverInboundList.map(function(o) {
-        var mappedStatus = o.status;
-        if (o.status === 'PENDING') mappedStatus = 'pending';
-        else if (o.status === 'IN_PROGRESS') mappedStatus = 'in_progress';
-        else if (o.status === 'RECEIVED') mappedStatus = 'completed';
-        else if (o.status === 'CANCELLED') mappedStatus = 'cancelled';
-        else mappedStatus = 'draft';
+var grns = (serverInboundList || []).map(function(o) {
+    var mappedStatus = o.status;
+    if (o.status === 'PENDING')     mappedStatus = 'pending';
+    else if (o.status === 'PURCHASED')  mappedStatus = 'purchased';
+    else if (o.status === 'IN_PROGRESS') mappedStatus = 'in_progress';
+    else if (o.status === 'RECEIVED')    mappedStatus = 'completed';
+    else if (o.status === 'CANCELLED')   mappedStatus = 'cancelled';
+    else mappedStatus = o.status || 'pending';
 
-        return {
-            id: o.inboundId,
-            inboundCode: o.inboundCode,
-            supplier: o.supplierName,
-            warehouseName: o.warehouseName,
-            status: mappedStatus,
-            createdAt: o.createdAt,
-            items: (o.items || []).map(function(item) {
-                return {
-                    productId: item.productId || 0,
-                    skuCode: item.skuCode || item.sku || '',
-                    skuName: item.skuName || item.productName || '',
-                    orderedQty: parseFloat(item.orderedQty || item.expectedQty || 0),
-                    receivedQty: parseFloat(item.receivedQty || 0),
-                    acceptedQty: parseFloat(item.acceptedQty || 0),
-                    rejectedQty: parseFloat(item.rejectedQty || 0),
-                    price: parseFloat(item.price || 0)
-                };
-            })
-        };
-    });
-
-    var localDrafts = grns.filter(function(g) {
-        if (g.status !== 'draft') return false;
-        var inDb = dbGrns.some(function(dg) {
-            return String(dg.inboundCode) === String(g.inboundCode) || String(dg.id) === String(g.id);
-        });
-        return !inDb;
-    });
-
-    grns = localDrafts.concat(dbGrns);
-    console.log('[INBOUND] grns after server mapping:', grns.length, grns);
-}
-console.log('[INBOUND] final grns:', grns.length, grns);
+    return {
+        id: o.inboundId,
+        inboundCode: o.inboundCode,
+        supplier: o.supplierName,
+        supplierId: o.supplierId,
+        supplierCode: o.supplierCode,
+        supplierCode: o.supplierCode || '',
+        supplierContact: o.supplierContact,
+        supplierPhone: o.supplierPhone,
+        supplierAddress: o.supplierAddress || '',
+        supplierEmail: o.supplierEmail || '',
+        warehouseName: o.warehouseName,
+        paymentTerms: o.paymentTerms || '',
+        status: mappedStatus,
+        rawStatus: o.status,
+        createdAt: o.createdAt,
+        expectedDate: o.expectedDate || '',
+        note: o.note || '',
+        items: (o.items || []).map(function(item) {
+            return {
+                productId: item.productId || 0,
+                skuCode: item.skuCode || item.sku || '',
+                skuName: item.skuName || item.productName || '',
+                orderedQty: parseFloat(item.orderedQty || item.expectedQty || 0),
+                receivedQty: parseFloat(item.receivedQty || 0),
+                acceptedQty: parseFloat(item.acceptedQty || 0),
+                rejectedQty: parseFloat(item.rejectedQty || 0),
+                price: parseFloat(item.price || 0),
+                note: item.note || ''
+            };
+        })
+    };
+});
+console.log('[INBOUND] grns loaded:', grns.length, grns);
 
 // Master SKUs
 var savedSKUs = localStorage.getItem('wms_skus');
@@ -403,7 +527,7 @@ if ((!skus || skus.length === 0) && DB_PRODUCTS.length > 0) {
 // Pricing configuration — removed (base_price managed by Manager in master-sku)
 
 // ─── STATE VARIABLES ───
-var activeStatusTab = 'all'; // 'all', 'draft', 'pending_bm', 'pending', 'in_progress', 'completed', 'cancelled'
+var activeStatusTab = 'all'; // 'all', 'pending', 'in_progress', 'completed', 'cancelled'
 var searchKeyword = '';
 var expandedGrnId = null;
 
@@ -411,7 +535,7 @@ var expandedGrnId = null;
 var draftMode = 'create'; // 'create' or 'duplicate'
 var draftSourceId = null;
 var draftForm = {
-    supplier: '',
+    supplierId: null,
     expectedDate: '',
     note: '',
     items: []
@@ -429,9 +553,17 @@ if (searchInput) {
 }
 
 function getFilteredGRNs() {
+    // Tab "pending" (Chờ nhập) bao gồm cả PENDING (chưa mua) + PURCHASED (đã mua) - phiếu chưa bắt đầu nhập kho
     return grns.filter(function (g) {
-        var matchTab = activeStatusTab === 'all' || g.status === activeStatusTab;
-        var matchSearch = g.id.toString().toLowerCase().indexOf(searchKeyword.toLowerCase()) > -1 || 
+        var matchTab;
+        if (activeStatusTab === 'all') {
+            matchTab = true;
+        } else if (activeStatusTab === 'pending') {
+            matchTab = g.status === 'pending' || g.status === 'purchased';
+        } else {
+            matchTab = g.status === activeStatusTab;
+        }
+        var matchSearch = g.id.toString().toLowerCase().indexOf(searchKeyword.toLowerCase()) > -1 ||
                           (g.supplier && g.supplier.toLowerCase().indexOf(searchKeyword.toLowerCase()) > -1) ||
                           (g.inboundCode && g.inboundCode.toLowerCase().indexOf(searchKeyword.toLowerCase()) > -1);
         return matchTab && matchSearch;
@@ -439,30 +571,14 @@ function getFilteredGRNs() {
 }
 
 function updateReceiptsKPIs() {
-    var pendingCount = grns.filter(function(g) { return g.status === 'pending'; }).length;
-    var inProgressCount = grns.filter(function(g) { return g.status === 'in_progress'; }).length;
-    var completedCount = grns.filter(function(g) { return g.status === 'completed'; }).length;
-    
-    // Sum total received qty of all completed GRN items
-    var skuReceivedCount = 0;
-    grns.forEach(function(g) {
-        if (g.status === 'completed') {
-            g.items.forEach(function(item) {
-                skuReceivedCount += (item.receivedQty || 0);
-            });
-        }
-    });
-
-    document.getElementById('stat-pending').textContent = pendingCount;
-    document.getElementById('stat-in-progress').textContent = inProgressCount;
-    document.getElementById('stat-completed').textContent = completedCount;
-    document.getElementById('stat-sku-received').textContent = skuReceivedCount.toLocaleString();
+    // KPI cards removed
 }
 
 function renderStatusTabs() {
     var counts = {
         all: grns.length,
         pending: grns.filter(function(g) { return g.status === 'pending'; }).length,
+        purchased: grns.filter(function(g) { return g.status === 'purchased'; }).length,
         in_progress: grns.filter(function(g) { return g.status === 'in_progress'; }).length,
         completed: grns.filter(function(g) { return g.status === 'completed'; }).length,
         cancelled: grns.filter(function(g) { return g.status === 'cancelled'; }).length
@@ -470,7 +586,7 @@ function renderStatusTabs() {
 
     var tabsData = [
         { id: 'all', label: 'Tất cả' },
-        { id: 'pending', label: 'Chờ' },
+        { id: 'pending', label: 'Chờ nhập' },
         { id: 'in_progress', label: 'Đang nhập' },
         { id: 'completed', label: 'Đã nhập' },
         { id: 'cancelled', label: 'Đã hủy' }
@@ -506,36 +622,84 @@ window.toggleGrnExpand = function(grnId) {
 
 window.toggleDropdownMenu = function(grnId, event) {
     if (event) event.stopPropagation();
-    var menu = document.getElementById('dropdown-' + grnId);
-    var wasActive = menu.classList.contains('active');
-    
-    // Close all menus
-    var allMenus = document.querySelectorAll('.dropdown-menu');
-    allMenus.forEach(function(m) { m.classList.remove('active'); });
 
-    if (!wasActive) {
-        menu.classList.add('active');
+    var menu = document.getElementById('dropdown-' + grnId);
+    if (!menu) return;
+
+    var wasOpen = menu.dataset.open === '1';
+
+    // Close all menus first
+    var allMenus = document.querySelectorAll('.dropdown-menu');
+    allMenus.forEach(function(m) {
+        m.classList.remove('active');
+        m.removeAttribute('style'); // clear fixed positioning
+        m.dataset.open = '0';
+    });
+
+    // If it was already active, just close it and stop
+    if (wasOpen) {
+        return;
     }
+
+    // Position the menu using fixed coordinates relative to the trigger button
+    var btn = event ? event.currentTarget : null;
+    
+    // Set display block first so we can measure offsetHeight
+    menu.classList.add('active');
+    
+    if (btn) {
+        var rect = btn.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.zIndex = '9999';
+        
+        var menuHeight = menu.offsetHeight || 120;
+        var spaceBelow = window.innerHeight - rect.bottom;
+        
+        if (spaceBelow < menuHeight + 10 && rect.top > menuHeight + 10) {
+            // Position above the button
+            menu.style.top = 'auto';
+            menu.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+        } else {
+            // Position below the button
+            menu.style.top = (rect.bottom + 8) + 'px';
+            menu.style.bottom = 'auto';
+        }
+        
+        menu.style.right = (window.innerWidth - rect.right) + 'px';
+        menu.style.left = 'auto';
+    }
+
+    menu.dataset.open = '1';
 };
+
 
 // Close menus when clicking outside
 document.addEventListener('click', function(e) {
-    if (!e.target.closest('.dropdown-wrap')) {
+    if (!e.target.closest('.dropdown-wrap') && !e.target.closest('.dropdown-menu')) {
         var allMenus = document.querySelectorAll('.dropdown-menu');
-        allMenus.forEach(function(m) { m.classList.remove('active'); });
+        allMenus.forEach(function(m) {
+            m.classList.remove('active');
+            m.removeAttribute('style');
+            m.dataset.open = '0';
+        });
     }
 });
 
+
 function getStatusConfig(status) {
     var configs = {
-        draft: { label: "Bản nháp", bg: "draft", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>' },
-        pending_bm: { label: "Chờ BM duyệt", bg: "pending_bm", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
-        pending: { label: "Chờ hàng về", bg: "pending", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
-        in_progress: { label: "Đang nhập kho", bg: "in_progress", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>' },
-        completed: { label: "Hoàn thành", bg: "completed", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' },
-        cancelled: { label: "Đã hủy", bg: "cancelled", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' }
+        pending:    { label: "Chờ nhập hàng", bg: "pending", tone: "blue",
+                     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
+        purchased:  { label: "Đã mua hàng", bg: "purchased", tone: "violet",
+                     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>' },
+        in_progress:{ label: "Đang nhập kho", bg: "in_progress", tone: "orange",
+                     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>' },
+        completed:  { label: "Hoàn thành", bg: "completed", tone: "emerald",
+                     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' },
+        cancelled:  { label: "Đã hủy", bg: "cancelled", tone: "rose",
+                     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' }
     };
-    return configs[status] || configs.draft;
+    return configs[status] || configs.pending;
 }
 
 function renderReceipts() {
@@ -565,15 +729,24 @@ function renderReceipts() {
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;margin-right:2px;"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
             'Khóa</span>' : '';
 
-        // Inbound action button (pending waits for BM / in_progress can receive)
+        // Inbound action buttons by status
+        var purchaseBtn = '';
         var receiveBtn = '';
         var isDbBacked = (typeof grn.id === 'number') || /^\d+$/.test(String(grn.id));
         if (isDbBacked) {
-            if (grn.status === 'pending') {
-                // PENDING = waiting for BM approval via Sổ Kho — WH staff cannot bypass this
-                receiveBtn = '<span class="btn-action-grn" style="cursor:default;opacity:0.65;pointer-events:none;" title="Đang chờ Business Manager phê duyệt trong Sổ Kho">⏳ Chờ BM duyệt</span>';
+            // PENDING hoặc PURCHASED → "Nhập hàng" (bỏ bước "Mua phiếu" riêng - phiếu nhập sinh ra từ việc nhận hàng)
+            if (grn.status === 'pending' || grn.status === 'purchased') {
+                receiveBtn = '<button class="btn-action-grn" onclick="window.openCreateReceiptFromPo(\'' + grn.id + '\', event)">Nhập hàng</button>';
             } else if (grn.status === 'in_progress') {
-                receiveBtn = '<button class="btn-action-grn btn-action-emerald" onclick="window.dbOpenReceiveModal(\'' + grn.id + '\', \'' + (grn.inboundCode || grn.id) + '\', event)">Nhập kho</button>';
+                var allReceived = grn.items.every(function(item) {
+                    return (item.receivedQty || 0) >= item.orderedQty;
+                });
+                if (!allReceived) {
+                    receiveBtn =
+                        '<button class="btn-action-grn" onclick="window.dbOpenReceiveModal(\'' + grn.id + '\', \'' + (grn.inboundCode || grn.id) + '\', event)">Nhập thêm</button>';
+                }
+                receiveBtn +=
+                    '<button class="btn-action-grn btn-action-blue" onclick="window.completeInboundOrder(\'' + grn.id + '\', event)">Hoàn thành</button>';
             }
         } else {
             if (grn.status === 'pending' || grn.status === 'in_progress' || grn.status === 'confirmed') {
@@ -587,57 +760,44 @@ function renderReceipts() {
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>' +
             '</button>';
 
-        // Pending BM badge
-        var pendingBmLabel = grn.status === 'pending_bm' ?
-            '<span class="pill-badge pending_bm" style="border:1px solid #fde68a; padding:6px 12px; font-size:11px;">' +
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;margin-right:4px;vertical-align:middle;"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-            'Chờ BM duyệt</span>' : '';
-
-        // Dropdown actions menu
+        // Dropdown actions menu (đã bỏ "Trình duyệt BM" — phiếu mới thẳng IN_PROGRESS)
         var dropdownHtml = '';
-        if (grn.status === 'draft' && !grn.isLocked) {
-            dropdownHtml = 
-                '<button class="dropdown-btn" onclick="submitForBMAvailability(\'' + grn.id + '\', event)">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-                    'Trình duyệt BM' +
-                '</button>' +
-                '<button class="dropdown-btn" style="color:#b91c1c;" onclick="cancelDraftGRN(\'' + grn.id + '\', event)">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>' +
-                    'Hủy nháp' +
-                '</button>';
-        } else if (grn.status === 'pending_bm') {
-            dropdownHtml = 
-                '<button class="dropdown-btn" onclick="window.viewGRNDetail(\'' + grn.id + '\', event)">' +
+        if (grn.status === 'pending' || grn.status === 'in_progress') {
+            dropdownHtml =
+                '<button class="dropdown-btn" onclick="openDetailModal(\'' + grn.id + '\', event)">' +
                     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>' +
                     'Xem chi tiết' +
-                '</button>' +
-                '<button class="dropdown-btn" style="color:#b91c1c;" onclick="cancelDraftGRN(\'' + grn.id + '\', event)">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>' +
-                    'Hủy phiếu' +
                 '</button>';
         }
 
-        var menuActions = 
-            '<div class="dropdown-wrap">' +
-                '<button class="btn-action-icon" onclick="window.toggleDropdownMenu(\'' + grn.id + '\', event)" title="Thao tác">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>' +
-                '</button>' +
-                '<div class="dropdown-menu" id="dropdown-' + grn.id + '">' +
-                    (grn.status === 'draft' && !grn.isLocked ?
+
+        var menuActions = '';
+        if (grn.status === 'draft' && !grn.isLocked) {
+            menuActions = 
+                '<div class="dropdown-wrap">' +
+                    '<button class="btn-action-icon" onclick="window.toggleDropdownMenu(\'' + grn.id + '\', event)" title="Thao tác">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>' +
+                    '</button>' +
+                    '<div class="dropdown-menu" id="dropdown-' + grn.id + '">' +
                         '<button class="dropdown-btn" onclick="window.editDraftGRN(\'' + grn.id + '\', event)">' +
                             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 1 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
                             'Chỉnh sửa' +
-                        '</button>' : ''
-                    ) +
-                    dropdownHtml +
-                '</div>' +
-            '</div>';
+                        '</button>' +
+                        '<button class="dropdown-btn" style="color:#dc2626;" onclick="window.deleteDraftGRN(\'' + grn.id + '\', event)">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>' +
+                            'Xoá nháp' +
+                        '</button>' +
+                        dropdownHtml +
+                    '</div>' +
+                '</div>';
+        }
 
 
         // Expanded table rows
         var itemsRows = grn.items.map(function(item) {
-            var pct = Math.round((item.receivedQty / item.orderedQty) * 100);
-            var remaining = item.orderedQty - item.receivedQty;
+            var accepted = item.acceptedQty || 0;
+            var remaining = item.orderedQty - accepted;
+            var pct = item.orderedQty > 0 ? Math.round((accepted / item.orderedQty) * 100) : 0;
             var barColor = pct === 100 ? '#10b981' : pct > 0 ? '#F5C842' : 'var(--border)';
             var remainingClass = remaining > 0 ? 'color: var(--orange); font-weight:600;' : 'color: #047857; font-weight:600;';
             var priceHtml = item.price ? item.price.toLocaleString('vi-VN') + ' đ' : '—';
@@ -647,7 +807,7 @@ function renderReceipts() {
                 '<td><span style="color:var(--navy); font-weight:600;">' + item.skuName + '</span></td>' +
                 '<td style="text-align:right; font-weight:600; color:var(--navy); white-space:nowrap;">' + priceHtml + '</td>' +
                 '<td style="text-align:right; font-weight:600; color:var(--navy);">' + item.orderedQty + '</td>' +
-                '<td style="text-align:right; font-weight:600; color:#047857;">' + item.receivedQty + '</td>' +
+                '<td style="text-align:right; font-weight:600; color:#047857;">' + accepted + '</td>' +
                 '<td style="text-align:right; ' + remainingClass + '">' + remaining + '</td>' +
                 '<td><div style="display:flex; align-items:center; gap:8px;">' +
                     '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
@@ -670,10 +830,18 @@ function renderReceipts() {
                 '<span>Người nhập kho: <span style="font-weight:600; color:var(--navy);">' + grn.receivedBy + '</span></span>' +
             '</div>' : '';
 
+        var toneClass = grn.status === 'completed' ? 'emerald'
+                            : grn.status === 'in_progress' ? 'orange'
+                            : grn.status === 'purchased' ? 'violet'
+                            : grn.status === 'pending' ? 'blue'
+                            : 'navy';
+
+        var supplierBadge = grn.supplierCode ? '<small style="color:#6b7280;font-weight:500;margin-left:6px;font-size:11px;">[' + escapeHtml(grn.supplierCode) + ']</small>' : '';
+
         return '<div class="grn-item ' + expandedClass + '">' +
             '<!-- Header -->' +
             '<div class="grn-hdr" onclick="window.toggleGrnExpand(\'' + grn.id + '\')">' +
-                '<div class="grn-hdr__icon ' + 'tone-' + (grn.status === 'completed' ? 'emerald' : grn.status === 'in_progress' ? 'orange' : grn.status === 'pending' ? 'blue' : 'navy') + '">' +
+                '<div class="grn-hdr__icon tone-' + toneClass + '">' +
                     sc.icon +
                 '</div>' +
                 '<div class="grn-hdr__info">' +
@@ -685,7 +853,7 @@ function renderReceipts() {
                     '<div class="grn-supplier-row">' +
                         '<span class="grn-supplier-cell">' +
                             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2Z"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2Z"/></svg>' +
-                            grn.supplier +
+                            escapeHtml(grn.supplier || '') + supplierBadge +
                         '</span>' +
                         '<span>' + grn.createdAt + '</span>' +
                     '</div>' +
@@ -703,8 +871,8 @@ function renderReceipts() {
                         '</div>' +
                     '</div>' +
                     detailBtn +
+                    purchaseBtn +
                     receiveBtn +
-                    pendingBmLabel +
                     menuActions +
                     '<svg class="grn-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
                 '</div>' +
@@ -719,7 +887,7 @@ function renderReceipts() {
                             '<th>Tên sản phẩm</th>' +
                             '<th style="width: 100px; text-align: right;">Đơn giá</th>' +
                             '<th style="width: 80px; text-align: right;">Đặt</th>' +
-                            '<th style="width: 80px; text-align: right;">Đã nhập</th>' +
+                            '<th style="width: 80px; text-align: right;">Chấp nhận</th>' +
                             '<th style="width: 80px; text-align: right;">Còn lại</th>' +
                             '<th style="width: 140px;">Tiến độ</th>' +
                         '</tr>' +
@@ -740,28 +908,46 @@ function renderReceipts() {
 // ─── DRAFT MODAL ACTIONS ───
 var draftOverlay = document.getElementById('draftModalOverlay');
 
+/**
+ * Populate dropdown nhà cung cấp từ danh sách suppliers do Manager tạo (DB).
+ */
+function populateSupplierDropdown(selectEl, selectedValue) {
+    if (!selectEl) return;
+    var html = '<option value="">— Chọn nhà cung cấp —</option>';
+    if (DB_SUPPLIERS && DB_SUPPLIERS.length > 0) {
+        DB_SUPPLIERS.forEach(function(s) {
+            if (!s || !s.name) return;
+            var sel = (selectedValue && (selectedValue === s.name || selectedValue === String(s.supplierId))) ? 'selected' : '';
+            var label = s.supplierCode ? (s.supplierCode + ' — ' + s.name) : s.name;
+            // value = supplierId (FK) để backend áp dụng ràng buộc
+            html += '<option value="' + escapeHtml(String(s.supplierId)) + '" ' + sel + '>' + escapeHtml(label) + '</option>';
+        });
+    }
+    selectEl.innerHTML = html;
+}
+
 window.openDraftModal = function(mode, sourceId) {
     draftMode = mode;
     draftSourceId = sourceId || null;
-    
+
     var titleEl = document.getElementById('draftModalTitle');
-    var supplierInput = document.getElementById('draft-supplier');
+    var supplierSelect = document.getElementById('draft-supplier');
     var dateInput = document.getElementById('draft-date');
     var noteInput = document.getElementById('draft-note');
-    
+
     if (mode === 'create') {
-        titleEl.textContent = 'Tạo phiếu nhập nháp';
+        titleEl.textContent = 'Tạo phiếu mua hàng';
         draftForm = {
-            supplier: '',
+            supplierId: null,
             expectedDate: '',
             note: '',
             items: [{ skuCode: '', skuName: '', orderedQty: 10, price: 0 }]
         };
     } else { // duplicate
         var source = grns.find(function(g) { return g.id == sourceId; });
-        titleEl.textContent = 'Nhân bản phiếu nhập';
+        titleEl.textContent = 'Nhân bản phiếu mua hàng';
         draftForm = {
-            supplier: source ? source.supplier : '',
+            supplierId: source ? source.supplierId : null,
             expectedDate: source ? source.expectedDate : '',
             note: source ? (source.note || '') : '',
             items: source ? source.items.map(function(item) {
@@ -769,12 +955,11 @@ window.openDraftModal = function(mode, sourceId) {
             }) : []
         };
     }
-    
-    // Fill values
-    supplierInput.value = draftForm.supplier;
+
+    populateSupplierDropdown(supplierSelect, draftForm.supplierId);
     dateInput.value = draftForm.expectedDate;
     noteInput.value = draftForm.note;
-    
+
     renderDraftRows();
     draftOverlay.classList.add('active');
 };
@@ -792,18 +977,18 @@ window.editDraftGRN = function(grnId, event) {
     if (event) event.stopPropagation();
     var grn = grns.find(function(g) { return g.id == grnId; });
     if (!grn) return;
-    
+
     // Close any open dropdown
     var allMenus = document.querySelectorAll('.dropdown-menu');
     allMenus.forEach(function(m) { m.classList.remove('active'); });
-    
+
     draftMode = 'edit';
     draftSourceId = grnId;
-    
+
     var titleEl = document.getElementById('draftModalTitle');
-    titleEl.textContent = 'Chỉnh sửa phiếu nhập nháp';
+    titleEl.textContent = 'Chỉnh sửa phiếu mua hàng';
     draftForm = {
-        supplier: grn.supplier || '',
+        supplierId: grn.supplierId || null,
         expectedDate: grn.expectedDate || '',
         note: grn.note || '',
         items: grn.items.map(function(item) {
@@ -813,14 +998,15 @@ window.editDraftGRN = function(grnId, event) {
     if (draftForm.items.length === 0) {
         draftForm.items.push({ skuCode: '', skuName: '', orderedQty: 10, price: 0 });
     }
-    
-    document.getElementById('draft-supplier').value = draftForm.supplier;
+
+    var supplierSelect = document.getElementById('draft-supplier');
+    populateSupplierDropdown(supplierSelect, draftForm.supplierId);
     document.getElementById('draft-date').value = draftForm.expectedDate;
     document.getElementById('draft-note').value = draftForm.note;
-    
+
     renderDraftRows();
     draftOverlay.classList.add('active');
-    
+
     // Override submit to update existing draft instead of creating new
     var submitBtn = document.querySelector('#draftModalOverlay .modal-btn-submit');
     if (submitBtn) {
@@ -828,13 +1014,20 @@ window.editDraftGRN = function(grnId, event) {
             // Update the draft in grns array
             var idx = grns.findIndex(function(g) { return g.id == grnId; });
             if (idx > -1) {
-                var supplierVal = document.getElementById('draft-supplier').value.trim();
+                var supplierVal = (document.getElementById('draft-supplier').value || '').trim();
+                var supplierIdNum = parseInt(supplierVal, 10);
                 var dateVal = document.getElementById('draft-date').value;
                 var noteVal = document.getElementById('draft-note').value.trim();
                 if (!supplierVal || !dateVal) {
-                    alert('Vui lòng nhập đầy đủ Nhà cung cấp và Ngày dự kiến!');
+                    alert('Vui lòng chọn Nhà cung cấp và Ngày dự kiến!');
                     return;
                 }
+                if (!supplierIdNum || supplierIdNum <= 0) {
+                    alert('Vui lòng chọn nhà cung cấp từ danh sách (không nhập text tự do).');
+                    return;
+                }
+                // Lưu supplierId vào GRN local để khi submitForBMAvailability sẽ gửi kèm.
+                grns[idx].supplierId = supplierIdNum;
                 var validItems = draftForm.items.filter(function(i) { return i.skuCode && i.orderedQty > 0; }).map(function(i) {
                     return {
                         skuCode: i.skuCode,
@@ -848,18 +1041,33 @@ window.editDraftGRN = function(grnId, event) {
                     alert('Vui lòng chọn ít nhất một SKU hợp lệ!');
                     return;
                 }
-                grns[idx].supplier = supplierVal;
+                grns[idx].supplierId = supplierIdNum;
+                // Lưu text name để hiển thị UI (lấy từ option đã chọn)
+                var selEl = document.getElementById('draft-supplier');
+                grns[idx].supplier = selEl.options[selEl.selectedIndex] ? selEl.options[selEl.selectedIndex].text : '';
+                grns[idx].supplierCode = selEl.options[selEl.selectedIndex] ? (selEl.options[selEl.selectedIndex].text.split(' — ')[0] || '') : '';
                 grns[idx].expectedDate = dateVal;
                 grns[idx].note = noteVal;
                 grns[idx].items = validItems;
                 closeDraftModal();
                 renderReceipts();
-                alert('Đã cập nhật phiếu nhập nháp!');
+                alert('Đã cập nhật phiếu mua hàng!');
             }
             // Restore default submit
             submitBtn.onclick = submitDraftGRN;
         };
     }
+};
+
+window.deleteDraftGRN = function(grnId, event) {
+    if (event) event.stopPropagation();
+    // Close any open dropdown
+    var allMenus = document.querySelectorAll('.dropdown-menu');
+    allMenus.forEach(function(m) { m.classList.remove('active'); m.dataset.open = '0'; });
+    if (!confirm('Bạn có chắc chắn muốn xoá bản nháp "' + grnId + '" không?')) return;
+    grns = grns.filter(function(g) { return g.id != grnId; });
+    localStorage.setItem('wh_inbound_grns', JSON.stringify(grns));
+    renderReceipts();
 };
 
 window.addDraftItemRow = function() {
@@ -922,16 +1130,22 @@ function renderDraftRows() {
 }
 
 window.submitDraftGRN = function() {
-    var supplierInput = document.getElementById('draft-supplier').value.trim();
+    var supplierInput = (document.getElementById('draft-supplier').value || '').trim();
     var dateInput = document.getElementById('draft-date').value;
-    var noteInput = document.getElementById('draft-note').value.trim();
-    
+    var noteInput = (document.getElementById('draft-note').value || '').trim();
+
     if (!supplierInput || !dateInput) {
-        alert('Vui lòng nhập đầy đủ Nhà cung cấp và Ngày dự kiến!');
+        alert('Vui lòng chọn Nhà cung cấp và Ngày dự kiến!');
         return;
     }
-    
-    // Filter out invalid items
+
+    // Ràng buộc: supplierId bắt buộc phải được chọn từ dropdown (liên kết suppliers)
+    var supplierId = parseInt(supplierInput, 10);
+    if (!supplierId || supplierId <= 0) {
+        alert('Vui lòng chọn nhà cung cấp từ danh sách quản lý (không nhập text tự do).');
+        return;
+    }
+
     var validItems = draftForm.items.filter(function(i) {
         return i.skuCode && i.orderedQty > 0;
     }).map(function(i) {
@@ -943,52 +1157,80 @@ window.submitDraftGRN = function() {
             price: i.price || 0
         };
     });
-    
+
     if (validItems.length === 0) {
         alert('Vui lòng chọn ít nhất một SKU hợp lệ với số lượng lớn hơn 0!');
         return;
     }
-    
-    // Generate GRN ID
-    var maxSequence = 0;
-    grns.forEach(function(g) {
-        if (g && g.id) {
-            var match = String(g.id).match(/GRN-2026-(\d+)/);
-            if (match) {
-                var seq = parseInt(match[1]);
-                if (seq > maxSequence) maxSequence = seq;
-            }
-        }
-    });
-    var nextSeq = String(maxSequence + 1).padStart(4, '0');
-    var newId = 'GRN-2026-' + nextSeq;
-    
-    var now = new Date();
-    var createdAtStr = now.getFullYear() + '-' + 
-                       padZero(now.getMonth()+1) + '-' + 
-                       padZero(now.getDate()) + ' ' + 
-                       padZero(now.getHours()) + ':' + 
-                       padZero(now.getMinutes());
 
-    var newGRN = {
-        id: newId,
-        inboundCode: newId,
-        supplier: supplierInput,
-        createdAt: createdAtStr,
+    var btn = document.getElementById('btnSubmitGRN');
+    btn.disabled = true;
+    btn.textContent = 'Đang lưu...';
+
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '${pageContext.request.contextPath}/warehouse/inbound';
+
+    var fields = {
+        action: 'create',
+        supplierId: supplierInput,
+        supplierName: supplierInput,
         expectedDate: dateInput,
-        status: 'draft',
-        isLocked: false,
-        items: validItems,
-        note: noteInput || undefined
+        notes: noteInput || '',
+        itemsJson: JSON.stringify(validItems)
     };
-    
-    grns.unshift(newGRN);
-    closeDraftModal();
-    renderReceipts();
-    alert('Tạo phiếu nhập nháp thành công!');
+
+    for (var key in fields) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = fields[key];
+        form.appendChild(input);
+    }
+
+    document.body.appendChild(form);
+    form.submit();
 };
 
-// ─── ACTION BUTTONS ───
+// ─── ACTION: MARK PO AS COMPLETED (IN_PROGRESS → RECEIVED) ───
+window.completeInboundOrder = function(grnId, event) {
+    if (event) event.stopPropagation();
+    if (!confirm('Xác nhận hoàn thành phiếu nhập này? Hàng đã được kiểm đếm đủ, không thể nhập thêm sau bước này.')) return;
+
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '${pageContext.request.contextPath}/warehouse/inbound';
+    var actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'complete';
+    form.appendChild(actionInput);
+    var idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'inboundId';
+    idInput.value = grnId;
+    form.appendChild(idInput);
+    document.body.appendChild(form);
+    form.submit();
+};
+
+// ─── ACTION: OPEN CREATE RECEIPT MODAL FROM A PO ────────────
+window.openCreateReceiptFromPo = function(grnId, event) {
+    if (event) event.stopPropagation();
+    var grn = grns.find(function(g) { return g.id == grnId; });
+    if (!grn) return;
+
+    // Auto-select this PO in the modal
+    openReceiptModal(function() {
+        var select = document.getElementById('receipt-po-select');
+        select.value = grnId;
+        // Trigger change to populate detail
+        var evt = document.createEvent('HTMLEvents');
+        evt.initEvent('change', true, true);
+        select.dispatchEvent(evt);
+    });
+};
+
 window.submitForBMAvailability = function(grnId, event) {
     if (event) event.stopPropagation();
     var grn = grns.find(function(g) { return g.id == grnId; });
@@ -1010,8 +1252,17 @@ window.submitForBMAvailability = function(grnId, event) {
         var supplierInput = document.createElement('input');
         supplierInput.type = 'hidden';
         supplierInput.name = 'supplierName';
-        supplierInput.value = grn.supplier;
+        supplierInput.value = grn.supplier || '';
         form.appendChild(supplierInput);
+
+        // Nếu GRN local draft có lưu supplierId, gửi kèm để áp dụng ràng buộc FK.
+        if (grn.supplierId) {
+            var supIdInput = document.createElement('input');
+            supIdInput.type = 'hidden';
+            supIdInput.name = 'supplierId';
+            supIdInput.value = grn.supplierId;
+            form.appendChild(supIdInput);
+        }
 
         var whInput = document.createElement('input');
         whInput.type = 'hidden';
@@ -1054,6 +1305,159 @@ window.cancelDraftGRN = function(grnId, event) {
     }
 };
 
+// ─── CREATE RECEIPT MODAL (TẠO PHIẾU NHẬP KHO TỪ PO ĐÃ MUA) ───
+var receiptOverlay = document.getElementById('receiptModalOverlay');
+
+window.openReceiptModal = function(afterShow) {
+    // Populate select với các phiếu mua hàng có thể nhận: PENDING (chưa mua), PURCHASED (đã mua)
+    var select = document.getElementById('receipt-po-select');
+    var receivable = grns.filter(function(g) { return g.status === 'pending' || g.status === 'purchased'; });
+    var html = '<option value="">— Chọn phiếu mua hàng —</option>';
+    receivable.forEach(function(g) {
+        var label = (g.inboundCode || g.id) + ' — ' + g.supplier + ' (' + (g.items ? g.items.length : 0) + ' SKU)';
+        html += '<option value="' + g.id + '">' + escapeHtml(label) + '</option>';
+    });
+    select.innerHTML = html;
+
+    // Show/hide empty message
+    var emptyMsg = document.getElementById('receiptEmptyMsg');
+    if (receivable.length === 0) {
+        emptyMsg.style.display = 'block';
+    } else {
+        emptyMsg.style.display = 'none';
+    }
+
+    // Reset detail step
+    document.getElementById('receiptSelectStep').style.display = 'block';
+    document.getElementById('receiptDetailStep').style.display = 'none';
+    document.getElementById('btnSubmitReceipt').disabled = true;
+
+    receiptOverlay.classList.add('active');
+
+    if (typeof afterShow === 'function') {
+        afterShow();
+    }
+};
+
+window.closeReceiptModal = function() {
+    if (!receiptOverlay) return;
+    receiptOverlay.classList.remove('active');
+};
+
+// Change handler trên dropdown chọn PO
+(function() {
+    var sel = document.getElementById('receipt-po-select');
+    if (!sel) return;
+    sel.addEventListener('change', function() {
+        var poId = this.value;
+        var detailStep = document.getElementById('receiptDetailStep');
+        var btn = document.getElementById('btnSubmitReceipt');
+        if (!poId) {
+            detailStep.style.display = 'none';
+            btn.disabled = true;
+            return;
+        }
+        var po = grns.find(function(g) { return String(g.id) === String(poId); });
+        if (!po) return;
+
+        // Auto fill từ PO
+        document.getElementById('receipt-po-id').value = poId;
+        document.getElementById('receipt-supplier-name').value = po.supplier || '';
+        document.getElementById('receipt-note').value = po.note || '';
+        // Header fields
+        var zoneSelect = document.getElementById('receipt-zone');
+        if (zoneSelect) zoneSelect.value = po.zoneId || '';
+        var deliveryPersonInput = document.getElementById('receipt-delivery-person');
+        if (deliveryPersonInput) deliveryPersonInput.value = po.deliveryPerson || '';
+        var receivedDateInput = document.getElementById('receipt-received-date');
+        if (receivedDateInput) receivedDateInput.value = po.receivedDate || new Date().toISOString().split('T')[0];
+
+        // Render items table
+        var tbody = document.getElementById('receiptItemsTableBody');
+        var rowsHtml = po.items.map(function(item, idx) {
+            var skuId = 'rcv-' + poId + '-' + (item.productId || item.skuCode.replace(/[^a-zA-Z0-9]/g, '_'));
+            var reasonOptions = ['— Chọn lý do —','Hàng móp méo','Sai màu / Sai size','Hết hạn sử dụng','Hỏng do vận chuyển','Sai sản phẩm','Khác'].map(function(r) {
+                return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
+            }).join('');
+            return '<tr>' +
+                '<td style="white-space:nowrap;"><span style="font-family:monospace; font-size:11px; color:rgba(16,55,92,0.6);">' + esc(item.skuCode) + '</span></td>' +
+                '<td><span style="font-weight:600; color:var(--navy);">' + esc(item.skuName) + '</span></td>' +
+                '<td style="text-align:right; font-weight:600; color:var(--navy);">' + item.orderedQty + '</td>' +
+                '<td style="text-align:right;">' +
+                    '<input type="hidden" name="productId" value="' + item.productId + '"/>' +
+                    '<input type="hidden" name="unitCost" value="' + (item.price || 0) + '"/>' +
+                    '<input class="price-input" style="width:72px; padding:4px 6px; border:1px solid #bfdbfe; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#1d4ed8; background:#eff6ff;" type="number" name="receivedQty" min="0" max="' + item.orderedQty + '" value="' + item.orderedQty + '" data-sku-id="' + skuId + '" data-row-idx="' + idx + '" data-ordered="' + item.orderedQty + '" onchange="window.syncReceiptRow(this)"/>' +
+                '</td>' +
+                '<td style="text-align:right;">' +
+                    '<input class="price-input" style="width:72px; padding:4px 6px; border:1px solid #a7f3d0; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#059669; background:#f0fdf4;" type="number" name="acceptedQty" min="0" max="' + item.orderedQty + '" value="' + item.orderedQty + '" data-sku-id="' + skuId + '" data-row-idx="' + idx + '" onchange="window.syncReceiptRow(this)"/>' +
+                '</td>' +
+                '<td style="text-align:right;">' +
+                    '<input class="price-input" style="width:72px; padding:4px 6px; border:1px solid #fde68a; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#b45309; background:#fffbeb;" type="number" name="rejectedQty" min="0" max="' + item.orderedQty + '" value="0" data-sku-id="' + skuId + '" data-row-idx="' + idx + '" data-ordered="' + item.orderedQty + '" onchange="window.syncReceiptRow(this)"/>' +
+                '</td>' +
+                '<td>' +
+                    '<select style="width:100%; padding:4px 6px; border:1px solid rgba(16,55,92,0.2); border-radius:4px; font-size:11px; color:var(--navy); background:#fff;" name="rejectReason">' +
+                        reasonOptions +
+                    '</select>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+        tbody.innerHTML = rowsHtml;
+
+        detailStep.style.display = 'block';
+        btn.disabled = false;
+    });
+})();
+
+/**
+ * Đồng bộ 3 trường qty trên 1 dòng SKU:
+ * - receivedQty: SL thực nhận (nhập tay)
+ * - acceptedQty: SL chấp nhận (mặc định = receivedQty khi received thay đổi, nhưng có thể chỉnh)
+ * - rejectedQty: SL trả NCC = receivedQty - acceptedQty
+ * Đảm bảo accepted + rejected ≤ received, và 3 giá trị đều ≥ 0.
+ */
+window.syncReceiptRow = function(inputEl) {
+    var skuId = inputEl.getAttribute('data-sku-id');
+    if (!skuId) return;
+    var ordered = parseFloat(inputEl.getAttribute('data-ordered')) || 0;
+    var row = inputEl.closest('tr');
+    if (!row) return;
+    var receivedEl = row.querySelector('input[name="receivedQty"]');
+    var acceptedEl = row.querySelector('input[name="acceptedQty"]');
+    var rejectedEl = row.querySelector('input[name="rejectedQty"]');
+    var reasonSel = row.querySelector('select[name="rejectReason"]');
+
+    var received = parseFloat(receivedEl.value) || 0;
+    var accepted = parseFloat(acceptedEl.value) || 0;
+    var rejected = parseFloat(rejectedEl.value) || 0;
+
+    // Clamp received không vượt quá ordered
+    if (inputEl === receivedEl && received > ordered) {
+        received = ordered;
+        receivedEl.value = ordered;
+    }
+    if (inputEl === receivedEl) {
+        accepted = received;
+        rejected = 0;
+        acceptedEl.value = accepted;
+        rejectedEl.value = rejected;
+        if (reasonSel) reasonSel.value = reasonSel.options[0].value;
+    } else if (inputEl === acceptedEl) {
+        if (accepted > received) { accepted = received; acceptedEl.value = accepted; }
+        rejected = Math.max(0, received - accepted);
+        rejectedEl.value = rejected;
+        if (rejected > 0 && reasonSel && reasonSel.value === reasonSel.options[0].value) {
+            reasonSel.value = 'Hỏng do vận chuyển';
+        }
+    } else if (inputEl === rejectedEl) {
+        if (rejected > received) { rejected = received; rejectedEl.value = rejected; }
+        accepted = Math.max(0, received - rejected);
+        acceptedEl.value = accepted;
+        if (rejected > 0 && reasonSel && reasonSel.value === reasonSel.options[0].value) {
+            reasonSel.value = 'Hỏng do vận chuyển';
+        }
+    }
+};
+
 // ─── RECEIVE GOODS MODAL ───
 var receiveOverlay = document.getElementById('receiveModalOverlay');
 var receiveQuantities = {};
@@ -1064,7 +1468,7 @@ window.openReceiveModal = function(grnId, event) {
     if (!grn) return;
     
     document.getElementById('receive-grn-id').value = grnId;
-    document.getElementById('receiveModalSubtitle').textContent = grnId + ' · ' + grn.supplier;
+    document.getElementById('receiveModalSubtitle').textContent = (grn.inboundCode || grnId) + ' · ' + grn.supplier;
     
     receiveQuantities = {};
     
@@ -1156,6 +1560,10 @@ window.closeReceiveModal = function() {
     receiveOverlay.classList.remove('active');
 };
 
+window.closeReceiveDBModal = function() {
+    document.getElementById('receiveDBModal').classList.remove('active');
+};
+
 window.submitConfirmReceive = function() {
     var grnId = document.getElementById('receive-grn-id').value;
     var grn = grns.find(function(g) { return g.id == grnId; });
@@ -1242,17 +1650,24 @@ window.openDetailModal = function(grnId, event) {
     if (event) event.stopPropagation();
     var grn = grns.find(function(g) { return g.id == grnId; });
     if (!grn) return;
-    
+
     document.getElementById('detailModalSubtitle').textContent = grn.inboundCode || grn.id;
-    document.getElementById('detail-supplier').textContent = grn.supplier;
-    document.getElementById('detail-created-at').textContent = grn.createdAt;
-    document.getElementById('detail-expected-date').textContent = grn.expectedDate;
-    
+    document.getElementById('detail-supplier-code').textContent = grn.supplierCode || '—';
+    document.getElementById('detail-supplier').textContent      = grn.supplier || '—';
+    document.getElementById('detail-warehouse').textContent     = grn.warehouseName || '—';
+    document.getElementById('detail-payment-terms').textContent = grn.paymentTerms || '—';
+    document.getElementById('detail-contact').textContent       = grn.supplierContact || '—';
+    document.getElementById('detail-phone').textContent         = grn.supplierPhone || '—';
+    document.getElementById('detail-email').textContent         = grn.supplierEmail || '—';
+    document.getElementById('detail-address').textContent      = grn.supplierAddress || '—';
+    document.getElementById('detail-created-at').textContent    = grn.createdAt || '—';
+    document.getElementById('detail-expected-date').textContent = grn.expectedDate || '—';
+
     // Status badge
     var sc = getStatusConfig(grn.status);
-    document.getElementById('detail-status-badge').innerHTML = 
+    document.getElementById('detail-status-badge').innerHTML =
         '<span class="pill-badge ' + grn.status + '"><span class="pill-badge__dot"></span>' + sc.label + '</span>';
-        
+
     // Notes block
     var notesBox = document.getElementById('detail-notes-box');
     if (grn.note) {
@@ -1261,31 +1676,35 @@ window.openDetailModal = function(grnId, event) {
     } else {
         notesBox.style.display = 'none';
     }
-    
-    // Items table
+
+    // Items table + footer totals
     var tbody = document.getElementById('detailItemsTableBody');
-    var isCompleted = (grn.status === 'completed');
+    var totalItems = grn.items.length;
+    var totalQty = 0;
+    var grandTotal = 0;
+
     var html = grn.items.map(function(item) {
         var priceHtml = item.price ? item.price.toLocaleString('vi-VN') + ' đ' : '—';
-        var qtyForTotal = isCompleted ? (item.acceptedQty || 0) : (item.receivedQty || 0);
-        var lineTotal = (item.price && qtyForTotal) ? (item.price * qtyForTotal).toLocaleString('vi-VN') + ' đ' : '—';
-        var acceptedQty = (item.acceptedQty !== undefined) ? item.acceptedQty : '—';
-        var rejectedQty = (item.rejectedQty !== undefined && item.rejectedQty > 0)
-            ? '<span style="color:#dc2626; font-weight:700;">' + item.rejectedQty + '</span>'
-            : '<span style="color:rgba(16,55,92,0.3);">0</span>';
+        var ordered = parseFloat(item.orderedQty || 0);
+        var lineTotal = (item.price && ordered > 0) ? (item.price * ordered) : 0;
+        totalQty += ordered;
+        grandTotal += lineTotal;
         return '<tr>' +
             '<td style="white-space:nowrap;"><span style="font-family:monospace; font-size:11px; color:rgba(16,55,92,0.6);">' + escapeHtml(item.skuCode) + '</span></td>' +
             '<td><span style="font-weight:600; color:var(--navy);">' + escapeHtml(item.skuName) + '</span></td>' +
             '<td style="text-align:right; font-weight:600; color:var(--navy); white-space:nowrap;">' + priceHtml + '</td>' +
-            '<td style="text-align:right; font-weight:600; white-space:nowrap;">' + item.orderedQty + '</td>' +
-            '<td style="text-align:right; font-weight:600; white-space:nowrap;">' + (item.receivedQty || 0) + '</td>' +
-            '<td style="text-align:right; font-weight:700; color:#047857; white-space:nowrap;">' + acceptedQty + '</td>' +
-            '<td style="text-align:right; white-space:nowrap;">' + rejectedQty + '</td>' +
-            '<td style="text-align:right; font-weight:700; color:var(--navy); white-space:nowrap; padding-right:16px;">' + lineTotal + '</td>' +
+            '<td style="text-align:right; font-weight:600; white-space:nowrap;">' + ordered + '</td>' +
+            '<td style="text-align:right; font-weight:700; color:var(--navy); white-space:nowrap; padding-right:16px;">' + (lineTotal > 0 ? lineTotal.toLocaleString('vi-VN') + ' đ' : '—') + '</td>' +
         '</tr>';
     }).join('');
     tbody.innerHTML = html;
-    
+
+    document.getElementById('detail-total-items').textContent = totalItems;
+    document.getElementById('detail-total-qty').textContent   = totalQty;
+    document.getElementById('detail-grand-total').textContent  = grandTotal > 0
+        ? grandTotal.toLocaleString('vi-VN') + ' đ'
+        : '—';
+
     detailOverlay.classList.add('active');
 };
 
@@ -1294,7 +1713,7 @@ window.closeDetailModal = function() {
 };
 
 // Close detail and other overlays when clicking background
-[draftOverlay, receiveOverlay, detailOverlay].forEach(function(ov) {
+[draftOverlay, receiveOverlay, detailOverlay, receiptOverlay].forEach(function(ov) {
     if (ov) {
         ov.addEventListener('click', function(e) {
             if (e.target === ov) {
@@ -1313,7 +1732,8 @@ renderReceipts();
 // ─── DB-SIDE INBOUND TABLE (from WarehouseInboundServlet) ───
 function dbStatusLabel(status) {
     var m = {
-        'PENDING':    { label: 'Chờ',        cls: 'pending' },
+        'PENDING':    { label: 'Chờ nhập',     cls: 'pending' },
+        'PURCHASED':  { label: 'Đã mua',      cls: 'purchased' },
         'IN_PROGRESS':{ label: 'Đang nhập',   cls: 'confirmed' },
         'CONFIRMED':  { label: 'Đã xác nhận', cls: 'confirmed' },
         'RECEIVED':   { label: 'Đã nhập',     cls: 'received' },
@@ -1328,6 +1748,7 @@ function dbCounts() {
     return {
         all:         grns.length,
         pending:     grns.filter(function(o){ return o.status === 'pending'; }).length,
+        purchased:   grns.filter(function(o){ return o.status === 'purchased'; }).length,
         in_progress: grns.filter(function(o){ return o.status === 'in_progress'; }).length,
         completed:   grns.filter(function(o){ return o.status === 'completed'; }).length,
         cancelled:   grns.filter(function(o){ return o.status === 'cancelled'; }).length
@@ -1363,31 +1784,19 @@ if (tabs) {
 }
 
 window.openCreatePOModal = function() {
-    document.getElementById('createPOModal').classList.add('active');
+    var modal = document.getElementById('createPOModal');
+    modal.classList.add('active');
+    // Auto-select current warehouse + populate zone dropdown
+    var whSelect = document.getElementById('po-warehouse');
+    if (whSelect && window.myWarehouseId) {
+        whSelect.value = window.myWarehouseId;
+        // Trigger zone refresh if zone population is dynamic
+        var evt = new Event('change');
+        whSelect.dispatchEvent(evt);
+    }
 };
 window.closeCreatePOModal = function() {
     document.getElementById('createPOModal').classList.remove('active');
-};
-
-window.dbConfirmInbound = function(id, code, event) {
-    if (event) event.stopPropagation();
-    if (confirm('Xác nhận phiếu ' + code + '? Trạng thái sẽ chuyển sang Đã xác nhận.')) {
-        var form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '${pageContext.request.contextPath}/warehouse/inbound';
-        var actionInput = document.createElement('input');
-        actionInput.type = 'hidden';
-        actionInput.name = 'action';
-        actionInput.value = 'confirm';
-        var inboundIdInput = document.createElement('input');
-        inboundIdInput.type = 'hidden';
-        inboundIdInput.name = 'inboundId';
-        inboundIdInput.value = id;
-        form.appendChild(actionInput);
-        form.appendChild(inboundIdInput);
-        document.body.appendChild(form);
-        form.submit();
-    }
 };
 
 window.dbOpenReceiveModal = function(id, code, event) {
@@ -1396,50 +1805,99 @@ window.dbOpenReceiveModal = function(id, code, event) {
     if (!grn) return;
 
     document.getElementById('receiveDB-inboundId').value = id;
-    document.getElementById('receiveDB-subtitle').textContent = 'Mã phiếu: ' + code;
+    document.getElementById('receiveDB-subtitle').textContent = 'Mã phiếu nhập kho: ' + code;
+
+    // Auto-fill header fields from existing GRN data
+    var zoneSelect = document.getElementById('receiveDB-zone');
+    if (zoneSelect) zoneSelect.value = grn.zoneId || '';
+    var deliveryPersonInput = document.getElementById('receiveDB-deliveryPerson');
+    if (deliveryPersonInput) deliveryPersonInput.value = grn.deliveryPerson || '';
+    var receivedDateInput = document.getElementById('receiveDB-receivedDate');
+    if (receivedDateInput) receivedDateInput.value = grn.receivedDate || new Date().toISOString().split('T')[0];
 
     var container = document.getElementById('receiveDBItemsContainer');
-    var html = grn.items.map(function(item) {
-        var defaultVal = item.orderedQty - item.receivedQty;
-        if (defaultVal < 0) defaultVal = 0;
-        var acceptedDefault = defaultVal; // default: chấp nhận hết
-        var rejectedDefault = 0;
-        return '<div class="receive-item-card" style="padding:12px 16px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;">' +
-            '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">' +
-            '<div style="flex:1;">' +
-                '<div style="font-weight:700; color:var(--navy); font-size:13px;">' + esc(item.skuName) + '</div>' +
-                '<div style="font-family:monospace; color:rgba(16, 55, 92, 0.5); font-size:11px;">' + esc(item.skuCode) + '</div>' +
-                    '<div style="font-size:11px; color:rgba(16, 55, 92, 0.4); margin-top:2px;">Đặt: <strong style="color:var(--navy);">' + item.orderedQty + '</strong> · Đã nhận: <strong style="color:#047857;">' + item.receivedQty + '</strong></div>' +
-            '</div>' +
-                '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
+    var REJECT_REASONS = ['— Chọn lý do —','Hàng móp méo','Sai màu / Sai size','Hết hạn sử dụng','Hỏng do vận chuyển','Sai sản phẩm','Khác'];
+    var html = grn.items.map(function(item, idx) {
+        var remaining = item.orderedQty - item.receivedQty;
+        if (remaining < 0) remaining = 0;
+        var currentReason = item.rejectReason || '';
+        var reasonOptions = REJECT_REASONS.map(function(r) {
+            return '<option value="' + esc(r) + '"' + (r === currentReason ? ' selected' : '') + '>' + esc(r) + '</option>';
+        }).join('');
+        var rowBg = idx % 2 === 0 ? '#fff' : '#f8fafc';
+        return '<tr style="background:' + rowBg + ';">' +
+            '<td style="padding:8px 10px; border-bottom:1px solid rgba(16,55,92,0.12);">' +
+                '<div style="font-weight:700; font-size:12px; color:var(--navy);">' + esc(item.skuName) + '</div>' +
+                '<div style="font-family:monospace; color:rgba(16,55,92,0.45); font-size:10px;">' + esc(item.skuCode) + '</div>' +
+            '</td>' +
+            '<td style="padding:8px 6px; text-align:center; font-weight:700; font-size:12px; color:var(--navy); border-bottom:1px solid rgba(16,55,92,0.12);">' + item.orderedQty + '</td>' +
+            '<td style="padding:6px; text-align:center; border-bottom:1px solid rgba(16,55,92,0.12);">' +
                 '<input type="hidden" name="productId" value="' + item.productId + '"/>' +
-                    '<input type="hidden" name="unitCost" value="' + (item.price || 0) + '"/>' +
-                    '<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">' +
-                        '<label style="font-size:10px; font-weight:700; color:#1d4ed8;">SL THỰC NHẬN</label>' +
-                        '<input class="price-input" style="width:70px; padding:5px; border:1px solid var(--border); border-radius:4px; text-align:right; font-size:13px; font-weight:600; color:#1d4ed8;" type="number" name="receivedQty" min="0" max="' + defaultVal + '" value="' + defaultVal + '" onchange="window.sync2Qty(this)"/>' +
-                    '</div>' +
-                    '<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">' +
-                        '<label style="font-size:10px; font-weight:700; color:#047857;">SL CHẤP NHẬN</label>' +
-                        '<input class="price-input" style="width:70px; padding:5px; border:1px solid #a7f3d0; border-radius:4px; text-align:right; font-size:13px; font-weight:600; color:#047857; background:#f0fdf4;" type="number" name="acceptedQty" min="0" max="' + defaultVal + '" value="' + acceptedDefault + '" onchange="window.sync2Qty(this)"/>' +
-                    '</div>' +
-                    '<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">' +
-                        '<label style="font-size:10px; font-weight:700; color:#dc2626;">SL TỪ CHỐI</label>' +
-                        '<div id="rejected-display-' + item.skuCode.replace(/[^a-zA-Z0-9]/g,'_') + '" style="width:70px; padding:5px 6px; background:#fef2f2; border:1px solid #fca5a5; border-radius:4px; text-align:right; font-size:13px; font-weight:600; color:#dc2626; min-height:33px; line-height:1.5;">' + rejectedDefault + '</div>' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-        '</div>';
+                '<input type="hidden" name="unitCost" value="' + (item.price || 0) + '"/>' +
+                '<input style="width:64px; padding:4px 6px; border:1px solid #bfdbfe; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#1d4ed8; background:#eff6ff;" type="number" name="receivedQty" min="0" value="' + remaining + '" data-row-idx="' + idx + '" data-remaining="' + remaining + '" onchange="window.syncDbReceiptRow(this)"/>' +
+            '</td>' +
+            '<td style="padding:6px; text-align:center; border-bottom:1px solid rgba(16,55,92,0.12);">' +
+                '<input style="width:64px; padding:4px 6px; border:1px solid #a7f3d0; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#059669; background:#f0fdf4;" type="number" name="acceptedQty" min="0" value="' + remaining + '" data-row-idx="' + idx + '" onchange="window.syncDbReceiptRow(this)"/>' +
+            '</td>' +
+            '<td style="padding:6px; text-align:center; border-bottom:1px solid rgba(16,55,92,0.12);">' +
+                '<input style="width:64px; padding:4px 6px; border:1px solid #fde68a; border-radius:4px; text-align:center; font-size:12px; font-weight:700; color:#b45309; background:#fffbeb;" type="number" name="rejectedQty" min="0" value="0" data-row-idx="' + idx + '" data-remaining="' + remaining + '" onchange="window.syncDbReceiptRow(this)"/>' +
+            '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid rgba(16,55,92,0.12);">' +
+                '<select style="width:100%; padding:4px 6px; border:1px solid rgba(16,55,92,0.20); border-radius:4px; font-size:11px; color:var(--navy); background:#fff;" name="rejectReason">' +
+                    reasonOptions +
+                '</select>' +
+            '</td>' +
+        '</tr>';
     }).join('');
 
     container.innerHTML = html;
     document.getElementById('receiveDBModal').classList.add('active');
 };
 
-window.closeReceiveDBModal = function() {
-    document.getElementById('receiveDBModal').classList.remove('active');
+/**
+ * Đồng bộ 3 trường qty: received = accepted + rejected.
+ * Khi accepted thay đổi → rejected tự tính; tự chọn lý do nếu có trả hàng.
+ */
+window.syncDbReceiptRow = function(inputEl) {
+    var row = inputEl.closest('tr');
+    if (!row) {
+        row = inputEl.closest('.receive-item-card');
+    }
+    if (!row) return;
+    var receivedEl = row.querySelector('input[name="receivedQty"]');
+    var acceptedEl = row.querySelector('input[name="acceptedQty"]');
+    var rejectedEl = row.querySelector('input[name="rejectedQty"]');
+    var reasonSel = row.querySelector('select[name="rejectReason"]');
+    if (!receivedEl || !acceptedEl || !rejectedEl) return;
+
+    var received = parseFloat(receivedEl.value) || 0;
+    var accepted = parseFloat(acceptedEl.value) || 0;
+    var rejected = parseFloat(rejectedEl.value) || 0;
+
+    if (inputEl === receivedEl) {
+        accepted = received;
+        rejected = 0;
+        acceptedEl.value = accepted;
+        rejectedEl.value = rejected;
+        if (reasonSel) reasonSel.value = reasonSel.options[0].value;
+    } else if (inputEl === acceptedEl) {
+        if (accepted > received) { accepted = received; acceptedEl.value = accepted; }
+        rejected = Math.max(0, received - accepted);
+        rejectedEl.value = rejected;
+        if (rejected > 0 && reasonSel && reasonSel.value === reasonSel.options[0].value) {
+            reasonSel.value = 'Hỏng do vận chuyển';
+        }
+    } else if (inputEl === rejectedEl) {
+        if (rejected > received) { rejected = received; rejectedEl.value = rejected; }
+        accepted = Math.max(0, received - rejected);
+        acceptedEl.value = accepted;
+        if (rejected > 0 && reasonSel && reasonSel.value === reasonSel.options[0].value) {
+            reasonSel.value = 'Hỏng do vận chuyển';
+        }
+    }
 };
 
-['createPOModal', 'receiveDBModal'].forEach(function(id) {
+['createPOModal', 'receiveDBModal', 'receiveModalOverlay'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {
         el.addEventListener('click', function(e) {
@@ -1452,10 +1910,17 @@ window.closeReceiveDBModal = function() {
 
 // renderDbTable() removed since it is not defined and merged into renderReceipts()
 
-var createBtn = document.getElementById('btnCreateGRNTrigger');
+var createBtn = document.getElementById('btnCreatePOTrigger');
 if (createBtn) {
     createBtn.addEventListener('click', function() {
         openDraftModal('create');
+    });
+}
+
+var createReceiptBtn = document.getElementById('btnCreateReceiptTrigger');
+if (createReceiptBtn) {
+    createReceiptBtn.addEventListener('click', function() {
+        openReceiptModal();
     });
 }
 

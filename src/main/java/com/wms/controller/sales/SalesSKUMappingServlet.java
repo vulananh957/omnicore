@@ -30,6 +30,7 @@ public class SalesSKUMappingServlet extends BaseController {
             req.setAttribute("skuMappings", skuMappingService.findAllMappings());
             req.setAttribute("channels", skuMappingService.findAllChannels());
             req.setAttribute("products", skuMappingService.findAllSkus());
+            req.setAttribute("unresolvedExceptions", new SkuMappingExceptionDAO().findUnresolved());
 
             var allMappings = skuMappingService.findAllMappings();
             req.setAttribute("totalMappings", allMappings.size());
@@ -45,6 +46,7 @@ public class SalesSKUMappingServlet extends BaseController {
             req.setAttribute("skuMappings", List.of());
             req.setAttribute("channels", List.of());
             req.setAttribute("products", List.of());
+            req.setAttribute("unresolvedExceptions", List.of());
             req.setAttribute("totalMappings", 0);
             req.setAttribute("pendingMappings", 0);
             req.setAttribute("syncedMappings", 0);
@@ -75,6 +77,15 @@ public class SalesSKUMappingServlet extends BaseController {
                 int channelId = Integer.parseInt(req.getParameter("channelId"));
                 success = skuMappingService.createMapping(skuId, channelId,
                     req.getParameter("channelSku"), req.getParameter("sellerSku"), LocalDateTime.now());
+                
+                String exceptionIdStr = req.getParameter("exceptionId");
+                if (success && exceptionIdStr != null && !exceptionIdStr.trim().isEmpty()) {
+                    try {
+                        int exceptionId = Integer.parseInt(exceptionIdStr.trim());
+                        new SkuMappingExceptionDAO().markResolved(exceptionId);
+                    } catch (Exception ignored) {}
+                }
+                
                 message = success ? "Tạo ánh xạ SKU thành công!" : "Tạo ánh xạ SKU thất bại.";
 
             } else if ("update".equals(action)) {

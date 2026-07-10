@@ -774,3 +774,52 @@
     .empty-wrapper-desc {
         font-size: 12px;
     }
+
+    /* ─── Toast Notifications ─── */
+    .toast-notification {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 9999;
+        background: #10B981;
+        color: #fff;
+        padding: 12px 24px;
+        border-radius: 8px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        display: none;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        transition: all 0.3s ease-in-out;
+    }
+    .toast-notification.show {
+        display: flex;
+        animation: toastSlideIn 0.3s forwards;
+    }
+    .toast-notification.error {
+        background: #EF4444;
+    }
+    @keyframes toastSlideIn {
+        from { transform: translateY(-20px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media print {
+        @page {
+            size: A4 portrait;
+            margin: 15mm;
+        }
+        body * { visibility: hidden; }
+        #detailModalOverlay, #detailModalOverlay * { visibility: hidden; }
+        .pdf-print-area, .pdf-print-area * { visibility: visible; }
+        .pdf-print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            background: #fff !important;
+        }
+    }

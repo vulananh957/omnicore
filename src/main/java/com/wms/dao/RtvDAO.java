@@ -4,7 +4,6 @@ import com.wms.model.RtvOrder;
 import com.wms.model.RtvItem;
 import com.wms.util.DBConnection;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

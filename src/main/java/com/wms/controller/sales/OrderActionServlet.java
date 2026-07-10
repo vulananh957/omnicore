@@ -8,7 +8,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.logging.Logger;
 
 /**
  * OrderActionServlet — Handles POST requests for order lifecycle status
@@ -16,7 +15,6 @@ import java.util.logging.Logger;
  * Maps to /sales/order-action.
  */
 public class OrderActionServlet extends BaseController {
-    private static final Logger LOGGER = Logger.getLogger(OrderActionServlet.class.getName());
 
     private final OrderService orderService = new OrderService();
 
@@ -33,6 +31,7 @@ public class OrderActionServlet extends BaseController {
             return;
         }
 
+        String userRole = currentUserRole(req);
         OrderService.ActionResult result = orderService.handleAction(
                 action, orderCode,
                 req.getParameter("warehouseName"),
@@ -43,7 +42,9 @@ public class OrderActionServlet extends BaseController {
                 req.getParameter("rmaPhysicalStatus"),
                 req.getParameter("rmaPlatformStatus"),
                 req.getParameter("platformStatus"),
-                req.getParameter("disputeNote"));
+                req.getParameter("disputeNote"),
+                currentUserId(req) != null ? currentUserId(req) : 1,
+                userRole != null ? userRole : "");
 
         if (result.isSuccess()) {
             // ActionResult có thể mang theo data (vd: trackingNo sau khi server sinh)

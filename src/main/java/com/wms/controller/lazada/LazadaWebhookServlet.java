@@ -51,14 +51,13 @@ import java.util.logging.Logger;
  * <p>Configured in web.xml without auth — the public URL is registered
  * with Lazada as the push endpoint.
  */
-@WebServlet(name = "LazadaWebhookServlet", urlPatterns = {"/lazada/webhook"})
+@WebServlet(name = "LazadaWebhookServlet", urlPatterns = {"/lazada/webhook", "/webhook/lazada"})
 public class LazadaWebhookServlet extends HttpServlet {
 
     private static final Logger LOGGER = Logger.getLogger(LazadaWebhookServlet.class.getName());
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final LazadaWebhookService webhookService = new LazadaWebhookService();
 
-    private static final int MAX_RETRIES = 3;
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
@@ -84,11 +83,33 @@ public class LazadaWebhookServlet extends HttpServlet {
         int logId = webhookService.logWebhook(0, "LAZADA_ORDER_STATUS", body, messageId, clientIp, signature, "PENDING", null);
 
         try {
+            // Check if it is a Lazada handshake/test message (message_type = 0)
+            JsonNode rootNode = MAPPER.readTree(body);
+            int messageType = rootNode.path("message_type").asInt(-1);
+            if (messageType == 0) {
+                LOGGER.info("LazadaWebhookServlet: received test handshake message — acknowledging 200 OK");
+                webhookService.markWebhookStatus(logId, "SUCCESS", "Handshake success");
+                resp.setStatus(HttpServletResponse.SC_OK);
+                resp.getWriter().print("ok");
+                return;
+            }
+
             // We need a channel to verify signature/IP. Lazada doesn't put
             // channel_id in the body, so we either find it from the first
             // order_id (preferred) or fall back to "any LAZADA channel".
             Integer channelId = inferChannelId(body);
             Channel channel = channelId != null ? new ChannelDAO().findById(channelId) : null;
+
+            if (channel == null) {
+                // Fallback: Find the first active Lazada channel in the database
+                java.util.List<Channel> lazadaChannels = new ChannelDAO().findAll();
+                for (Channel ch : lazadaChannels) {
+                    if ("Lazada".equalsIgnoreCase(ch.getPlatform()) && ch.isActive()) {
+                        channel = ch;
+                        break;
+                    }
+                }
+            }
 
             // If channel cannot be resolved, reject — we must not silently bypass IP/HMAC checks
             if (channel == null) {
@@ -177,13 +198,13 @@ public class LazadaWebhookServlet extends HttpServlet {
             JsonNode data = root.path("data");
             JsonNode orders = data.isArray() ? data : data.path("orders");
             if (orders.isArray() && orders.size() > 0) {
-                String orderId = orders.get(0).path("order_id").asText("");
+                String orderId = orders.get(0).path("order_id").asText();
                 if (!orderId.isEmpty()) {
                     com.wms.model.Order o = new com.wms.dao.OrderDAO().findByOrderCode(orderId);
                     if (o != null && o.getChannelId() > 0) return o.getChannelId();
                 }
             } else if (orders.isObject()) {
-                String orderId = orders.path("order_id").asText("");
+                String orderId = orders.path("order_id").asText();
                 if (!orderId.isEmpty()) {
                     com.wms.model.Order o = new com.wms.dao.OrderDAO().findByOrderCode(orderId);
                     if (o != null && o.getChannelId() > 0) return o.getChannelId();
@@ -243,18 +264,18 @@ public class LazadaWebhookServlet extends HttpServlet {
     // ── Order processing ─────────────────────────────────────────
 
     private void handleOne(JsonNode order, Channel channel) {
-        String orderId = order.path("order_id").asText("");
+        String orderId = order.path("order_id").asText();
         if (orderId.isEmpty()) return;
         String status = order.path("statuses").isArray() && order.path("statuses").size() > 0
                 ? order.path("statuses").get(0).asText()
-                : order.path("status").asText("");
+                : order.path("status").asText();
         if (status.isEmpty()) return;
 
         webhookService.handleOrderEvent(order);
 
         // Route through the standard OrderService webhook handler
         new OrderService().handleAction("webhook", orderId,
-                null, null, null, null, null, null, null, status, null);
+                null, null, null, null, null, null, null, status, null, 1, "SYSTEM");
     }
 
     private static String readBody(HttpServletRequest req) throws IOException {

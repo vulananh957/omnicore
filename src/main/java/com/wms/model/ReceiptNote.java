@@ -20,6 +20,7 @@ public class ReceiptNote {
     private BigDecimal rejectedQty;
     private BigDecimal unitCost;
     private String note;
+    private String rejectReason;  // Lý do trả hàng NCC: Hàng móp méo, Sai màu/size, Hết hạn, Hỏng vận chuyển
     private LocalDateTime receivedAt;
 
     // ── Constructors ──────────────────────────────────────────
@@ -122,6 +123,14 @@ public class ReceiptNote {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getRejectReason() {
+        return rejectReason;
+    }
+
+    public void setRejectReason(String rejectReason) {
+        this.rejectReason = rejectReason;
     }
 
     public LocalDateTime getReceivedAt() {

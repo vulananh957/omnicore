@@ -6,7 +6,7 @@ import com.wms.model.Product;
 import com.wms.model.User;
 import com.wms.model.Warehouse;
 import com.wms.service.warehouse.TransferService;
-import com.wms.service.NotificationService;
+import com.wms.service.common.NotificationService;
 import com.wms.util.AppConstants;
 import com.wms.util.JsonUtil;
 
@@ -124,12 +124,6 @@ public class WarehouseTransferServlet extends BaseController {
                 User currentUser = (User) req.getSession().getAttribute(AppConstants.SESSION_USER);
                 int userId = currentUser != null ? currentUser.getUserId() : 1;
                 transferService.markReceived(transferId, userId);
-                // Notify managers: transfer completed
-                notificationService.notifyManagers(
-                        "Phiếu chuyển kho đã nhận",
-                        "Phiếu chuyển kho #" + t.getTransferId() + " (" + t.getTransferCode() + ") đã được kho đích xác nhận nhận hàng.",
-                        "TRANSFER", (long) transferId,
-                        com.wms.model.Notification.PRIORITY_NORMAL);
                 resp.getWriter().write("{\"success\":true}");
 
             } else {

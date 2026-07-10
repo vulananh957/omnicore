@@ -21,9 +21,6 @@ public class InventoryDAO {
 
     private static final Logger LOGGER = Logger.getLogger(InventoryDAO.class.getName());
 
-    private static final String SQL_UPDATE_SOFT_ALLOCATE =
-        "UPDATE inventory SET holding = holding + ?, qty_available = qty_available - ? "
-        + "WHERE product_id = ? AND warehouse_id = ? AND qty_available >= ?";
 
     /**
      * Executes soft-allocation to hold inventory for an order (Rule BR-04).
@@ -90,7 +87,9 @@ public class InventoryDAO {
      * @return qty_available (0 if no inventory row exists or on error)
      */
     public int getAvailableStock(int productId, int warehouseId) {
-        String sql = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+        String sql = "SELECT qty_available FROM inventory "
+                   + "WHERE product_id = ? AND warehouse_id = ? "
+                   + "  AND (stock_type IS NULL OR stock_type = 'NORMAL')";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, productId);
@@ -103,6 +102,31 @@ public class InventoryDAO {
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "getAvailableStock failed productId=" + productId + " warehouseId=" + warehouseId, e);
+        }
+        return 0;
+    }
+
+    /**
+     * Returns total qty_available for a product across ALL active warehouses.
+     * Used by the Lazada inventory push scheduler to reflect total stock.
+     */
+    public int getTotalAvailableStock(int productId) {
+        String sql = "SELECT COALESCE(SUM(qty_available), 0) FROM inventory i "
+                   + "JOIN warehouses w ON i.warehouse_id = w.warehouse_id "
+                   + "WHERE i.product_id = ? "
+                   + "  AND w.active = 1 "
+                   + "  AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL')";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING,
+                "getTotalAvailableStock failed productId=" + productId, e);
         }
         return 0;
     }
@@ -223,6 +247,79 @@ public class InventoryDAO {
     }
 
     /**
+     * Deducts qty_on_hand and qty_available at source warehouse for a transfer out.
+     * Does NOT write a ledger entry — caller (TransferService) handles that.
+     * Used by TransferService.createTransfer() to immediately reflect stock movement.
+     *
+     * @param productId    The product being transferred out
+     * @param warehouseId  The source warehouse
+     * @param quantity     The quantity to deduct
+     * @return true if deducted; false if insufficient stock or row missing
+     */
+    public boolean deductTransferOut(int productId, int warehouseId, BigDecimal quantity) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return false;
+        String sql = "UPDATE inventory "
+                   + "SET qty_on_hand = qty_on_hand - ?, qty_available = qty_available - ? "
+                   + "WHERE product_id = ? AND warehouse_id = ? AND stock_type = 'NORMAL' "
+                   + "  AND qty_available >= ?";
+        try (Connection conn = DBConnection.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setBigDecimal(1, quantity);
+                ps.setBigDecimal(2, quantity);
+                ps.setInt(3, productId);
+                ps.setInt(4, warehouseId);
+                ps.setBigDecimal(5, quantity);
+                int rows = ps.executeUpdate();
+                if (rows == 0) {
+                    LOGGER.warning("deductTransferOut: no row updated for productId=" + productId
+                            + " warehouseId=" + warehouseId + " qty=" + quantity);
+                    return false;
+                }
+                LOGGER.info("deductTransferOut: deducted " + quantity + " of productId=" + productId
+                        + " from warehouseId=" + warehouseId);
+                return true;
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "deductTransferOut: DB error", e);
+            return false;
+        }
+    }
+
+    /**
+     * Adds qty_on_hand and qty_available at destination warehouse for a transfer in.
+     * Creates an inventory row if none exists.
+     * Does NOT write a ledger entry — caller handles that.
+     *
+     * @param productId    The product being transferred in
+     * @param warehouseId  The destination warehouse
+     * @param quantity     The quantity to add
+     * @return true if updated/inserted
+     */
+    public boolean addTransferIn(int productId, int warehouseId, BigDecimal quantity) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return false;
+        String sql = "INSERT INTO inventory (product_id, warehouse_id, qty_on_hand, holding, qty_available, stock_type) "
+                   + "VALUES (?, ?, ?, 0, ?, 'NORMAL') "
+                   + "ON DUPLICATE KEY UPDATE qty_on_hand = qty_on_hand + ?, qty_available = qty_available + ?";
+        try (Connection conn = DBConnection.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, productId);
+                ps.setInt(2, warehouseId);
+                ps.setBigDecimal(3, quantity);
+                ps.setBigDecimal(4, quantity);
+                ps.setBigDecimal(5, quantity);
+                ps.setBigDecimal(6, quantity);
+                ps.executeUpdate();
+                LOGGER.info("addTransferIn: added " + quantity + " of productId=" + productId
+                        + " to warehouseId=" + warehouseId);
+                return true;
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "addTransferIn: DB error", e);
+            return false;
+        }
+    }
+
+    /**
      * Returns the total qty_available for a product across ALL warehouses
      * and ALL stock types (NORMAL + DEFECTIVE), since the Lazada push
      * uses the grand-total system inventory.
@@ -270,8 +367,9 @@ public class InventoryDAO {
             "SELECT inv.inventory_id, inv.product_id, p.sku_code, p.product_name, "
             + "inv.warehouse_id, w.warehouse_name, w.warehouse_code, "
             + "inv.qty_on_hand, inv.holding, inv.qty_available, inv.updated_at, "
-            + "p.min_stock, p.rop_calculated, "
-            + "COALESCE(inb.inbound_qty, 0) AS inbound_qty "
+            + "p.min_stock, p.max_stock, p.rop_calculated, "
+            + "COALESCE(inb.inbound_qty, 0) AS inbound_qty, "
+            + "COALESCE(ROUND(p.mac_price), p.base_price, 0) AS mac_price "
             + "FROM inventory inv "
             + "LEFT JOIN products p ON inv.product_id = p.product_id "
             + "LEFT JOIN warehouses w ON inv.warehouse_id = w.warehouse_id "
@@ -283,6 +381,7 @@ public class InventoryDAO {
             + "    WHERE io.status IN ('PENDING','IN_PROGRESS') "
             + "    GROUP BY ii.product_id, io.warehouse_id"
             + ") inb ON inv.product_id = inb.product_id AND inv.warehouse_id = inb.warehouse_id "
+            + "WHERE (inv.stock_type IS NULL OR inv.stock_type = 'NORMAL') "
             + "ORDER BY p.sku_code, w.warehouse_name "
             + "LIMIT 500";
         try (Connection conn = DBConnection.getConnection();
@@ -303,6 +402,7 @@ public class InventoryDAO {
                 java.sql.Timestamp updated = rs.getTimestamp("updated_at");
                 row.put("updatedAt", updated != null ? updated.toLocalDateTime().toString() : "");
                 row.put("inboundQty", rs.getBigDecimal("inbound_qty"));
+                row.put("macPrice", rs.getBigDecimal("mac_price"));
 
                 // ATP: available + inbound (SME scope — outbound forecast deferred)
                 java.math.BigDecimal available = rs.getBigDecimal("qty_available") != null
@@ -332,6 +432,8 @@ public class InventoryDAO {
                     level = "safe";
                 }
                 row.put("level", level);
+                row.put("minStock", minStock);
+                row.put("maxStock", rs.getBigDecimal("max_stock") != null ? rs.getBigDecimal("max_stock") : java.math.BigDecimal.ZERO);
 
                 result.add(row);
             }
@@ -351,8 +453,9 @@ public class InventoryDAO {
             "SELECT inv.inventory_id, inv.product_id, p.sku_code, p.product_name, "
             + "inv.warehouse_id, w.warehouse_name, w.warehouse_code, "
             + "inv.qty_on_hand, inv.holding, inv.qty_available, inv.updated_at, "
-            + "p.min_stock, p.rop_calculated, inv.stock_type, "
-            + "COALESCE(inb.inbound_qty, 0) AS inbound_qty "
+            + "p.min_stock, p.max_stock, p.rop_calculated, inv.stock_type, "
+            + "COALESCE(inb.inbound_qty, 0) AS inbound_qty, "
+            + "COALESCE(ROUND(p.mac_price), p.base_price, 0) AS mac_price "
             + "FROM inventory inv "
             + "LEFT JOIN products p ON inv.product_id = p.product_id "
             + "LEFT JOIN warehouses w ON inv.warehouse_id = w.warehouse_id "
@@ -364,7 +467,7 @@ public class InventoryDAO {
             + "    WHERE io.status IN ('PENDING','IN_PROGRESS') "
             + "    GROUP BY ii.product_id, io.warehouse_id"
             + ") inb ON inv.product_id = inb.product_id AND inv.warehouse_id = inb.warehouse_id "
-            + "WHERE inv.warehouse_id = ? "
+            + "WHERE inv.warehouse_id = ? AND (inv.stock_type IS NULL OR inv.stock_type != 'DEFECTIVE') "
             + "ORDER BY p.sku_code ";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -386,6 +489,7 @@ public class InventoryDAO {
                     java.sql.Timestamp updated = rs.getTimestamp("updated_at");
                     row.put("updatedAt", updated != null ? updated.toLocalDateTime().toString() : "");
                     row.put("inboundQty", rs.getBigDecimal("inbound_qty"));
+                    row.put("macPrice", rs.getBigDecimal("mac_price"));
 
                     java.math.BigDecimal available = rs.getBigDecimal("qty_available") != null
                             ? rs.getBigDecimal("qty_available") : java.math.BigDecimal.ZERO;
@@ -413,6 +517,8 @@ public class InventoryDAO {
                         level = "safe";
                     }
                     row.put("level", level);
+                    row.put("minStock", minStock);
+                    row.put("maxStock", rs.getBigDecimal("max_stock") != null ? rs.getBigDecimal("max_stock") : java.math.BigDecimal.ZERO);
 
                     result.add(row);
                 }
@@ -446,15 +552,17 @@ public class InventoryDAO {
         }
 
         String sql = "UPDATE inventory "
-                   + "SET qty_available = qty_available + ? "
+                   + "SET qty_available = qty_available + ?, "
+                   + "    holding = GREATEST(holding - ?, 0) "
                    + "WHERE product_id = ? AND warehouse_id = ?";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setBigDecimal(1, quantity);
-            ps.setInt(2, productId);
-            ps.setInt(3, warehouseId);
+            ps.setBigDecimal(2, quantity);
+            ps.setInt(3, productId);
+            ps.setInt(4, warehouseId);
 
             int rows = ps.executeUpdate();
             boolean ok = rows > 0;

@@ -3,7 +3,7 @@ package com.wms.filter;
 import com.wms.dao.InventoryDAO;
 import com.wms.util.AppConstants;
 import com.wms.model.User;
-import com.wms.service.NotificationService;
+import com.wms.service.common.NotificationService;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;

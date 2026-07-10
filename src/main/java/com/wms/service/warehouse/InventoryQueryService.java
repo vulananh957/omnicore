@@ -4,7 +4,6 @@ import com.wms.dao.ChannelDAO;
 import com.wms.dao.InventoryDAO;
 import com.wms.model.Channel;
 
-import java.math.BigDecimal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -4,12 +4,10 @@ import com.wms.controller.BaseController;
 import com.wms.dao.InventoryDAO;
 import com.wms.model.Category;
 import com.wms.model.Product;
-import com.wms.model.User;
 import com.wms.model.Warehouse;
 import com.wms.model.Zone;
 import com.wms.service.product.ProductService;
 import com.wms.service.warehouse.WarehouseService;
-import com.wms.util.AppConstants;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

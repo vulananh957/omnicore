@@ -2,8 +2,6 @@ package com.wms.service.product;
 
 import com.wms.dao.CategoryDAO;
 import com.wms.model.Category;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -11,7 +9,6 @@ import java.util.regex.Pattern;
 
 public class CategoryService {
 
-    private static final Logger log = LoggerFactory.getLogger(CategoryService.class);
     private static final Pattern CATEGORY_CODE_PATTERN = Pattern.compile("^[A-Z0-9]{3,4}$");
 
     private final CategoryDAO categoryDAO = new CategoryDAO();

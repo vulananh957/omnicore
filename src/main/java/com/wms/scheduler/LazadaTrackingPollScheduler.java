@@ -18,7 +18,6 @@ import jakarta.servlet.annotation.WebListener;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Timer;
@@ -136,13 +135,13 @@ public class LazadaTrackingPollScheduler implements ServletContextListener {
 
                     boolean justDelivered = false;
                     for (JsonNode ev : events) {
-                        String desc = ev.path("status_description").asText("");
-                        String timeStr = ev.path("event_time").asText("");
+                        String desc = ev.path("status_description").asText();
+                        String timeStr = ev.path("event_time").asText();
                         LocalDateTime eventTime = parseTime(timeStr);
                         if (eventTime == null) continue;
                         boolean inserted = insertEvent(o.getOrderId(), ch.getChannelId(),
-                                ev.path("status_code").asText(""), desc,
-                                ev.path("location").asText(""), eventTime, ev.toString());
+                                ev.path("status_code").asText(), desc,
+                                ev.path("location").asText(), eventTime, ev.toString());
                         if (inserted) appended++;
                         if (isDeliveredStatus(desc)) justDelivered = true;
                     }
@@ -150,7 +149,7 @@ public class LazadaTrackingPollScheduler implements ServletContextListener {
                         // UC-B2C07: Delivered triggers status update via OrderService
                         // (which checks the BR-09 RMA grace period separately).
                         orderService.handleAction("webhook", o.getOrderCode(),
-                                null, null, null, null, null, null, null, "DELIVERED", null);
+                                null, null, null, null, null, null, null, "DELIVERED", null, 1, "SYSTEM");
                         delivered++;
                     }
                 } catch (Exception e) {

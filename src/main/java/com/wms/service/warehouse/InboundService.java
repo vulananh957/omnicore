@@ -4,14 +4,17 @@ import com.wms.dao.InboundDAO;
 import com.wms.dao.InventoryDAO;
 import com.wms.dao.ProductDAO;
 import com.wms.model.InboundOrder;
+import com.wms.model.Product;
 import com.wms.model.ReceiptNote;
+import com.wms.model.Supplier;
+import com.wms.service.business.SupplierService;
+import com.wms.service.common.NotificationService;
 import com.wms.service.marketplace.MarketplaceSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +27,8 @@ public class InboundService {
     private final InventoryDAO inventoryDAO = new InventoryDAO();
     private final ProductDAO productDAO = new ProductDAO();
     private final MarketplaceSyncService marketplaceSyncService = new MarketplaceSyncService();
+    private final SupplierService supplierService = new SupplierService();
+    private final NotificationService notificationService = new NotificationService();
 
     public List<InboundOrder> findAll() {
         return inboundDAO.findAll();
@@ -41,18 +46,112 @@ public class InboundService {
         return inboundDAO.findById(inboundId);
     }
 
-    public ValidationResult validateForCreate(String supplierName, Integer warehouseId) {
-        if (supplierName == null || supplierName.trim().isEmpty()) {
-            return ValidationResult.failure("Vui lòng nhập tên nhà cung cấp.");
+    public ValidationResult validateForCreate(Integer supplierId, Integer warehouseId) {
+        if (supplierId == null || supplierId <= 0) {
+            return ValidationResult.failure("Vui lòng chọn nhà cung cấp từ danh sách (liên kết với trang quản lý NCC).");
         }
         if (warehouseId == null || warehouseId <= 0) {
             return ValidationResult.failure("Vui lòng chọn kho hàng.");
         }
+        Supplier sup = supplierService.getSupplierById(supplierId);
+        if (sup == null) {
+            return ValidationResult.failure("Nhà cung cấp không tồn tại trong hệ thống (supplierId=" + supplierId + ").");
+        }
+        if (!sup.isActive()) {
+            return ValidationResult.failure("Nhà cung cấp \"" + sup.getName()
+                    + "\" hiện không ở trạng thái ACTIVE (" + sup.getStatus() + ") — không thể tạo phiếu mua.");
+        }
         return ValidationResult.success();
     }
 
-    public int createInbound(String supplierName, int warehouseId, LocalDate expectedDate,
-                             String notes, int createdBy) {
+    /**
+     * Tạo phiếu mua hàng (PO) với ràng buộc: phải chọn 1 supplier ACTIVE từ bảng suppliers.
+     * @param supplierId  FK -> suppliers.supplier_id (BẮT BUỘC)
+     * @param warehouseId FK -> warehouses.warehouse_id
+     * @param draftItems  Danh sách SKU dự kiến (do Controller truyền vào từ request)
+     */
+    public CreateInboundResult createInbound(int supplierId, int warehouseId, LocalDate expectedDate,
+                                            String notes, int createdBy, List<DraftItem> draftItems) {
+        ValidationResult v = validateForCreate(supplierId, warehouseId);
+        if (!v.isSuccess()) {
+            return CreateInboundResult.failure(v.getMessage());
+        }
+
+        Supplier sup = supplierService.getSupplierById(supplierId);
+
+        InboundOrder order = new InboundOrder();
+        order.setSupplierId(supplierId);
+        // Supplier name snapshot lấy từ bảng suppliers (ràng buộc tên NCC luôn đồng bộ).
+        order.setSupplierName(sup.getName());
+        order.setWarehouseId(warehouseId);
+        // Workflow: PENDING → PURCHASED → IN_PROGRESS → RECEIVED
+        // Phiếu mới tạo sẽ ở trạng thái PENDING (chưa mua hàng).
+        // Khi staff xác nhận đã mua → status PURCHASED. Khi bắt đầu nhập → IN_PROGRESS.
+        order.setStatus(InboundOrder.STATUS_PENDING);
+        order.setCreatedBy(createdBy);
+        order.setNotes(notes != null && !notes.trim().isEmpty() ? notes.trim() : null);
+        if (expectedDate != null) {
+            order.setExpectedDate(expectedDate);
+        }
+        if (sup != null && sup.getPaymentTerms() != null && !sup.getPaymentTerms().isEmpty()) {
+            order.setPaymentTerms(sup.getPaymentTerms());
+        }
+        int inboundId = inboundDAO.insert(order);
+        if (inboundId <= 0) {
+            return CreateInboundResult.failure("Không thể tạo phiếu mua hàng (DB insert thất bại).");
+        }
+
+        // Persist SKU items: update price + insert inbound_items.
+        List<String> warnings = new ArrayList<>();
+        if (draftItems != null) {
+            for (DraftItem item : draftItems) {
+                if (item == null || item.getSkuCode() == null || item.getSkuCode().isBlank()) {
+                    continue;
+                }
+                if (item.getOrderedQty() == null || item.getOrderedQty().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                Product prod = productDAO.findBySkuCode(item.getSkuCode());
+                if (prod == null) {
+                    warnings.add("Không tìm thấy SKU: " + item.getSkuCode());
+                    continue;
+                }
+                // Cập nhật base price nếu user nhập giá mới > 0
+                if (item.getPrice() != null && item.getPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    prod.setBasePrice(item.getPrice().doubleValue());
+                    productDAO.update(prod);
+                }
+                ReceiptNote rn = new ReceiptNote();
+                rn.setInboundId(inboundId);
+                rn.setProductId(prod.getProductId());
+                rn.setExpectedQty(item.getOrderedQty());
+                rn.setReceivedQty(BigDecimal.ZERO);
+                rn.setAcceptedQty(BigDecimal.ZERO);
+                rn.setRejectedQty(BigDecimal.ZERO);
+                rn.setUnitCost(item.getPrice() != null ? item.getPrice() : BigDecimal.ZERO);
+                boolean inserted = inboundDAO.insertReceipt(rn);
+                if (!inserted) {
+                    warnings.add("Không thể thêm SKU " + item.getSkuCode() + " vào phiếu.");
+                }
+            }
+        }
+
+        return CreateInboundResult.success(inboundId, warnings);
+    }
+
+    /**
+     * LEGACY: tạo PO không liên kết với suppliers (chỉ lưu supplier text).
+     * Dùng cho dữ liệu cũ hoặc khi supplierId không có trong request.
+     */
+    public CreateInboundResult createInboundLegacy(String supplierName, int warehouseId, LocalDate expectedDate,
+                                                   String notes, int createdBy, List<DraftItem> draftItems) {
+        if (supplierName == null || supplierName.trim().isEmpty()) {
+            return CreateInboundResult.failure("Vui lòng nhập tên nhà cung cấp.");
+        }
+        if (warehouseId <= 0) {
+            return CreateInboundResult.failure("Vui lòng chọn kho hàng.");
+        }
+
         InboundOrder order = new InboundOrder();
         order.setSupplierName(supplierName.trim());
         order.setWarehouseId(warehouseId);
@@ -62,40 +161,120 @@ public class InboundService {
         if (expectedDate != null) {
             order.setExpectedDate(expectedDate);
         }
-        return inboundDAO.insert(order);
+        int inboundId = inboundDAO.insert(order);
+        if (inboundId <= 0) {
+            return CreateInboundResult.failure("Không thể tạo phiếu mua hàng (DB insert thất bại).");
+        }
+
+        // Persist items (giống path chính)
+        List<String> warnings = new ArrayList<>();
+        if (draftItems != null) {
+            for (DraftItem item : draftItems) {
+                if (item == null || item.getSkuCode() == null || item.getSkuCode().isBlank()) continue;
+                if (item.getOrderedQty() == null || item.getOrderedQty().compareTo(BigDecimal.ZERO) <= 0) continue;
+                Product prod = productDAO.findBySkuCode(item.getSkuCode());
+                if (prod == null) { warnings.add("Không tìm thấy SKU: " + item.getSkuCode()); continue; }
+                if (item.getPrice() != null && item.getPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    prod.setBasePrice(item.getPrice().doubleValue());
+                    productDAO.update(prod);
+                }
+                ReceiptNote rn = new ReceiptNote();
+                rn.setInboundId(inboundId);
+                rn.setProductId(prod.getProductId());
+                rn.setExpectedQty(item.getOrderedQty());
+                rn.setReceivedQty(BigDecimal.ZERO);
+                rn.setAcceptedQty(BigDecimal.ZERO);
+                rn.setRejectedQty(BigDecimal.ZERO);
+                rn.setUnitCost(item.getPrice() != null ? item.getPrice() : BigDecimal.ZERO);
+                if (!inboundDAO.insertReceipt(rn)) {
+                    warnings.add("Không thể thêm SKU " + item.getSkuCode() + " vào phiếu.");
+                }
+            }
+        }
+        return CreateInboundResult.success(inboundId, warnings);
     }
 
-    public TransitionResult confirmInbound(int inboundId) {
+    /**
+     * LEGACY validation cho supplier text (không có supplierId).
+     */
+    public ValidationResult validateForCreateLegacy(String supplierName, Integer warehouseId) {
+        if (supplierName == null || supplierName.trim().isEmpty()) {
+            return ValidationResult.failure("Vui lòng nhập tên nhà cung cấp.");
+        }
+        if (warehouseId == null || warehouseId <= 0) {
+            return ValidationResult.failure("Vui lòng chọn kho hàng.");
+        }
+        return ValidationResult.success();
+    }
+
+    /**
+     * Chuyển phiếu mua hàng từ PENDING → PURCHASED (đã đặt mua NCC, sẵn sàng nhập kho).
+     * Validate: chỉ áp dụng khi status hiện tại = PENDING.
+     */
+    public ValidationResult markPurchased(int inboundId, int userId) {
         InboundOrder existing = inboundDAO.findById(inboundId);
         if (existing == null) {
-            log.warn("Confirm inbound failed: order not found id={}", inboundId);
-            return TransitionResult.failure("Phiếu nhập không tồn tại.");
+            return ValidationResult.failure("Phiếu mua hàng không tồn tại.");
         }
         if (!InboundOrder.STATUS_PENDING.equals(existing.getStatus())) {
-            log.warn("Confirm inbound failed: wrong status id={} status={}", inboundId, existing.getStatus());
-            return TransitionResult.failure("Phiếu nhập không ở trạng thái chờ xác nhận.");
+            return ValidationResult.failure("Chỉ phiếu ở trạng thái 'Chờ' mới có thể xác nhận đã mua.");
         }
-        boolean updated = inboundDAO.updateStatus(inboundId, InboundOrder.STATUS_IN_PROGRESS);
-        if (!updated) {
-            log.error("Confirm inbound failed: DAO update returned false id={}", inboundId);
-            return TransitionResult.failure("Không thể xác nhận phiếu nhập.");
+        boolean ok = inboundDAO.updateStatusOnly(inboundId, InboundOrder.STATUS_PURCHASED);
+        if (!ok) {
+            return ValidationResult.failure("Không thể cập nhật trạng thái phiếu.");
         }
-        log.info("Inbound confirmed: id={} code={}", inboundId, existing.getInboundCode());
-        return TransitionResult.success("Xác nhận phiếu " + existing.getInboundCode() + " thành công!");
+        log.info("Marked PO as purchased: inboundId={} userId={}", inboundId, userId);
+        return ValidationResult.success();
     }
 
-    public ReceiveResult receiveGoods(int inboundId, List<ReceiptItem> receiptItems, int userId) {
+    /**
+     * Hoàn thành phiếu nhập: IN_PROGRESS → RECEIVED.
+     * Dùng khi đã nhận đủ hàng từ NCC (1 hoặc nhiều đợt).
+     */
+    public ValidationResult completeInbound(int inboundId, int userId) {
+        InboundOrder existing = inboundDAO.findById(inboundId);
+        if (existing == null) {
+            return ValidationResult.failure("Phiếu nhập không tồn tại.");
+        }
+        if (!InboundOrder.STATUS_IN_PROGRESS.equals(existing.getStatus())) {
+            return ValidationResult.failure("Chỉ phiếu đang kiểm đếm mới có thể hoàn thành.");
+        }
+        boolean ok = inboundDAO.updateStatus(inboundId, InboundOrder.STATUS_RECEIVED);
+        if (!ok) {
+            return ValidationResult.failure("Không thể cập nhật trạng thái phiếu.");
+        }
+        log.info("Inbound completed: inboundId={} userId={}", inboundId, userId);
+        return ValidationResult.success();
+    }
+
+    public ReceiveResult receiveGoods(int inboundId, Integer zoneId, List<ReceiptItem> receiptItems,
+                                     java.time.LocalDate receivedDate, String deliveryPerson,
+                                     String deliveryPhone, int userId) {
         InboundOrder existing = inboundDAO.findById(inboundId);
         if (existing == null) {
             log.warn("Receive goods failed: order not found id={}", inboundId);
             return ReceiveResult.failure("Phiếu nhập không tồn tại.");
         }
-        if (!InboundOrder.STATUS_IN_PROGRESS.equals(existing.getStatus())) {
-            log.warn("Receive goods failed: wrong status id={} status={}", inboundId, existing.getStatus());
-            return ReceiveResult.failure("Chỉ phiếu đã xác nhận mới có thể nhập kho.");
+        
+        // Cập nhật zone cho phiếu nhập kho
+        if (zoneId != null && zoneId > 0) {
+            inboundDAO.updateZoneId(inboundId, zoneId);
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        // Workflow: cho phép nhận hàng khi phiếu ở PENDING (chưa mua), PURCHASED (đã mua) hoặc IN_PROGRESS (đang nhập dở).
+        // Khi nhận từ PENDING, tự động chuyển sang IN_PROGRESS luôn (skip bước "Mua phiếu" - phiếu nhập sinh ra từ việc nhận hàng).
+        if (!InboundOrder.STATUS_PENDING.equals(existing.getStatus())
+                && !InboundOrder.STATUS_PURCHASED.equals(existing.getStatus())
+                && !InboundOrder.STATUS_IN_PROGRESS.equals(existing.getStatus())) {
+            log.warn("Receive goods failed: wrong status id={} status={}", inboundId, existing.getStatus());
+            return ReceiveResult.failure("Phiếu ở trạng thái không hợp lệ để nhận hàng.");
+        }
+
+        // Nếu phiếu đang ở PENDING hoặc PURCHASED → chuyển sang IN_PROGRESS ngay khi staff bắt đầu nhận.
+        if (!InboundOrder.STATUS_IN_PROGRESS.equals(existing.getStatus())) {
+            inboundDAO.updateStatusOnly(inboundId, InboundOrder.STATUS_IN_PROGRESS);
+        }
+
         int successCount = 0;
         int failCount = 0;
 
@@ -103,47 +282,38 @@ public class InboundService {
             for (ReceiptItem item : receiptItems) {
                 try {
                     BigDecimal received = item.getReceivedQty() != null ? item.getReceivedQty() : BigDecimal.ZERO;
-                    BigDecimal accepted = item.getAcceptedQty() != null ? item.getAcceptedQty() : BigDecimal.ZERO;
-                    BigDecimal rejected = received.subtract(accepted); // auto-calculate
-
-                    if (received.compareTo(BigDecimal.ZERO) <= 0 && accepted.compareTo(BigDecimal.ZERO) <= 0) {
+                    if (received.compareTo(BigDecimal.ZERO) <= 0) {
                         continue;
                     }
+                    BigDecimal accepted = item.getAcceptedQty() != null ? item.getAcceptedQty() : BigDecimal.ZERO;
+                    BigDecimal rejected = item.getRejectedQty() != null ? item.getRejectedQty() : BigDecimal.ZERO;
+                    BigDecimal unitCost = item.getUnitCost() != null ? item.getUnitCost() : BigDecimal.ZERO;
 
-                    // Update all 4 fields in inbound_items (qty + unit_cost for MAC)
-                    inboundDAO.updateReceivedQtys(inboundId, item.getProductId(), received, accepted, rejected,
-                            item.getUnitCost() != null ? item.getUnitCost() : BigDecimal.ZERO);
-                    // Only accepted qty goes into inventory
-                    if (accepted.compareTo(BigDecimal.ZERO) > 0) {
-                        // MAC: Moving Average Cost — read state BEFORE inventory changes,
-                        // then recalculate after addInventory to include the new lot.
-                        double currentOnHand = 0.0;
-                        BigDecimal currentMac = BigDecimal.ZERO;
-                        var prod = productDAO.findById(item.getProductId());
-                        if (prod != null) {
-                            currentOnHand = prod.getQtyOnHand() != null ? prod.getQtyOnHand() : 0.0;
-                            currentMac = productDAO.findMacPrice(item.getProductId());
-                        }
-                        inventoryDAO.addInventory(item.getProductId(), existing.getWarehouseId(), accepted, userId);
-                        // unitCost may be null if not provided by caller (e.g. legacy paths).
-                        BigDecimal unitCost = item.getUnitCost() != null
-                                ? item.getUnitCost()
-                                : BigDecimal.ZERO;
-                        productDAO.updateMacPrice(
-                                item.getProductId(),
-                                BigDecimal.valueOf(currentOnHand),
-                                currentMac,
-                                accepted,
-                                unitCost);
+                    // Ghi nhận đầy đủ 3 cột qty: thực nhận / chấp nhận / trả NCC.
+                    inboundDAO.updateReceivedQtys(inboundId, item.getProductId(),
+                            received, accepted, rejected, item.getRejectReason(), unitCost);
+
+                    // Cộng SL chấp nhận vào tồn kho + cập nhật MAC (chỉ phần đạt chuẩn mới vào kho).
+                    double currentOnHand = 0.0;
+                    BigDecimal currentMac = BigDecimal.ZERO;
+                    var prod = productDAO.findById(item.getProductId());
+                    if (prod != null) {
+                        currentOnHand = prod.getQtyOnHand() != null ? prod.getQtyOnHand() : 0.0;
+                        currentMac = productDAO.findMacPrice(item.getProductId());
                     }
-                    if (rejected.compareTo(BigDecimal.ZERO) > 0) {
-                        inventoryDAO.addDefectiveInventory(
-                                item.getProductId(),
-                                existing.getWarehouseId(),
-                                rejected,
-                                userId,
-                                "Hàng lỗi từ phiếu nhập " + existing.getInboundCode());
+                    inventoryDAO.addInventory(item.getProductId(), existing.getWarehouseId(), accepted, userId);
+                    productDAO.updateMacPrice(
+                            item.getProductId(),
+                            BigDecimal.valueOf(currentOnHand),
+                            currentMac,
+                            accepted,
+                            unitCost);
+
+                    // Tự động cấu hình default zone cho sản phẩm tại kho này nếu được chọn
+                    if (zoneId != null && zoneId > 0) {
+                        productDAO.updateZoneForWarehouse(item.getProductId(), existing.getWarehouseId(), zoneId);
                     }
+
                     successCount++;
                 } catch (Exception e) {
                     failCount++;
@@ -153,16 +323,21 @@ public class InboundService {
             }
         }
 
-        inboundDAO.updateStatus(inboundId, InboundOrder.STATUS_RECEIVED);
-        log.info("Goods received: inboundId={} warehouseId={} userId={} success={} failed={}",
-                inboundId, existing.getWarehouseId(), userId, successCount, failCount);
+        // Nếu tất cả items đã nhận đủ → tự động chuyển RECEIVED.
+        // Ngược lại giữ IN_PROGRESS để có thể nhập thêm đợt sau.
+        String finalStatus = inboundDAO.isAllItemsReceived(inboundId)
+                ? InboundOrder.STATUS_RECEIVED
+                : InboundOrder.STATUS_IN_PROGRESS;
+        inboundDAO.updateStatus(inboundId, finalStatus);
+        log.info("Goods receive logged: inboundId={} warehouseId={} userId={} success={} failed={} → status={}",
+                inboundId, existing.getWarehouseId(), userId, successCount, failCount, finalStatus);
 
         // Trigger real-time marketplace stock sync (async — does not block the HTTP response)
         // Push_Qty = SUM(qty_available all warehouses) - bufferStock, batched 20 SKU/call
         if (successCount > 0) {
             List<Integer> receivedProductIds = receiptItems.stream()
-                    .filter(item -> item.getAcceptedQty() != null
-                            && item.getAcceptedQty().compareTo(BigDecimal.ZERO) > 0)
+                    .filter(item -> item.getReceivedQty() != null
+                            && item.getReceivedQty().compareTo(BigDecimal.ZERO) > 0)
                     .map(item -> item.getProductId())
                     .distinct()
                     .toList();
@@ -182,15 +357,19 @@ public class InboundService {
         String msg = (failCount == 0)
             ? "Nhập kho phiếu " + existing.getInboundCode() + " thành công! Tồn kho đã được cập nhật."
             : "Nhập kho phiếu " + existing.getInboundCode() + " hoàn tất (một số dòng có lỗi).";
+
+
+
         return ReceiveResult.success(msg);
     }
 
     public static class ReceiptItem {
         private int productId;
-        private BigDecimal receivedQty;
-        private BigDecimal acceptedQty;
-        private BigDecimal rejectedQty;
-        private BigDecimal unitCost;  // used for MAC recalculation
+        private BigDecimal receivedQty;  // SL thực nhận (tổng cộng từ NCC, gồm cả hàng lỗi)
+        private BigDecimal acceptedQty;  // SL chấp nhận (đạt chuẩn, được cộng vào tồn kho)
+        private BigDecimal rejectedQty;  // SL không đạt chuẩn (trả lại NCC tại chỗ)
+        private String rejectReason;     // Lý do trả hàng NCC
+        private BigDecimal unitCost;     // đơn giá nhập, dùng để tính MAC
 
         public int getProductId() { return productId; }
         public void setProductId(int productId) { this.productId = productId; }
@@ -200,6 +379,8 @@ public class InboundService {
         public void setAcceptedQty(BigDecimal acceptedQty) { this.acceptedQty = acceptedQty; }
         public BigDecimal getRejectedQty() { return rejectedQty; }
         public void setRejectedQty(BigDecimal rejectedQty) { this.rejectedQty = rejectedQty; }
+        public String getRejectReason() { return rejectReason; }
+        public void setRejectReason(String rejectReason) { this.rejectReason = rejectReason; }
         public BigDecimal getUnitCost() { return unitCost; }
         public void setUnitCost(BigDecimal unitCost) { this.unitCost = unitCost; }
     }
@@ -225,27 +406,6 @@ public class InboundService {
         public String getMessage() { return message; }
     }
 
-    public static class TransitionResult {
-        private final boolean success;
-        private final String message;
-
-        private TransitionResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
-        }
-
-        public static TransitionResult success(String message) {
-            return new TransitionResult(true, message);
-        }
-
-        public static TransitionResult failure(String message) {
-            return new TransitionResult(false, message);
-        }
-
-        public boolean isSuccess() { return success; }
-        public String getMessage() { return message; }
-    }
-
     public static class ReceiveResult {
         private final boolean success;
         private final String message;
@@ -265,5 +425,57 @@ public class InboundService {
 
         public boolean isSuccess() { return success; }
         public String getMessage() { return message; }
+    }
+
+    /**
+     * Kết quả trả về từ createInbound/createInboundLegacy:
+     * - success/failure + message
+     * - inboundId (khi success)
+     * - warnings: danh sách SKU không insert được (vd SKU không tồn tại) — Controller
+     *   sẽ hiển thị thêm cho user nhưng vẫn coi như tạo phiếu thành công.
+     */
+    public static class CreateInboundResult {
+        private final boolean success;
+        private final String message;
+        private final int inboundId;
+        private final List<String> warnings;
+
+        private CreateInboundResult(boolean success, String message, int inboundId, List<String> warnings) {
+            this.success = success;
+            this.message = message;
+            this.inboundId = inboundId;
+            this.warnings = warnings;
+        }
+
+        public static CreateInboundResult success(int inboundId, List<String> warnings) {
+            return new CreateInboundResult(true, null, inboundId, warnings != null ? warnings : new ArrayList<>());
+        }
+
+        public static CreateInboundResult failure(String message) {
+            return new CreateInboundResult(false, message, -1, new ArrayList<>());
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+        public int getInboundId() { return inboundId; }
+        public List<String> getWarnings() { return warnings; }
+    }
+
+    /**
+     * DTO đầu vào: 1 dòng SKU trong phiếu mua hàng (PO draft).
+     * Đứng trong Service layer để Controller chỉ parse JSON rồi truyền vào service.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public static class DraftItem {
+        private String skuCode;
+        private BigDecimal orderedQty;
+        private BigDecimal price;
+
+        public String getSkuCode() { return skuCode; }
+        public void setSkuCode(String skuCode) { this.skuCode = skuCode; }
+        public BigDecimal getOrderedQty() { return orderedQty; }
+        public void setOrderedQty(BigDecimal orderedQty) { this.orderedQty = orderedQty; }
+        public BigDecimal getPrice() { return price; }
+        public void setPrice(BigDecimal price) { this.price = price; }
     }
 }

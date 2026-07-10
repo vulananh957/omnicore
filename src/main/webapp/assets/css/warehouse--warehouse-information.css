@@ -4,12 +4,12 @@
 
 /* ─── Warehouse Info Header ───────────────────────────────────── */
 .whinfo-hdr {
-    display: flex;
+        display: flex;
     align-items: flex-start;
     gap: 20px;
-    background: #fff;
-    border: 1px solid var(--border, #e5eaf3);
-    border-radius: 14px;
+        background: #fff;
+        border: 1px solid var(--border, #e5eaf3);
+        border-radius: 14px;
     padding: 22px 24px;
     margin-bottom: 20px;
     box-shadow: 0 1px 4px rgba(16,55,92,0.06);
@@ -17,13 +17,13 @@
 .whinfo-hdr__badge {
     width: 52px;
     height: 52px;
-    background: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    flex-shrink: 0;
+        background: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        flex-shrink: 0;
     box-shadow: 0 4px 12px rgba(2,145,178,0.22);
 }
 .whinfo-hdr__body { flex: 1; min-width: 0; }
@@ -35,18 +35,18 @@
     margin-bottom: 14px;
 }
 .whinfo-hdr__code {
-    font-family: monospace;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(16,55,92,0.45);
-    margin-bottom: 2px;
-}
+        font-family: monospace;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(16,55,92,0.45);
+        margin-bottom: 2px;
+    }
 .whinfo-hdr__name {
     font-size: 22px;
-    font-weight: 800;
-    color: var(--navy, #10375c);
+        font-weight: 800;
+        color: var(--navy, #10375c);
     line-height: 1.2;
 }
 .whinfo-hdr__meta { flex-shrink: 0; }
@@ -114,14 +114,14 @@
     flex: 0 0 40%;
 }
 .whinfo-admin-field {
-    display: flex;
-    align-items: center;
+        display: flex;
+        align-items: center;
     gap: 8px;
     font-size: 13px;
     color: rgba(16,55,92,0.55);
 }
 .whinfo-admin-field svg {
-    flex-shrink: 0;
+        flex-shrink: 0;
     color: rgba(16,55,92,0.3);
 }
 .whinfo-admin-field__lbl {
@@ -154,25 +154,25 @@
     border: 1px solid rgba(16,55,92,0.07);
     border-radius: 12px;
     min-width: 110px;
-    text-align: center;
+        text-align: center;
     text-decoration: none;
     transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .whinfo-kpi-card svg {
     color: rgba(16,55,92,0.3);
-}
+    }
 .whinfo-kpi-card__num {
     font-size: 22px;
-    font-weight: 800;
-    color: var(--navy, #10375c);
-    line-height: 1;
+        font-weight: 800;
+        color: var(--navy, #10375c);
+        line-height: 1;
     margin-top: 2px;
-}
+    }
 .whinfo-kpi-card__lbl {
-    font-size: 11px;
+        font-size: 11px;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     color: rgba(16,55,92,0.45);
 }
 .whinfo-kpi-card:hover {
@@ -205,23 +205,23 @@
 @media (max-width: 400px)  { .whinfo-kpi-card { min-width: 90px; } }
 
 /* ─── Zones Card ──────────────────────────────────────────────── */
-.whinfo-card {
-    background: #fff;
-    border: 1px solid var(--border, #e5eaf3);
+    .whinfo-card {
+        background: #fff;
+        border: 1px solid var(--border, #e5eaf3);
     border-radius: 14px;
-    overflow: hidden;
+        overflow: hidden;
     box-shadow: 0 1px 4px rgba(16,55,92,0.06);
-}
-.whinfo-card__hdr {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border, #e5eaf3);
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--navy, #10375c);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
+    }
+    .whinfo-card__hdr {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border, #e5eaf3);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--navy, #10375c);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
 .whinfo-empty {
     padding: 48px;
     text-align: center;
@@ -247,23 +247,23 @@
 .btn-add-zone:active { transform: translateY(0); }
 
 /* ─── Zone Table ──────────────────────────────────────────────── */
-.whinfo-table { width: 100%; border-collapse: collapse; }
-.whinfo-table th {
-    text-align: left;
+    .whinfo-table { width: 100%; border-collapse: collapse; }
+    .whinfo-table th {
+        text-align: left;
     padding: 10px 16px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     color: rgba(16,55,92,0.45);
     background: rgba(240,244,250,0.6);
     border-bottom: 1px solid var(--border, #e5eaf3);
-}
-.whinfo-table td {
+    }
+    .whinfo-table td {
     padding: 12px 16px;
-    font-size: 13px;
-    color: var(--navy, #10375c);
-    border-top: 1px solid var(--border, #e5eaf3);
+        font-size: 13px;
+        color: var(--navy, #10375c);
+        border-top: 1px solid var(--border, #e5eaf3);
     vertical-align: middle;
 }
 .whinfo-table tr:first-child td { border-top: none; }
@@ -337,10 +337,10 @@
     cursor: not-allowed;
 }
 
-.whinfo-note {
+    .whinfo-note {
     margin-top: 14px;
-    font-size: 12px;
-    font-style: italic;
+        font-size: 12px;
+        font-style: italic;
     color: rgba(16,55,92,0.4);
     padding: 0 4px;
 }
@@ -599,3 +599,25 @@ textarea.zm-field__input { resize: vertical; }
     box-shadow: 0 3px 8px rgba(239,68,68,0.25);
 }
 .zm-btn--delete:hover { background: #dc2626; transform: translateY(-1px); }
+
+/* System Default Zone Disabled States */
+.zm-field__input:disabled {
+    background: rgba(16,55,92,0.04);
+    color: rgba(16,55,92,0.4);
+    cursor: not-allowed;
+    border-color: rgba(16,55,92,0.1);
+}
+.zm-type-item:has(input[type="radio"]:disabled) {
+    cursor: not-allowed;
+    opacity: 0.6;
+    background: rgba(16,55,92,0.02);
+    border-color: rgba(16,55,92,0.06);
+}
+.zm-type-item:has(input[type="radio"]:disabled):hover {
+    border-color: rgba(16,55,92,0.06);
+}
+.zm-type-item:has(input[type="radio"]:disabled).active {
+    border-color: rgba(16,55,92,0.2);
+    box-shadow: none;
+}
+

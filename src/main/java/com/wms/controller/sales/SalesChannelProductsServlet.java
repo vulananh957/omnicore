@@ -2,12 +2,16 @@ package com.wms.controller.sales;
 
 import com.wms.controller.BaseController;
 import com.wms.dao.ChannelDAO;
+import com.wms.dao.ProductImageDAO;
 import com.wms.model.Channel;
+import com.wms.model.Product;
+import com.wms.service.channel.LazadaChannelGateway;
 import com.wms.service.lazada.LazadaProductService;
 import com.wms.service.lazada.LazadaProductService.PushResult;
 import com.wms.service.sales.ChannelService;
 import com.wms.service.product.ProductService;
 import com.wms.util.JsonUtil;
+import java.util.Map;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -60,6 +64,25 @@ public class SalesChannelProductsServlet extends BaseController {
             req.setAttribute("categoriesJson", "[]");
         }
 
+        // Load channel products from DB so the page always shows real data
+        // (previously relied on localStorage which is cleared on new browser/device)
+        try {
+            List<com.wms.model.ChannelProduct> channelProducts =
+                    new com.wms.dao.ChannelProductDAO().findAll();
+            req.setAttribute("channelProductsList", channelProducts);
+            req.setAttribute("channelProductsJson", JsonUtil.toJson(channelProducts));
+        } catch (Exception e) {
+            req.setAttribute("channelProductsList", List.of());
+            req.setAttribute("channelProductsJson", "[]");
+        }
+
+        // ── AJAX GET actions (return JSON, do not forward to JSP) ──────────────
+        String action = req.getParameter("action");
+        if ("getProductDetail".equals(action)) {
+            handleGetProductDetail(req, resp);
+            return;
+        }
+
         req.setAttribute("pageTitle",    "Sản Phẩm Theo Kênh");
         req.setAttribute("pageSubtitle", "Quản lý sản phẩm kinh doanh trên các sàn thương mại điện tử");
         req.setAttribute("currentPage",  "sales-channel-products");
@@ -96,33 +119,34 @@ public class SalesChannelProductsServlet extends BaseController {
                 writeJson(resp, "{\"success\":false,\"message\":\"" + e.getMessage() + "\"}");
             }
         } else if ("pull".equals(action)) {
-            // Lazada end-to-end: pull marketplace products
+            // Lazada end-to-end: pull marketplace products (synchronous for direct UI response)
             int channelId = Integer.parseInt(req.getParameter("channelId"));
             Channel ch = new ChannelDAO().findById(channelId);
             if (ch == null) {
                 writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
                 return;
             }
-            new Thread(() -> {
-                try {
-                    LazadaProductService.PullResult r = new LazadaProductService().pullProducts(ch);
-                    LOGGER.info("channel-products pull: channel=" + ch.getChannelName()
-                            + " pulled=" + r.pulled + " upserted=" + r.upserted
-                            + " unmapped=" + r.unmapped);
-                } catch (Exception ex) {
-                    LOGGER.log(java.util.logging.Level.WARNING,
-                            "channel-products pull: failed", ex);
+            try {
+                LazadaProductService.PullResult r = new LazadaProductService().pullProducts(ch);
+                if (r.ok) {
+                    writeJson(resp, "{\"success\":true,\"message\":\"Kéo sản phẩm thành công! Đã tải " + r.pulled + " sản phẩm từ sàn, phát hiện " + r.unmapped + " sản phẩm chưa ánh xạ.\"}");
+                } else {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Kéo sản phẩm thất bại: " + esc(r.error) + "\"}");
                 }
-            }, "LazadaPull-" + channelId).start();
-            writeJson(resp, "{\"success\":true,\"message\":\"Pull started in background\"}");
+            } catch (Exception ex) {
+                LOGGER.log(java.util.logging.Level.WARNING, "channel-products pull: failed", ex);
+                writeJson(resp, "{\"success\":false,\"message\":\"Lỗi hệ thống: " + esc(ex.getMessage()) + "\"}");
+            }
 
         } else if ("push".equals(action)) {
+            LOGGER.info("=== PUSH REQUEST received: action=push ===");
             // UC-B2C09 / UC-B2C02: push a single product with structured errors.
             // Wizard passes lazadaCategoryId (leaf category from /category/tree/get)
             // plus price/qty/desc/brand/weight/dimensions/images — we apply them
             // to the channel_products row so the payload builder uses the values
             // the user just typed in the wizard (not stale DB state).
             try {
+            LOGGER.info("push params: channelId=" + req.getParameter("channelId") + " productId=" + req.getParameter("productId"));
             NumberFormat nf = NumberFormat.getInstance(Locale.forLanguageTag("vi"));
             int channelId = Integer.parseInt(req.getParameter("channelId"));
             int productId = Integer.parseInt(req.getParameter("productId"));
@@ -133,17 +157,6 @@ public class SalesChannelProductsServlet extends BaseController {
             }
                 com.wms.dao.ChannelProductDAO cpDao = new com.wms.dao.ChannelProductDAO();
 
-                // 1) Lazada category from wizard
-                String lzCatParam = req.getParameter("lazadaCategoryId");
-                if (lzCatParam != null && !lzCatParam.isBlank()) {
-                    long lzCatId = Long.parseLong(lzCatParam.trim());
-                    cpDao.updateLazadaCategoryId(productId, channelId, lzCatId);
-                }
-
-                // 2) Wizard-supplied fields — apply to the channel_products row.
-                //    This is what makes the price/quantity/etc. on Lazada match
-                //    what the user typed in the wizard (was a known bug where
-                //    wizard inputs were ignored and stale DB values were sent).
                 com.wms.model.ChannelProduct cp = cpDao.findByProductAndChannel(productId, channelId);
                 com.wms.model.Product prod = new com.wms.dao.ProductDAO().findById(productId);
                 if (cp == null) {
@@ -151,6 +164,24 @@ public class SalesChannelProductsServlet extends BaseController {
                     cp.setChannelId(channelId);
                     cp.setProductId(productId);
                     if (prod != null) cp.setChannelSkuCode(prod.getSkuCode());
+                }
+
+                // 1) Lazada category from wizard
+                String lzCatParam = req.getParameter("lazadaCategoryId");
+                if (lzCatParam != null && !lzCatParam.isBlank()) {
+                    try {
+                        long lzCatId = Long.parseLong(lzCatParam.trim());
+                        cp.setLazadaCategoryId(lzCatId);
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                // 1b) Lazada brand_id from wizard (mandatory per Lazada Open Platform 2025 docs)
+                String brandIdParam = req.getParameter("brandId");
+                if (brandIdParam != null && !brandIdParam.isBlank()) {
+                    try {
+                        long brandIdVal = Long.parseLong(brandIdParam.trim());
+                        cp.setBrandId(brandIdVal);
+                    } catch (NumberFormatException ignored) {}
                 }
                 String priceParam = req.getParameter("price");
                 BigDecimal channelPrice = null;
@@ -160,21 +191,7 @@ public class SalesChannelProductsServlet extends BaseController {
                     } catch (NumberFormatException ignored) {}
                 }
 
-                // BR-PRICE-01: Giá bán trên sàn phải >= base_price * 1.30 (lãi tối thiểu 30%).
-                // base_price là giá nhập (tồn kho) — lấy từ products.base_price.
-                if (channelPrice != null && channelPrice.signum() > 0 && prod != null) {
-                    double basePrice = prod.getBasePrice() != null ? prod.getBasePrice() : 0.0;
-                    if (basePrice > 0) {
-                        BigDecimal minPrice = BigDecimal.valueOf(basePrice * 1.30);
-                        if (channelPrice.compareTo(minPrice) < 0) {
-                            writeJson(resp, "{\"success\":false,\"code\":\"PRICE_TOO_LOW\","
-                                + "\"message\":\"Giá bán phải từ \" + nf.format(minPrice) + \"đ trở lên (giá nhập × 1.30). Giá hiện tại: \" + nf.format(channelPrice) + \"đ.\","
-                                + "\"minPrice\":\"" + nf.format(minPrice) + "\","
-                                + "\"basePrice\":\"" + nf.format(BigDecimal.valueOf(basePrice)) + "\"}");
-                            return;
-                        }
-                    }
-                }
+                // BR-PRICE-01: Removed hard block — warning chip is displayed in UI, allowing manager flexibility.
 
                 if (priceParam != null && !priceParam.isBlank()) {
                     cp.setChannelPrice(channelPrice);
@@ -199,30 +216,13 @@ public class SalesChannelProductsServlet extends BaseController {
                 if (skuParam != null && !skuParam.isBlank()) cp.setSellerSku(skuParam);
 
                 // 3) Persist draft to DB so the service can read it back.
-                // Preserve non-persistent staging/override fields which are not stored in DB table.
-                String savedSellerSku = cp.getSellerSku();
-                String savedShortDesc = cp.getShortDescription();
-                java.math.BigDecimal savedSpecialPrice = cp.getSpecialPrice();
-                Double savedWeight = cp.getWeightKg();
-                String savedDims = cp.getDimensions();
-                String savedBrand = cp.getBrand();
-                String savedDesc = cp.getDescription();
-
+                // The DAO now persists ALL fields (seller_sku, description, short_description, brand,
+                // dimensions, weight_kg) so no save/restore needed — cp already has correct values.
                 if (cp.getId() > 0) {
                     cpDao.update(cp);
                 } else {
                     cpDao.insert(cp);
                     cp = cpDao.findByProductAndChannel(productId, channelId);
-                }
-
-                if (cp != null) {
-                    cp.setSellerSku(savedSellerSku);
-                    cp.setShortDescription(savedShortDesc);
-                    cp.setSpecialPrice(savedSpecialPrice);
-                    cp.setWeightKg(savedWeight);
-                    cp.setDimensions(savedDims);
-                    cp.setBrand(savedBrand);
-                    cp.setDescription(savedDesc);
                 }
 
                 // 4) Wizard-uploaded images (pipe-separated). These override the
@@ -233,26 +233,41 @@ public class SalesChannelProductsServlet extends BaseController {
                 List<String> customImageBase64s = new java.util.ArrayList<>();
                 String imageUrlsParam = req.getParameter("imageUrls");
                 String imageBase64sParam = req.getParameter("imageBase64s");
-                if (imageUrlsParam != null && !imageUrlsParam.isBlank()) {
-                    String[] urlParts = imageUrlsParam.split("\\|");
+                if ((imageUrlsParam != null && !imageUrlsParam.isBlank()) || (imageBase64sParam != null && !imageBase64sParam.isBlank())) {
+                    String[] urlParts = (imageUrlsParam != null && !imageUrlsParam.isBlank())
+                            ? imageUrlsParam.split("\\|", -1) : new String[0];
                     String[] b64Parts = (imageBase64sParam != null && !imageBase64sParam.isBlank())
-                            ? imageBase64sParam.split("\\|") : new String[0];
-                    for (int i = 0; i < urlParts.length; i++) {
-                        String trimmed = urlParts[i].trim();
-                        if (!trimmed.isEmpty()) {
-                            // Convert relative /publish-images/... URLs to absolute for migration.
-                            String absolute = toAbsoluteUrl(req, trimmed);
-                            customImageUrls.add(absolute);
-                            // Base64 fallback at same index (may be null if not provided)
-                            String b64 = (i < b64Parts.length) ? b64Parts[i].trim() : null;
+                            ? imageBase64sParam.split("\\|", -1) : new String[0];
+                    int maxLen = Math.max(urlParts.length, b64Parts.length);
+                    for (int i = 0; i < maxLen; i++) {
+                        String trimmedUrl = (i < urlParts.length) ? urlParts[i].trim() : "";
+                        String b64 = (i < b64Parts.length) ? b64Parts[i].trim() : null;
+                        if (!trimmedUrl.isEmpty()) {
+                            customImageUrls.add(toAbsoluteUrl(req, trimmedUrl));
                             customImageBase64s.add((b64 != null && !b64.isEmpty()) ? b64 : null);
+                        } else if (b64 != null && !b64.isEmpty()) {
+                            customImageUrls.add("");
+                            customImageBase64s.add(b64);
                         }
                     }
                 }
 
-                PushResult r = new LazadaProductService().pushProduct(
-                        ch, productId, customImageUrls, customImageBase64s, cp);
-                writeJson(resp, renderPushResultJson(r));
+                PushResult r;
+                try {
+                    LOGGER.info("pushProduct START: channelId=" + channelId + " productId=" + productId);
+                    long t0 = System.currentTimeMillis();
+                    r = new LazadaProductService().pushProduct(
+                            ch, productId, customImageUrls, customImageBase64s, cp);
+                    long elapsed = System.currentTimeMillis() - t0;
+                    LOGGER.info("pushProduct DONE in " + elapsed + "ms: success=" + r.success + " code=" + r.code);
+                } catch (Exception ex) {
+                    LOGGER.log(java.util.logging.Level.WARNING, "pushProduct THREW", ex);
+                    r = PushResult.failure("EXCEPTION",
+                        ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                }
+                String json = renderPushResultJson(r);
+                LOGGER.info("push response JSON (length=" + json.length() + "): " + json.substring(0, Math.min(300, json.length())));
+                writeJson(resp, json);
             } catch (NumberFormatException e) {
                 LOGGER.warning("channel-products push: invalid channelId or productId: " + e.getMessage());
                 writeJson(resp, "{\"success\":false,\"message\":\"Invalid channel or product: " + esc(e.getMessage()) + "\"}");
@@ -260,6 +275,139 @@ public class SalesChannelProductsServlet extends BaseController {
                 LOGGER.log(java.util.logging.Level.WARNING,
                         "channel-products push: failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
+            }
+        } else if ("getProductDetail".equals(action)) {
+            handleGetProductDetail(req, resp);
+        } else if ("delete".equals(action)) {
+            try {
+                int id = Integer.parseInt(req.getParameter("id"));
+                com.wms.model.ChannelProduct cp = new com.wms.dao.ChannelProductDAO().findById(id);
+                if (cp == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Sản phẩm kênh không tồn tại.\"}");
+                    return;
+                }
+                Channel ch = new ChannelDAO().findById(cp.getChannelId());
+                if (ch == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy kênh cấu hình.\"}");
+                    return;
+                }
+                LazadaProductService.DeleteResult r = new LazadaProductService().deleteProduct(ch, id);
+                if (r.success) {
+                    writeJson(resp, "{\"success\":true,\"message\":\"" + esc(r.message) + "\"}");
+                } else {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Xóa thất bại: " + esc(r.message) + "\"}");
+                }
+            } catch (Exception e) {
+                LOGGER.log(java.util.logging.Level.WARNING, "channel-products delete failed", e);
+                writeJson(resp, "{\"success\":false,\"message\":\"Lỗi: " + esc(e.getMessage()) + "\"}");
+            }
+        } else if ("edit".equals(action)) {
+            try {
+                int id = Integer.parseInt(req.getParameter("id"));
+                BigDecimal price = new BigDecimal(req.getParameter("price"));
+                String description = req.getParameter("description");
+
+                com.wms.dao.ChannelProductDAO cpDao = new com.wms.dao.ChannelProductDAO();
+                com.wms.model.ChannelProduct cp = cpDao.findById(id);
+                if (cp == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Sản phẩm kênh không tồn tại.\"}");
+                    return;
+                }
+                com.wms.model.Channel ch = new com.wms.dao.ChannelDAO().findById(cp.getChannelId());
+                if (ch == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy kênh cấu hình.\"}");
+                    return;
+                }
+                com.wms.model.Product prod = new com.wms.dao.ProductDAO().findById(cp.getProductId());
+
+                // ── 1. Category & brand from modal ────────────────────────────
+                String lzCatParam = req.getParameter("lazadaCategoryId");
+                if (lzCatParam != null && !lzCatParam.isBlank()) {
+                    try {
+                        long lzCatId = Long.parseLong(lzCatParam.trim());
+                        cpDao.updateLazadaCategoryId(cp.getProductId(), cp.getChannelId(), lzCatId);
+                        cp.setLazadaCategoryId(lzCatId);
+                    } catch (NumberFormatException ignored) {}
+                }
+                String brandIdParam = req.getParameter("brandId");
+                if (brandIdParam != null && !brandIdParam.isBlank()) {
+                    try {
+                        long brandIdVal = Long.parseLong(brandIdParam.trim());
+                        cpDao.updateBrandId(cp.getProductId(), cp.getChannelId(), brandIdVal);
+                        cp.setBrandId(brandIdVal);
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                // ── 2. Override fields from modal ─────────────────────────────
+                String qtyParam = req.getParameter("quantity");
+                if (qtyParam != null && !qtyParam.isBlank()) {
+                    cp.setChannelStock(new java.math.BigDecimal(qtyParam));
+                }
+                String weightParam = req.getParameter("weight");
+                if (weightParam != null && !weightParam.isBlank()) {
+                    cp.setWeightKg(Double.parseDouble(weightParam));
+                }
+                String dimsParam = req.getParameter("dimensions");
+                if (dimsParam != null && !dimsParam.isBlank()) cp.setDimensions(dimsParam);
+                String skuParam = req.getParameter("sellerSku");
+                if (skuParam != null && !skuParam.isBlank()) cp.setSellerSku(skuParam);
+                String brandParam = req.getParameter("brand");
+                if (brandParam != null && !brandParam.isBlank()) cp.setBrand(brandParam);
+                String shortDescParam = req.getParameter("shortDescription");
+                if (shortDescParam != null && !shortDescParam.isBlank()) cp.setShortDescription(shortDescParam);
+                // description: set last so the service reads the right value
+                if (description != null) cp.setDescription(description);
+                cp.setShortDescription(description != null ? description : (shortDescParam != null ? shortDescParam : null));
+                if (price != null) cp.setChannelPrice(price);
+
+                // ── 3. Persist to DB before Lazada call ──────────────────────
+                // BRAND: nếu chưa set brand_id nào, mặc định No Brand (30768).
+                // Lazada yêu cầu brand_id số, không chỉ text brand.
+                if ((cp.getBrandId() == null || cp.getBrandId() <= 0)
+                        && (cp.getBrand() == null || cp.getBrand().isBlank())) {
+                    cp.setBrandId(LazadaProductService.NO_BRAND_LAZADA_ID);
+                    cp.setBrand("No Brand");
+                    cpDao.updateBrandId(cp.getProductId(), cp.getChannelId(), LazadaProductService.NO_BRAND_LAZADA_ID);
+                }
+                cpDao.update(cp);
+
+                // ── 4. Image URLs from modal ─────────────────────────────────
+                List<String> imageUrls = new java.util.ArrayList<>();
+                List<String> imageBase64s = new java.util.ArrayList<>();
+                String imageUrlsParam = req.getParameter("imageUrls");
+                String imageBase64sParam = req.getParameter("imageBase64s");
+                if ((imageUrlsParam != null && !imageUrlsParam.isBlank()) || (imageBase64sParam != null && !imageBase64sParam.isBlank())) {
+                    String[] urlParts = (imageUrlsParam != null && !imageUrlsParam.isBlank())
+                            ? imageUrlsParam.split("\\|", -1) : new String[0];
+                    String[] b64Parts = (imageBase64sParam != null && !imageBase64sParam.isBlank())
+                            ? imageBase64sParam.split("\\|", -1) : new String[0];
+                    int maxLen = Math.max(urlParts.length, b64Parts.length);
+                    for (int i = 0; i < maxLen; i++) {
+                        String trimmedUrl = (i < urlParts.length) ? urlParts[i].trim() : "";
+                        String b64 = (i < b64Parts.length) ? b64Parts[i].trim() : null;
+                        if (!trimmedUrl.isEmpty()) {
+                            imageUrls.add(toAbsoluteUrl(req, trimmedUrl));
+                            imageBase64s.add((b64 != null && !b64.isEmpty()) ? b64 : null);
+                        } else if (b64 != null && !b64.isEmpty()) {
+                            imageUrls.add("");
+                            imageBase64s.add(b64);
+                        }
+                    }
+                }
+
+                // Pass null for cpFromServlet — all fields already persisted to DB.
+                // Passing price/description separately is redundant since cpFromServlet
+                // was the source, and the service will reload from DB anyway.
+                PushResult r = new LazadaProductService().updateProduct(
+                        ch, id, null, null, null, imageUrls, imageBase64s);
+                String rendered = renderPushResultJson(r);
+                LOGGER.info("=== PUSH RESPONSE === " + rendered);
+                writeJson(resp, rendered);
+            } catch (NumberFormatException e) {
+                writeJson(resp, "{\"success\":false,\"message\":\"Định dạng số hoặc giá bán không hợp lệ.\"}");
+            } catch (Exception e) {
+                LOGGER.log(java.util.logging.Level.WARNING, "channel-products edit failed", e);
+                writeJson(resp, "{\"success\":false,\"message\":\"Lỗi: " + esc(e.getMessage()) + "\"}");
             }
         } else if ("loadLazadaLeaves".equals(action)) {
             // GET — return cached leaves from lazada_categories (UC-B2C09)
@@ -270,13 +418,37 @@ public class SalesChannelProductsServlet extends BaseController {
                 for (int i = 0; i < leaves.size(); i++) {
                     var c = leaves.get(i);
                     if (i > 0) json.append(",");
+                    String displayName = c.getPath() != null && !c.getPath().isBlank() ? c.getPath() : c.getName();
                     json.append("{\"lazadaCategoryId\":").append(c.getLazadaCategoryId())
-                        .append(",\"name\":\"").append(esc(c.getName())).append("\"}");
+                        .append(",\"name\":\"").append(esc(displayName)).append("\"}");
                 }
                 json.append("],\"total\":").append(leaves.size()).append("}");
                 writeJson(resp, json.toString());
             } catch (Exception e) {
                 LOGGER.log(java.util.logging.Level.WARNING, "loadLazadaLeaves failed", e);
+                writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
+            }
+        } else if ("getBrands".equals(action)) {
+            // Lazada /brand/get — returns valid brand list for the seller's country.
+            // Brands are needed in /product/create and /product/update payloads.
+            try {
+                int channelId = Integer.parseInt(req.getParameter("channelId"));
+                Channel ch = new ChannelDAO().findById(channelId);
+                if (ch == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
+                    return;
+                }
+                String countryCode = "vn";
+                String apiUrl = ch.getApiUrl();
+                if (apiUrl != null && apiUrl.contains(".my")) countryCode = "my";
+                else if (apiUrl != null && apiUrl.contains(".id")) countryCode = "id";
+                else if (apiUrl != null && apiUrl.contains(".th")) countryCode = "th";
+                else if (apiUrl != null && apiUrl.contains(".ph")) countryCode = "ph";
+                else if (apiUrl != null && apiUrl.contains(".sg")) countryCode = "sg";
+                String respJson = new LazadaChannelGateway().getBrands(ch, countryCode, 100);
+                writeJson(resp, "{\"success\":true,\"brandsResponse\":" + respJson + "}");
+            } catch (Exception e) {
+                LOGGER.log(java.util.logging.Level.WARNING, "getBrands failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("uploadImageBase64".equals(action)) {
@@ -392,15 +564,24 @@ public class SalesChannelProductsServlet extends BaseController {
                 .replace("\n", " ").replace("\r", " ");
     }
 
-    /** Converts a relative URL (e.g. /publish-images/uuid.jpg) to an absolute one
-     *  (e.g. http://localhost:8080/publish-images/uuid.jpg) using the request. */
     private static String toAbsoluteUrl(HttpServletRequest req, String url) {
         if (url == null || url.isBlank()) return url;
-        if (url.startsWith("http://") || url.startsWith("https://")) return url;
-        String scheme = req.getScheme();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            // Upgrade http to https for isp392.click as required by Lazada API
+            if (url.startsWith("http://isp392.click")) {
+                return "https://" + url.substring("http://".length());
+            }
+            return url;
+        }
+        String forwardedProto = req.getHeader("X-Forwarded-Proto");
         String host = req.getServerName();
+        String scheme = (forwardedProto != null && !forwardedProto.isBlank()) ? forwardedProto : req.getScheme();
+        if ("isp392.click".equalsIgnoreCase(host) || "443".equals(req.getHeader("X-Forwarded-Port"))) {
+            scheme = "https";
+        }
         int port = req.getServerPort();
-        String base = scheme + "://" + host + (port == 80 || port == 443 ? "" : ":" + port);
+        boolean standardPort = "https".equalsIgnoreCase(scheme) ? (port == 443 || port == 80) : (port == 80);
+        String base = scheme + "://" + host + (standardPort ? "" : ":" + port);
         String contextPath = req.getContextPath();
         if (url.startsWith("/")) {
             if (contextPath != null && !contextPath.isEmpty() && !"/".equals(contextPath) && url.startsWith(contextPath)) {
@@ -413,34 +594,91 @@ public class SalesChannelProductsServlet extends BaseController {
 
     /** Serializes a {@link PushResult} to JSON, including validation + field errors. */
     private static String renderPushResultJson(PushResult r) {
-        StringBuilder sb = new StringBuilder(256);
-        sb.append("{\"success\":").append(r.success)
-          .append(",\"code\":\"").append(esc(r.code)).append("\"")
-          .append(",\"message\":\"").append(esc(r.message)).append("\"")
-          .append(",\"itemId\":\"").append(esc(r.itemId == null ? "" : r.itemId)).append("\"")
-          .append(",\"skuId\":\"").append(esc(r.skuId == null ? "" : r.skuId)).append("\"");
-        if (r.validationErrors != null && !r.validationErrors.isEmpty()) {
-            sb.append(",\"validationErrors\":[");
-            for (int i = 0; i < r.validationErrors.size(); i++) {
-                if (i > 0) sb.append(",");
-                var ve = r.validationErrors.get(i);
-                sb.append("{\"field\":\"").append(esc(ve.field)).append("\"")
-                  .append(",\"code\":\"").append(esc(ve.code)).append("\"")
-                  .append(",\"message\":\"").append(esc(ve.viMessage)).append("\"}");
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper M = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.node.ObjectNode root = M.createObjectNode();
+            root.put("success", r.success);
+            root.put("code", r.code == null ? "" : r.code);
+            root.put("message", r.message == null ? "" : r.message);
+            root.put("itemId", r.itemId == null ? "" : r.itemId);
+            root.put("skuId", r.skuId == null ? "" : r.skuId);
+            if (r.validationErrors != null && !r.validationErrors.isEmpty()) {
+                var arr = M.createArrayNode();
+                for (var ve : r.validationErrors) {
+                    var node = M.createObjectNode();
+                    node.put("field", ve.field == null ? "" : ve.field);
+                    node.put("code", ve.code == null ? "" : ve.code);
+                    node.put("message", ve.viMessage == null ? "" : ve.viMessage);
+                    arr.add(node);
+                }
+                root.set("validationErrors", arr);
             }
-            sb.append("]");
-        }
-        if (r.fieldErrors != null && !r.fieldErrors.isEmpty()) {
-            sb.append(",\"fieldErrors\":[");
-            for (int i = 0; i < r.fieldErrors.size(); i++) {
-                if (i > 0) sb.append(",");
-                var fe = r.fieldErrors.get(i);
-                sb.append("{\"field\":\"").append(esc(fe.fieldHint == null ? fe.field : fe.fieldHint)).append("\"")
-                  .append(",\"message\":\"").append(esc(fe.viMessage)).append("\"}");
+            if (r.fieldErrors != null && !r.fieldErrors.isEmpty()) {
+                var arr = M.createArrayNode();
+                for (var fe : r.fieldErrors) {
+                    var node = M.createObjectNode();
+                    node.put("field", fe.fieldHint == null ? (fe.field == null ? "" : fe.field) : fe.fieldHint);
+                    node.put("message", fe.viMessage == null ? "" : fe.viMessage);
+                    arr.add(node);
+                }
+                root.set("fieldErrors", arr);
             }
-            sb.append("]");
+            return M.writeValueAsString(root);
+        } catch (Exception e) {
+            LOGGER.warning("renderPushResultJson failed: " + e.getMessage());
+            return "{\"success\":false,\"message\":\"JSON render error: " + esc(e.getMessage()) + "\"}";
         }
-        sb.append("}");
-        return sb.toString();
+    }
+     private void handleGetProductDetail(HttpServletRequest req, HttpServletResponse resp)
+             throws jakarta.servlet.ServletException, java.io.IOException {
+        try {
+            int productId = Integer.parseInt(req.getParameter("productId"));
+            Product p = productService.findById(productId);
+            if (p == null) {
+                writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy Master SKU.\"}");
+                return;
+            }
+            
+            List<String> imageUrls = new java.util.ArrayList<>();
+            
+            // Try fetching live images from Lazada first if channelProductId is provided
+            String cpIdParam = req.getParameter("channelProductId");
+            if (cpIdParam != null && !cpIdParam.isBlank()) {
+                try {
+                    int cpId = Integer.parseInt(cpIdParam);
+                    com.wms.model.ChannelProduct cp = new com.wms.dao.ChannelProductDAO().findById(cpId);
+                    if (cp != null && cp.getChannelItemId() != null && !cp.getChannelItemId().isBlank()) {
+                        com.wms.model.Channel ch = new com.wms.dao.ChannelDAO().findById(cp.getChannelId());
+                        if (ch != null) {
+                            List<String> lazadaImages = new LazadaProductService().fetchLazadaExistingImages(ch, cp.getChannelItemId());
+                            if (lazadaImages != null && !lazadaImages.isEmpty()) {
+                                imageUrls.addAll(lazadaImages);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.warning("Failed to fetch live Lazada images for detail: " + e.getMessage());
+                }
+            }
+            
+            // Fallback: master product images
+            if (imageUrls.isEmpty()) {
+                List<com.wms.model.ProductImage> images = new ProductImageDAO().findByProductId(productId);
+                for (com.wms.model.ProductImage img : images) {
+                    if (img.getImageUrl() != null && !img.getImageUrl().isBlank()) {
+                        imageUrls.add(img.getImageUrl());
+                    }
+                }
+            }
+            
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("productId", productId);
+            result.put("description", p.getShortDescription() != null ? p.getShortDescription() : "");
+            result.put("images", imageUrls);
+            writeJson(resp, JsonUtil.toJson(result));
+        } catch (Exception e) {
+            writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
+        }
     }
 }

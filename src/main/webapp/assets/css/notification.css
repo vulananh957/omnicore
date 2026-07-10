@@ -6,6 +6,7 @@
 /* ── Bell Button ──────────────────────────────────────────────── */
 .notif-btn {
     position: relative;
+    z-index: 999;  /* must be above backdrop (998) so clicks reach the button */
     width: 36px; height: 36px;
     background: var(--alice);
     border: 1px solid var(--border);
@@ -232,4 +233,14 @@
 .notif-backdrop {
     position: fixed; inset: 0; z-index: 998;
     background: transparent;
+}
+
+/* ── When any modal is open: push notification bell behind the overlay ── */
+body.modal-open .notif-btn,
+body.modal-open .notif-panel,
+body.modal-open .notif-backdrop {
+    z-index: 1 !important;
+}
+body.modal-open .notif-panel.open {
+    display: none !important;
 }

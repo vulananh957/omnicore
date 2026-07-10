@@ -24,12 +24,7 @@
     <span id="skuToastMsg">Cập nhật thành công!</span>
 </div>
 
-<!-- ══ TABS FILTER SECTION ════════════════════════════════════ -->
-<div class="tabs-wrap">
-    <button class="tab-btn active" id="tab-all" onclick="window.setSKUTab('all')">
-        Tất cả <span class="tab-badge" id="badge-all">0</span>
-    </button>
-</div>
+
 
 <!-- ══ TOOLBAR SECTION ═══════════════════════════════════════ -->
 <div class="toolbar-wrap">
@@ -57,8 +52,8 @@
         Xuất CSV
     </button>
 
-    <!-- Create SKU — only for MANAGER -->
-    <c:if test="${loggedInUser.role == 'MANAGER'}">
+    <!-- Create SKU — only for SALES_STAFF -->
+    <c:if test="${loggedInUser.role == 'SALES_STAFF'}">
     <button class="btn-add-sku" id="btnCreateSKUTrigger">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         Thêm SKU mới
@@ -138,10 +133,7 @@
                     <input class="form-input" type="number" id="create-weight" min="0" step="any" placeholder="VD: 0.28" style="padding:10px 6px; min-width:0; width:100%;"/>
             </div>
         </div>
-        <div class="form-group">
-            <label class="form-label" for="create-base-price">Giá nhập (VNĐ) *</label>
-            <input class="form-input" type="number" id="create-base-price" min="0" step="1000" placeholder="VD: 189000" style="padding:10px 12px;"/>
-        </div>
+        <input type="hidden" id="create-base-price" value=""/>
         </div>
         <div class="modal-ftr">
             <button class="modal-close btn-export" id="createModalCancel" style="padding:9px 16px;">Hủy</button>
@@ -192,15 +184,10 @@
                 <label class="form-label" for="edit-base-price">Giá nhập (VNĐ)</label>
                 <input class="form-input" type="number" id="edit-base-price" min="0" step="1000" placeholder="VD: 189000" style="padding:10px 6px; min-width:0; width:100%;"/>
             </div>
-            <div class="form-grid">
-                <div class="form-group">
-                    <label class="form-label" for="edit-barcode">Mã vạch (Barcode)</label>
-                    <input class="form-input" type="text" id="edit-barcode" placeholder="Barcode..."/>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="edit-unit">Đơn vị tính</label>
-                    <input class="form-input" type="text" id="edit-unit" placeholder="VD: Cái, Hộp..."/>
-                </div>
+            <input type="hidden" id="edit-barcode"/>
+            <div class="form-group">
+                <label class="form-label" for="edit-unit">Đơn vị tính</label>
+                <input class="form-input" type="text" id="edit-unit" placeholder="VD: Cái, Hộp..."/>
             </div>
         </div>
         <div class="modal-ftr">
@@ -368,7 +355,6 @@ function escapeHtml(str) {
 
 var search = '';
 var selectedCategory = 'Tất cả';
-var activeTab = 'all'; // 'all' (no more pending/approved/rejected tabs)
 
 /* ─── DOM Elements ───────────────────────────────────────── */
 var tableBody   = document.getElementById('skuTableBody');
@@ -747,7 +733,7 @@ if (btnAutoGen) {
         }
         btnAutoGen.disabled = true;
         btnAutoGen.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang tạo...';
-        fetch('${pageContext.request.contextPath}/business/sku/generate?categoryId=' + catId)
+        fetch('${pageContext.request.contextPath}/sales/sku/generate?categoryId=' + catId)
             .then(function(resp) { return resp.json(); })
             .then(function(data) {
                 if (data.sku) {
@@ -861,14 +847,7 @@ if (catSelect) {
     });
 }
 
-window.setSKUTab = function (tabId) {
-    activeTab = tabId;
-    var btn = document.getElementById('tab-all');
-    if (btn) {
-        btn.classList.toggle('active', tabId === 'all');
-    }
-    renderAll();
-};
+
 
 /* CSV Export */
 var btnExportCSV = document.getElementById('btnExportCSV');
@@ -913,14 +892,8 @@ function getFilteredList() {
     });
 }
 
-function updateTabBadges() {
-    var b = document.getElementById('badge-all');
-    if (b) b.textContent = skus.length;
-}
-
 /* ══ RENDER TABLE ══════════════════════════════════════════ */
 function renderAll() {
-    updateTabBadges();
     
     var filtered = getFilteredList();
 
@@ -953,12 +926,12 @@ function renderAll() {
         var infoHtml = '<div class="info-lbl"><span class="info-lbl-inner">Tạo:</span> ' + item.createdBy + '</div>' +
                        '<div class="info-time">' + item.createdAt + '</div>';
 
-        var isManagerUser = (window.WMS_USER && window.WMS_USER.role === 'MANAGER');
+        var isSalesStaffUser = (window.WMS_USER && window.WMS_USER.role === 'SALES_STAFF');
 
-        var editBtnHtml = '<button type="button" class="btn-act-circle edit" onclick="window.triggerEditSKU(\'' + item.id + '\')" title="Sửa" style="' + (isManagerUser ? '' : 'display:none;') + '">' +
+        var editBtnHtml = '<button type="button" class="btn-act-circle edit" onclick="window.triggerEditSKU(\'' + item.id + '\')" title="Sửa" style="' + (isSalesStaffUser ? '' : 'display:none;') + '">' +
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>' +
             '</button>';
-        var deleteBtnHtml = '<button type="button" class="btn-act-circle del" onclick="window.triggerDeleteSKU(\'' + item.id + '\')" title="Xóa" style="' + (isManagerUser ? '' : 'display:none;') + '">' +
+        var deleteBtnHtml = '<button type="button" class="btn-act-circle del" onclick="window.triggerDeleteSKU(\'' + item.id + '\')" title="Xóa" style="' + (isSalesStaffUser ? '' : 'display:none;') + '">' +
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
             '</button>';
 

@@ -201,7 +201,7 @@
             </div>
             <div class="ic-modal-ft">
                 <button type="button" class="ic-btn ic-btn--cancel" id="btnCancelCreate">HỦY</button>
-                <button type="submit" class="ic-btn ic-btn--submit">TẠO PHIẾU & GIAO VIỆC</button>
+                <button type="submit" class="ic-btn ic-btn--submit">TẠO PHIẾU</button>
             </div>
         </form>
     </div>
@@ -573,6 +573,9 @@
                 }
                 itemsBySheetId = {};
                 render();
+                if (expandedSheetId != null) {
+                    loadDetails(expandedSheetId);
+                }
             })
             .catch(function (err) {
                 console.error('[inventory-check] loadChecks failed:', err);
@@ -664,10 +667,7 @@
             var actionBtn = '';
             if (sheet.status === 'DRAFT' || sheet.status === 'IN_PROGRESS') {
                 actionBtn = '<button class="ic-btn-action ic-btn-action--orange" onclick="triggerComplete(event, ' + sheetKey + ')">' +
-                            'Hoàn tất & Trình duyệt</button>';
-            } else if (sheet.status === 'APPROVED') {
-                actionBtn = '<button class="ic-btn-action ic-btn-action--blue" onclick="triggerAdjust(event, ' + sheetKey + ')">' +
-                            'Điều chỉnh</button>';
+                            'Hoàn tất</button>';
             }
 
             // Delta text styling
@@ -686,7 +686,7 @@
                     countField = '<span style="font-size:13px; font-weight:700;">' + Number(item.actualQty).toLocaleString() + '</span>';
                 } else if (sheet.status === 'DRAFT' || sheet.status === 'IN_PROGRESS') {
                     countField = '<input class="ic-input-count" type="number" placeholder="Nhập..." ' +
-                                 'oninput="handleUpdateCountedQty(' + sheetKey + ', ' + item.checkDetailId + ', this.value)"/>';
+                                 'onchange="handleUpdateCountedQty(' + sheetKey + ', ' + item.checkDetailId + ', this.value)"/>';
                 } else {
                     countField = '<span style="color:rgba(16,55,92,0.30);">—</span>';
                 }

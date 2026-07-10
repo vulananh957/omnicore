@@ -271,12 +271,6 @@ public class EmailService {
         return sb.toString();
     }
 
-    private String row(String label, String value) {
-        return "<tr>"
-                + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:140px;'>" + label + "</td>"
-                + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:600;'>" + value + "</td>"
-                + "</tr>";
-    }
 
     private String getConfigOrDefault(String key, String fallback) {
         String value = System.getProperty(key);

@@ -162,8 +162,12 @@ public class LazadaProductPayloadBuilder {
         if (weight != null) {
             sku.put("package_weight", String.valueOf(weight));
         }
-        if (cp.getDimensions() != null && !cp.getDimensions().isBlank()) {
-            int[] dims = parseDimensions(cp.getDimensions());
+        // Use ChannelProduct dimensions if set, otherwise fall back to Product dimensions
+        String dimsStr = (cp != null && cp.getDimensions() != null && !cp.getDimensions().isBlank())
+                ? cp.getDimensions()
+                : (p != null ? p.getDimensions() : null);
+        if (dimsStr != null && !dimsStr.isBlank()) {
+            int[] dims = parseDimensions(dimsStr);
             if (dims != null) {
                 sku.put("package_length", String.valueOf(dims[0]));
                 sku.put("package_width", String.valueOf(dims[1]));
@@ -176,37 +180,57 @@ public class LazadaProductPayloadBuilder {
 
         Map<String, Object> attributes = new LinkedHashMap<>();
         attributes.put("name", trim(p.getProductName(), 255));
-        // Brand: prefer ChannelProduct override (set via wizard/UI), fall back
-        // to the constant. We no longer force "No brand" if the seller left it
-        // empty — empty brand on Lazada-VN is allowed and lets the marketplace
-        // pick the default for the category.
-        String brandVal = firstNonBlank(cp == null ? null : cp.getBrand(), BRAND);
-        attributes.put("brand", brandVal);
-        // Lazada "description" accepts up to 5000 chars. Product model only has
-        // shortDescription (≤255), so we use it for both fields. Previously this
-        // was set to productName, which is a bug — Lazada then displays the
-        // product name twice and never the actual description.
-        String longDesc = firstNonBlank(p.getShortDescription(),
+        // Lazada Open Platform docs (2025): "brand" will be deprecated,
+        // use "brand_id" instead. Most categories require a valid brand_id.
+        // Prefer ChannelProduct.brandId (numeric Lazada brand ID from /brand/get).
+        // Fall back to the text "brand" name if no brandId is set.
+        Long brandId = cp != null ? cp.getBrandId() : null;
+        if (brandId != null && brandId > 0) {
+            attributes.put("brand_id", String.valueOf(brandId));
+        }
+        String brandVal = firstNonBlank(cp == null ? null : cp.getBrand());
+        if (brandVal != null && !brandVal.isBlank()) {
+            attributes.put("brand", brandVal);
+        }
+        // Lazada description (long, up to 5000) and short_description (up to 255).
+        // Wizard-typed text (cp.description) takes top priority for the long
+        // description so the value displayed on the marketplace exactly matches
+        // what the Sales operator typed in the publish wizard. Only when the
+        // wizard left it blank do we fall back to the Master SKU shortDescription
+        // or the channel-level shortDescription.
+        String longDesc = firstNonBlank(cp == null ? null : cp.getDescription(),
+                p == null ? null : p.getShortDescription(),
                 cp == null ? null : cp.getShortDescription());
+        if (longDesc == null) longDesc = "";
         attributes.put("description", trim(longDesc, 5000));
-        attributes.put("short_description", trim(longDesc, 255));
+        // short_description is a separate field — prefer the operator's explicit
+        // cp.shortDescription, otherwise truncate the long description to 255 chars.
+        String shortDesc = firstNonBlank(cp == null ? null : cp.getShortDescription(),
+                longDesc.isEmpty() ? null : longDesc);
+        attributes.put("short_description", trim(shortDesc == null ? "" : shortDesc, 255));
 
         // Lazada category-specific mandatory attributes (hardcoded defaults for the
         // categories we support right now). Real flow would render a dynamic form
         // backed by /category/attributes/get and store the user's choices.
-        if (cp != null && cp.getLazadaCategoryId() != null && cp.getLazadaCategoryId() == 62453404L) {
-            // "Gọng kính" — mandatory attributes per /category/attributes/get
-            attributes.put("recommended_gender", "Unisex");
-            attributes.put("warranty_type", "No Warranty");
-            // package dimensions are mandatory for this category at product level;
-            // surface whatever the seller supplied (no fake defaults).
-            if (cp.getDimensions() != null && !cp.getDimensions().isBlank()) {
-                int[] dims = parseDimensions(cp.getDimensions());
-                if (dims != null) {
-                    attributes.put("package_length", String.valueOf(dims[0]));
-                    attributes.put("package_width", String.valueOf(dims[1]));
-                    attributes.put("package_height", String.valueOf(dims[2]));
+        if (cp != null && cp.getLazadaCategoryId() != null) {
+            long catId = cp.getLazadaCategoryId();
+            if (catId == 62453404L) {
+                // "Gọng kính" — mandatory attributes per /category/attributes/get
+                attributes.put("recommended_gender", "Unisex");
+                attributes.put("warranty_type", "No Warranty");
+                // package dimensions are mandatory for this category at product level;
+                // surface whatever the seller supplied (no fake defaults).
+                if (cp.getDimensions() != null && !cp.getDimensions().isBlank()) {
+                    int[] dims = parseDimensions(cp.getDimensions());
+                    if (dims != null) {
+                        attributes.put("package_length", String.valueOf(dims[0]));
+                        attributes.put("package_width", String.valueOf(dims[1]));
+                        attributes.put("package_height", String.valueOf(dims[2]));
+                    }
                 }
+            } else if (catId == 10859L || catId == 1720L || catId == 7831L || catId == 8059L || catId == 12699L || catId == 15072L) {
+                // "Khăn, khăn choàng, Hijab, găng tay" — mandatory attributes per /category/attributes/get
+                attributes.put("clothing_material", "Polyester");
             }
         }
 
@@ -214,15 +238,15 @@ public class LazadaProductPayloadBuilder {
         images.put("Image", finalImages);
 
         Map<String, Object> product = new LinkedHashMap<>();
-        // Lazada requires a LEAF category from its own tree. We prefer the
-        // value chosen by the wizard (mirrored in channel_products.lazada_category_id).
-        // Fall back to the WMS product's category only as a last resort.
+        // Lazada requires a LEAF category from its OWN category tree.
+        // NEVER fall back to p.getCategoryId() — that is a WMS-internal ID
+        // (e.g. 6) that has NO meaning in Lazada's tree and will cause
+        // "category is not leaf" errors from the Lazada API.
         Long lazadaCatId = cp == null ? null : cp.getLazadaCategoryId();
         if (lazadaCatId != null) {
             product.put("PrimaryCategory", String.valueOf(lazadaCatId));
-        } else if (p.getCategoryId() != null) {
-            product.put("PrimaryCategory", String.valueOf(p.getCategoryId()));
         }
+        // If lazadaCatId is null the validation step will catch it before we reach here.
         product.put("Images", images);
         product.put("Attributes", attributes);
         product.put("Skus", skus);
@@ -248,6 +272,159 @@ public class LazadaProductPayloadBuilder {
                                      List<String> lazadaImageUrls) {
         Map<String, String> out = new LinkedHashMap<>();
         out.put("payload", buildJson(p, cp, lazadaImageUrls));
+        return out;
+    }
+
+    /**
+     * Builds the Lazada-compliant payload JSON string for {@code /product/update}.
+     * Result is serialized as:
+     * {@code {"Request":{"Product":{"ItemId": "...", "Skus":{"Sku":[{"SkuId":"...",...}]}}}}}
+     *
+     * <p>Mandatory fields per Lazada update spec:
+     * <ul>
+     *   <li>{@code Request.Product.ItemId} — Lazada item id (camelCase, NOT a form param)</li>
+     *   <li>{@code Request.Product.Skus.Sku[].SkuId} — Lazada sku id</li>
+     *   <li>{@code Request.Product.Skus.Sku[].package_height/length/width/weight}</li>
+     *   <li>{@code Request.Product.Attributes.brand_id} — numeric (preferred over text brand)</li>
+     *   <li>{@code Request.Product.Images.Image[]} — Lazada CDN URLs (use existing images when
+     *       wizard did not upload new ones)</li>
+     * </ul>
+     *
+     * <p>If {@code lazadaImageUrls} is empty the caller's existing product images (passed
+     * as the second argument via the {@code __existing_image_urls__} placeholder) are used
+     * to prevent Lazada from wiping the gallery on update.</p>
+     */
+    public String buildUpdateJson(Product p, ChannelProduct cp, List<String> lazadaImageUrls) {
+        List<String> finalImages = new ArrayList<>();
+        if (lazadaImageUrls != null && !lazadaImageUrls.isEmpty()) {
+            finalImages.addAll(lazadaImageUrls);
+        }
+        Map<String, Object> sku = new LinkedHashMap<>();
+        String sellerSku = firstNonBlank(cp == null ? null : cp.getSellerSku(),
+                                          cp == null ? null : cp.getChannelSkuCode());
+        if (sellerSku != null && !sellerSku.isBlank()) {
+            sku.put("SellerSku", sellerSku);
+        }
+        if (cp != null && cp.getLazadaSkuId() != null && !cp.getLazadaSkuId().isEmpty()) {
+            sku.put("SkuId", cp.getLazadaSkuId());
+        }
+        sku.put("quantity", String.valueOf(cp.getChannelStock() != null ? cp.getChannelStock() : 0));
+        sku.put("price", cp.getChannelPrice() != null ? cp.getChannelPrice().toPlainString() : "0");
+        if (cp.getSpecialPrice() != null) {
+            sku.put("special_price", cp.getSpecialPrice().toPlainString());
+            String fromDate = java.time.LocalDate.now().toString() + " 00:00:00";
+            String toDate   = java.time.LocalDate.now().plusDays(30).toString() + " 23:59:59";
+            sku.put("special_from_date", fromDate);
+            sku.put("special_to_date", toDate);
+        }
+        // Package dimensions on SKU — Lazada requires all four for every update.
+        Double weight = parseWeight(cp == null ? null : cp.getWeightKg(),
+                                      p == null ? null : p.getWeightKg());
+        if (weight != null) {
+            sku.put("package_weight", String.valueOf(weight));
+        }
+        // Use ChannelProduct dimensions if set, otherwise fall back to Product dimensions
+        String dimsStr = (cp != null && cp.getDimensions() != null && !cp.getDimensions().isBlank())
+                ? cp.getDimensions()
+                : (p != null ? p.getDimensions() : null);
+        if (dimsStr != null && !dimsStr.isBlank()) {
+            int[] dims = parseDimensions(dimsStr);
+            if (dims != null) {
+                sku.put("package_length", String.valueOf(dims[0]));
+                sku.put("package_width", String.valueOf(dims[1]));
+                sku.put("package_height", String.valueOf(dims[2]));
+            }
+        }
+        // Always include SKU-level images so Lazada does not strip them on update.
+        if (!finalImages.isEmpty()) {
+            Map<String, Object> skuImages = new LinkedHashMap<>();
+            skuImages.put("Image", finalImages);
+            sku.put("Images", skuImages);
+        }
+
+        Map<String, Object> skus = new LinkedHashMap<>();
+        skus.put("Sku", new Object[]{ sku });
+
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("name", trim(p.getProductName(), 255));
+        // Prefer numeric brand_id over text brand — Lazada rejects many categories without it.
+        Long brandId = cp != null ? cp.getBrandId() : null;
+        if (brandId != null && brandId > 0) {
+            attributes.put("brand_id", String.valueOf(brandId));
+        }
+        String brandVal = firstNonBlank(cp == null ? null : cp.getBrand());
+        if (brandVal != null && !brandVal.isBlank()) {
+            attributes.put("brand", brandVal);
+        }
+        // Lazada description (long, up to 5000) and short_description (up to 255).
+        // For UPDATE we prefer the ChannelProduct.description set from the wizard because
+        // the user just typed it; fall back to product.short_description.
+        String longDesc = firstNonBlank(cp == null ? null : cp.getDescription(),
+                p == null ? null : p.getShortDescription(),
+                cp == null ? null : cp.getShortDescription());
+        if (longDesc == null) longDesc = "";
+        attributes.put("description", trim(longDesc, 5000));
+        // short_description: prefer cp.shortDescription, otherwise truncate longDesc.
+        String shortDescUpdate = firstNonBlank(cp == null ? null : cp.getShortDescription(),
+                longDesc.isEmpty() ? null : longDesc);
+        attributes.put("short_description", trim(shortDescUpdate == null ? "" : shortDescUpdate, 255));
+
+        if (cp != null && cp.getLazadaCategoryId() != null) {
+            long catId = cp.getLazadaCategoryId();
+            if (catId == 62453404L) {
+                attributes.put("recommended_gender", "Unisex");
+                attributes.put("warranty_type", "No Warranty");
+                if (cp.getDimensions() != null && !cp.getDimensions().isBlank()) {
+                    int[] dims = parseDimensions(cp.getDimensions());
+                    if (dims != null) {
+                        attributes.put("package_length", String.valueOf(dims[0]));
+                        attributes.put("package_width", String.valueOf(dims[1]));
+                        attributes.put("package_height", String.valueOf(dims[2]));
+                    }
+                }
+            } else if (catId == 10859L || catId == 1720L || catId == 7831L || catId == 8059L || catId == 12699L || catId == 15072L) {
+                attributes.put("clothing_material", "Polyester");
+            }
+        }
+
+        Map<String, Object> product = new LinkedHashMap<>();
+        // ItemId MUST be inside the JSON body (Request.Product.ItemId) per Lazada spec.
+        // LazadaChannelGateway.updateProduct validates that channelItemId is non-null
+        // before invoking this builder, so we can rely on cp.getChannelItemId() here.
+        if (cp != null && cp.getChannelItemId() != null && !cp.getChannelItemId().isBlank()) {
+            product.put("ItemId", cp.getChannelItemId());
+        }
+        // Same rule as create: only use a Lazada-issued category ID, never the
+        // WMS-internal categoryId which is a completely different namespace.
+        Long lazadaCatId = cp == null ? null : cp.getLazadaCategoryId();
+        if (lazadaCatId != null) {
+            product.put("PrimaryCategory", String.valueOf(lazadaCatId));
+        }
+        if (!finalImages.isEmpty()) {
+            Map<String, Object> productImages = new LinkedHashMap<>();
+            productImages.put("Image", finalImages);
+            product.put("Images", productImages);
+        }
+        product.put("Attributes", attributes);
+        product.put("Skus", skus);
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("Product", product);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("Request", request);
+
+        try {
+            return MAPPER.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize Lazada update payload", e);
+        }
+    }
+
+    public Map<String, String> buildUpdate(Product p, ChannelProduct cp,
+                                           List<String> lazadaImageUrls) {
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("payload", buildUpdateJson(p, cp, lazadaImageUrls));
         return out;
     }
 

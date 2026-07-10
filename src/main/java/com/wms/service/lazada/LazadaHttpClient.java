@@ -71,6 +71,24 @@ public class LazadaHttpClient {
         return executeWithRefresh(channel, apiPath, params, "GET", null);
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // GET SHIPMENT PROVIDERS
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Calls Lazada /order/shipment/providers/get to retrieve the list of active
+     * shipment providers for the channel.
+     *
+     * @param channel   the channel providing credentials
+     * @param body     raw JSON body: {"orders":[{"order_id":"...","order_item_ids":[[...]]}]}
+     * @return raw JSON response body
+     */
+    public String getShipmentProviders(Channel channel, String body) {
+        Map<String, String> params = new java.util.TreeMap<>();
+        params.put("getShipmentProvidersReq", body);
+        return executePost("/order/shipment/providers/get", params, channel, null);
+    }
+
     // ──────────────────────────────────────────────────────────
     // POST
     // ──────────────────────────────────────────────────────────
@@ -215,8 +233,8 @@ public class LazadaHttpClient {
             try {
                 String refreshJson = authService.refreshAccessToken(channel);
                 JsonNode root = MAPPER.readTree(refreshJson);
-                String newAccess  = root.path("access_token").asText("");
-                String newRefresh = root.path("refresh_token").asText("");
+                String newAccess  = root.path("access_token").asText();
+                String newRefresh = root.path("refresh_token").asText();
                 if (newAccess.isEmpty()) {
                     throw new RuntimeException(
                             "Refresh response did not contain access_token: " + refreshJson);
@@ -240,8 +258,8 @@ public class LazadaHttpClient {
         if (response == null || response.isEmpty()) return false;
         try {
             JsonNode root = MAPPER.readTree(response);
-            String code    = root.path("code").asText("");
-            String message = root.path("message").asText("");
+            String code    = root.path("code").asText();
+            String message = root.path("message").asText();
             if (EXPIRED_TOKEN_CODE.equals(code)) return true;
             String lcMsg = message.toLowerCase();
             return lcMsg.contains("expired") || lcMsg.contains("invalid access_token")
@@ -304,6 +322,7 @@ public class LazadaHttpClient {
             String bodyOut = "";
             if (!"GET".equalsIgnoreCase(httpMethod)) {
                 bodyOut = (rawBody != null) ? rawBody : buildFormUrlEncodedBody(signed);
+                LOGGER.info("LazadaHttpClient bodyOut=" + bodyOut + " hasPackReq=" + bodyOut.contains("packReq"));
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(bodyOut.getBytes(StandardCharsets.UTF_8));
                     os.flush();
@@ -341,9 +360,37 @@ public class LazadaHttpClient {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> e : params.entrySet()) {
             if (sb.length() > 0) sb.append('&');
-            sb.append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8));
+            sb.append(encodeParam(e.getKey()));
             sb.append('=');
-            sb.append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
+            sb.append(encodeParam(e.getValue()));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * URL-encodes a single query parameter value using RFC 3986.
+     * Keeps alphanumeric, "-_.~", and reserved path/query chars (:/?=@) unencoded.
+     * Encodes + as %2B (prevents "+" in "+07:00" being decoded as space by servers
+     * that treat query strings as application/x-www-form-urlencoded).
+     */
+    private static String encodeParam(String value) {
+        if (value == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9')
+                    || c == '-' || c == '_' || c == '.' || c == '~'
+                    || c == ':' || c == '/' || c == '?' || c == '='
+                    || c == '&' || c == '%' || c == '@') {
+                sb.append(c);
+            } else if (c == ' ') {
+                sb.append("%20");
+            } else if (c == '+') {
+                sb.append("%2B");
+            } else {
+                sb.append(String.format("%%%02X", (int) c));
+            }
         }
         return sb.toString();
     }

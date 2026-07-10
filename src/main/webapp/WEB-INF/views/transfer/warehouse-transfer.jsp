@@ -1,7 +1,7 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 
-<link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/transfer--warehouse-transfer.css"/>
+<link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/transfer--warehouse-transfer.css?v=2"/>
 
 <!-- ═══ PAGE HEADER ═══ -->
 <div class="wt-page-header">
@@ -58,8 +58,8 @@
             </svg>
         </div>
         <div>
-            <div class="wt-stat-val" id="wtStatDraft" style="color:rgba(16,55,92,.60);">0</div>
-            <div class="wt-stat-lbl">Bản nháp</div>
+            <div class="wt-stat-val" id="wtStatCancelled" style="color:rgba(16,55,92,.60);">0</div>
+            <div class="wt-stat-lbl">Đã hủy</div>
         </div>
     </div>
 </div>
@@ -87,9 +87,6 @@
 <div class="wt-tabs" id="wtTabs">
     <button class="wt-tab active" data-tab="all">
         Tất cả <span class="wt-tab-badge" id="wtBadge-all">0</span>
-    </button>
-    <button class="wt-tab" data-tab="DRAFT">
-        Nháp <span class="wt-tab-badge" id="wtBadge-DRAFT">0</span>
     </button>
     <button class="wt-tab" data-tab="IN_TRANSIT">
         Đang chuyển <span class="wt-tab-badge" id="wtBadge-IN_TRANSIT">0</span>
@@ -213,25 +210,21 @@
         </div>
         <div class="wt-modal-ft">
             <button class="wt-btn cancel" id="wtBtnCancelCreate">Hủy</button>
-            <button class="wt-btn navy"   id="wtBtnDraft">Lưu nháp</button>
-            <button class="wt-btn orange" id="wtBtnSubmit">Trình duyệt</button>
+            <button class="wt-btn orange" id="wtBtnSubmit">Tạo &amp; Xác nhận chuyển</button>
         </div>
     </div>
 </div>
 
 <!-- ═══ MODAL: CHI TIẾT ═══ -->
 <div class="wt-overlay" id="wtDetailOverlay" style="display:none;" onclick="wtCloseDetail(event)">
-    <div class="wt-modal" onclick="event.stopPropagation()">
+    <div class="wt-modal wt-modal--wide" onclick="event.stopPropagation()">
         <div class="wt-modal-hd" style="background:rgba(240,245,250,.4);">
             <h2 style="text-transform:none;font-size:14px;">Chi tiết Phiếu Chuyển Kho</h2>
             <button class="wt-modal-close"
                     onclick="document.getElementById('wtDetailOverlay').style.display='none'">×</button>
         </div>
         <div class="wt-modal-body" id="wtDetailBody"></div>
-        <div class="wt-modal-ft">
-            <span class="wt-pending-info" id="wtDetailPending" style="display:none;">
-                Đang chờ Business Manager phê duyệt
-            </span>
+        <div class="wt-modal-ft" id="wtDetailFooter">
             <button class="wt-btn navy"
                     onclick="document.getElementById('wtDetailOverlay').style.display='none'">Đóng</button>
         </div>
@@ -245,7 +238,9 @@
             "id": ${t.transferId},
             "code": "<c:out value='${t.transferCode}'/>",
             "fromWH": "<c:out value='${t.fromWarehouseName}'/>",
+            "fromWarehouseId": ${t.fromWarehouseId},
             "toWH": "<c:out value='${t.toWarehouseName}'/>",
+            "toWarehouseId": ${t.toWarehouseId},
             "status": "<c:out value='${t.status}'/>",
             "createdAt": "<c:out value='${t.createdAt}'/>",
             "completedAt": "<c:out value='${t.completedAt}'/>",
@@ -296,7 +291,6 @@
     var DB_PRODUCTS = JSON.parse(document.getElementById('db-products-data').textContent || '[]');
 
     /* ─── State ─── */
-    var localTransfers = [];   // local-created (draft/pending), not yet in DB
     var activeTab  = 'all';
     var searchTxt  = '';
     var detailDoc  = null;
@@ -308,7 +302,6 @@
     var createOvl  = document.getElementById('wtCreateOverlay');
     var detailOvl  = document.getElementById('wtDetailOverlay');
     var detailBody = document.getElementById('wtDetailBody');
-    var pendingNote= document.getElementById('wtDetailPending');
     var fSku       = document.getElementById('wtFormSku');
     var fSkuName   = document.getElementById('wtFormSkuName');
     var fQty       = document.getElementById('wtFormQty');
@@ -361,12 +354,9 @@
     /* ─── Status config ─── */
     function statusCfg(s) {
         var m = {
-            'DRAFT':      { cls: 'draft',      lbl: 'Nháp' },
             'IN_TRANSIT': { cls: 'in-transit',  lbl: 'Đang chuyển' },
             'RECEIVED':   { cls: 'received',    lbl: 'Đã nhận' },
-            'CANCELLED':  { cls: 'cancelled',   lbl: 'Đã hủy' },
-            'pending':    { cls: 'pending',     lbl: 'Chờ duyệt' },
-            'draft':      { cls: 'draft',       lbl: 'Nháp' }
+            'CANCELLED':  { cls: 'cancelled',   lbl: 'Đã hủy' }
         };
         return m[s] || { cls: 'draft', lbl: s };
     }
@@ -377,44 +367,29 @@
                '<span class="wt-pill__dot"></span>' + esc(c.lbl) + '</span>';
     }
 
-    /* ─── Merge DB + local for display ─── */
-    function allTransfers() {
-        var dbRows = DB_TRANSFERS.map(function (t) {
-            return { _src: 'db', id: t.code, fromWH: t.fromWH, toWH: t.toWH,
-                     status: t.status, createdAt: t.createdAt, _raw: t };
-        });
-        var localRows = localTransfers.map(function (t) {
-            return { _src: 'local', id: t.id, fromWH: t.fromWH, toWH: t.toWH,
-                     status: t.status, createdAt: t.createdAt, _raw: t };
-        });
-        return dbRows.concat(localRows);
-    }
-
     /* ─── Render ─── */
     function render() {
-        var all = allTransfers();
-
         // Counts
         function cnt(key) {
-            if (key === 'all') return all.length;
-            return all.filter(function (t) { return t.status === key; }).length;
+            if (key === 'all') return DB_TRANSFERS.length;
+            return DB_TRANSFERS.filter(function (t) { return t.status === key; }).length;
         }
-        document.getElementById('wtStatTotal').textContent    = all.length;
+        document.getElementById('wtStatTotal').textContent    = DB_TRANSFERS.length;
         document.getElementById('wtStatTransit').textContent  = cnt('IN_TRANSIT');
         document.getElementById('wtStatReceived').textContent = cnt('RECEIVED');
-        document.getElementById('wtStatDraft').textContent    = cnt('DRAFT') + cnt('draft');
+        document.getElementById('wtStatCancelled').textContent = cnt('CANCELLED');
 
-        ['all','DRAFT','IN_TRANSIT','RECEIVED','CANCELLED'].forEach(function (k) {
+        ['all','IN_TRANSIT','RECEIVED','CANCELLED'].forEach(function (k) {
             var el = document.getElementById('wtBadge-' + k);
             if (el) el.textContent = cnt(k);
         });
 
         // Filter
         var q = searchTxt.toLowerCase();
-        var filtered = all.filter(function (t) {
+        var filtered = DB_TRANSFERS.filter(function (t) {
             var matchTab = activeTab === 'all' || t.status === activeTab;
             var matchQ   = !q ||
-                (t.id   && t.id.toLowerCase().includes(q)) ||
+                (t.code   && t.code.toLowerCase().includes(q)) ||
                 (t.fromWH && t.fromWH.toLowerCase().includes(q)) ||
                 (t.toWH   && t.toWH.toLowerCase().includes(q));
             return matchTab && matchQ;
@@ -426,19 +401,11 @@
         }
 
         tbody.innerHTML = filtered.map(function (t) {
-            var acts = '<button class="wt-btn-icon" data-action="view" data-id="' + esc(t.id) + '" title="Xem chi tiết">' + eyeSVG() + '</button>';
-            if (t._src === 'local' && t.status === 'draft') {
-                acts += '<button class="wt-btn-sm navy" data-action="submit" data-id="' + esc(t.id) + '">Gửi duyệt</button>' +
-                        '<button class="wt-btn-icon danger" data-action="del" data-id="' + esc(t.id) + '" title="Xóa nháp">' + trashSVG() + '</button>';
-            }
+            var acts = '<button class="wt-btn-icon" data-action="view" data-id="' + esc(t.code) + '" title="Xem chi tiết">' + eyeSVG() + '</button>';
             return '<tr>' +
-                '<td><span class="wt-code">' + esc(t.id) + '</span></td>' +
-                '<td>' +
-                    '<div class="wt-nm">' + esc(t.fromWH || '—') + '</div>' +
-                '</td>' +
-                '<td>' +
-                    '<div class="wt-nm">' + esc(t.toWH || '—') + '</div>' +
-                '</td>' +
+                '<td><span class="wt-code">' + esc(t.code) + '</span></td>' +
+                '<td><div class="wt-nm">' + esc(t.fromWH || '—') + '</div></td>' +
+                '<td><div class="wt-nm">' + esc(t.toWH || '—') + '</div></td>' +
                 '<td><span class="wt-date">' + esc(t.createdAt || '—') + '</span></td>' +
                 '<td>' + pill(t.status) + '</td>' +
                 '<td class="ta-r"><div class="wt-row-actions">' + acts + '</div></td>' +
@@ -454,17 +421,8 @@
         var id     = btn.dataset.id;
 
         if (action === 'view') {
-            var all = allTransfers();
-            var t = all.find(function (x) { return x.id === id; });
+            var t = DB_TRANSFERS.find(function (x) { return x.code === id; });
             if (t) openDetail(t);
-        } else if (action === 'submit') {
-            var t = localTransfers.find(function (x) { return x.id === id; });
-            if (t) { t.status = 'pending'; render(); }
-        } else if (action === 'del') {
-            if (confirm('Xóa bản nháp này?')) {
-                localTransfers = localTransfers.filter(function (x) { return x.id !== id; });
-                render();
-            }
         }
     });
 
@@ -490,7 +448,7 @@
     document.getElementById('wtBtnCancelCreate').addEventListener('click', function () { createOvl.style.display = 'none'; });
     createOvl.addEventListener('click', function (e) { if (e.target === createOvl) createOvl.style.display = 'none'; });
 
-    function doCreate(isSubmit) {
+    function doCreate() {
         var sku = fSku.value.trim();
         if (!sku) { alert('Vui lòng chọn sản phẩm (SKU)!'); return; }
         var qty = parseInt(fQty.value, 10) || 0;
@@ -502,9 +460,6 @@
         if (!dstWHId) { alert('Vui lòng chọn kho nhận!'); return; }
         if (srcWHId === dstWHId) { alert('Kho xuất và kho nhận phải khác nhau!'); return; }
 
-        var srcWH = DB_WAREHOUSES.find(function (w) { return String(w.id) === srcWHId; });
-        var dstWH = DB_WAREHOUSES.find(function (w) { return String(w.id) === dstWHId; });
-
         var payload = {
             action: 'create',
             fromWarehouseId: parseInt(srcWHId, 10),
@@ -514,9 +469,7 @@
             note:            fNote.value.trim()
         };
 
-        var btn = isSubmit
-            ? document.getElementById('wtBtnSubmit')
-            : document.getElementById('wtBtnDraft');
+        var btn = document.getElementById('wtBtnSubmit');
         btn.disabled = true;
 
         fetch(window.location.pathname, {
@@ -541,13 +494,12 @@
         });
     }
 
-    document.getElementById('wtBtnDraft').addEventListener('click', function () { doCreate(false); });
-    document.getElementById('wtBtnSubmit').addEventListener('click', function () { doCreate(true); });
+    document.getElementById('wtBtnSubmit').addEventListener('click', function () { doCreate(); });
 
     /* ─── Detail modal ─── */
     function openDetail(t) {
         detailDoc = t;
-        var r = t._raw || t;
+        var r = t;
         var items;
 
         if (Array.isArray(r.items) && r.items.length > 0) {
@@ -594,7 +546,7 @@
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">' +
                 '<div>' +
                     '<div class="wt-dl-lbl">Mã phiếu chuyển kho</div>' +
-                    '<div style="font-weight:800;font-size:18px;color:var(--navy);margin-top:4px;font-family:monospace;">' + esc(t.id) + '</div>' +
+                    '<div style="font-weight:800;font-size:18px;color:var(--navy);margin-top:4px;font-family:monospace;">' + esc(t.code) + '</div>' +
                     '<div style="font-size:12px;color:rgba(16,55,92,.55);margin-top:6px;">Internal Stock Transfer Note</div>' +
                 '</div>' +
                 '<div style="text-align:right;">' +
@@ -614,9 +566,8 @@
                 '</div>' +
             '</div>' +
             '<div class="wt-detail-sep">' +
-                '<div class="wt-detail-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;">' +
+                '<div class="wt-detail-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 20px;">' +
                     '<div><div class="wt-dl-lbl">Người lập phiếu</div><div class="wt-dl-val">' + esc(r.creatorName || 'Nhân viên kho') + '</div></div>' +
-                    '<div><div class="wt-dl-lbl">Người duyệt</div><div class="wt-dl-val">' + esc(r.approverName || 'Chưa duyệt') + '</div></div>' +
                     '<div><div class="wt-dl-lbl">Ngày tạo</div><div class="wt-dl-val muted">' + esc(t.createdAt || '—') + '</div></div>' +
                     completedHtml +
                 '</div>' +
@@ -646,17 +597,54 @@
                 '</div>' +
             '</div>' +
             '<div class="wt-detail-sep" style="padding-top:4px;">' +
-                '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;text-align:center;">' +
+                '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;text-align:center;">' +
                     '<div><div class="wt-dl-lbl">Người lập phiếu</div><div style="height:42px;"></div><div style="border-top:1px dashed var(--border);padding-top:6px;font-size:12px;">' + esc(r.creatorName || 'Nhân viên kho') + '</div></div>' +
                     '<div><div class="wt-dl-lbl">Thủ kho xuất</div><div style="height:42px;"></div><div style="border-top:1px dashed var(--border);padding-top:6px;font-size:12px;">' + esc(t.fromWH || '—') + '</div></div>' +
                     '<div><div class="wt-dl-lbl">Thủ kho nhận</div><div style="height:42px;"></div><div style="border-top:1px dashed var(--border);padding-top:6px;font-size:12px;">' + esc(t.toWH || '—') + '</div></div>' +
-                    '<div><div class="wt-dl-lbl">Quản lý duyệt</div><div style="height:42px;"></div><div style="border-top:1px dashed var(--border);padding-top:6px;font-size:12px;">' + esc(r.approverName || 'Chờ duyệt') + '</div></div>' +
                 '</div>' +
             '</div>';
 
-        pendingNote.style.display = (t.status === 'pending') ? 'inline-flex' : 'none';
+        var footerEl = document.getElementById('wtDetailFooter');
+        if (t.status === 'IN_TRANSIT' && parseInt(myWarehouseId, 10) === t.toWarehouseId) {
+            footerEl.innerHTML = 
+                '<button class="wt-btn green" onclick="confirmReceive(' + t.id + ', this)">Xác nhận nhận hàng</button>' +
+                '<button class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
+        } else {
+            footerEl.innerHTML = 
+                '<button class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
+        }
+
         detailOvl.style.display = 'flex';
     }
+
+    window.confirmReceive = function(transferId, btn) {
+        if (!confirm('Bạn có chắc chắn xác nhận đã nhận đủ hàng cho phiếu điều chuyển này?')) return;
+        btn.disabled = true;
+        var originalText = btn.textContent;
+        btn.textContent = 'Đang xử lý...';
+
+        fetch('${pageContext.request.contextPath}/warehouse/transfer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'receive', transferId: transferId })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+            if (res.success) {
+                alert('Xác nhận nhận hàng điều chuyển thành công!');
+                window.location.reload();
+            } else {
+                alert(res.message || 'Xác nhận thất bại.');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        })
+        .catch(function (err) {
+            alert('Có lỗi mạng xảy ra khi xác nhận nhận hàng.');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        });
+    };
 
     window.wtCloseDetail = function (e) {
         if (e.target === detailOvl) detailOvl.style.display = 'none';
@@ -665,9 +653,6 @@
     /* ─── SVG helpers ─── */
     function eyeSVG() {
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    }
-    function trashSVG() {
-        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
     }
     function esc(v) {
         if (v == null) return '';

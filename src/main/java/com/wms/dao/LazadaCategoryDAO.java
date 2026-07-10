@@ -52,13 +52,41 @@ public class LazadaCategoryDAO {
 
     public List<LazadaCategory> findLeaves(int channelId) {
         List<LazadaCategory> out = new ArrayList<>();
+        String sql = "SELECT c.lazada_category_id, c.parent_id, c.name, c.is_leaf, c.has_variation, c.depth, "
+                   + "       p.name AS parent_name, gp.name AS grandparent_name "
+                   + "FROM lazada_categories c "
+                   + "LEFT JOIN lazada_categories p ON c.parent_id = p.lazada_category_id AND c.channel_id = p.channel_id "
+                   + "LEFT JOIN lazada_categories gp ON p.parent_id = gp.lazada_category_id AND p.channel_id = gp.channel_id "
+                   + "WHERE c.channel_id = ? AND c.is_leaf = 1 "
+                   + "ORDER BY c.name";
         try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                "SELECT lazada_category_id, parent_id, name, is_leaf, has_variation, depth "
-                + "FROM lazada_categories WHERE channel_id = ? AND is_leaf = 1 ORDER BY name")) {
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, channelId);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) out.add(mapRow(rs));
+                while (rs.next()) {
+                    LazadaCategory c = new LazadaCategory();
+                    c.setLazadaCategoryId(rs.getLong("lazada_category_id"));
+                    long parentId = rs.getLong("parent_id");
+                    c.setParentId(rs.wasNull() ? null : parentId);
+                    c.setName(rs.getString("name"));
+                    c.setLeaf(rs.getInt("is_leaf") == 1);
+                    c.setHasVariation(rs.getInt("has_variation") == 1);
+                    c.setDepth(rs.getInt("depth"));
+
+                    String parentName = rs.getString("parent_name");
+                    String gpName = rs.getString("grandparent_name");
+                    StringBuilder pathBuilder = new StringBuilder();
+                    if (gpName != null && !gpName.isBlank()) {
+                        pathBuilder.append(gpName).append(" > ");
+                    }
+                    if (parentName != null && !parentName.isBlank()) {
+                        pathBuilder.append(parentName).append(" > ");
+                    }
+                    pathBuilder.append(rs.getString("name"));
+                    c.setPath(pathBuilder.toString());
+
+                    out.add(c);
+                }
             }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "LazadaCategoryDAO.findLeaves failed", e);

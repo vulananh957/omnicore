@@ -233,4 +233,20 @@ public abstract class BaseController extends HttpServlet {
         }
         return 1;
     }
+
+    protected Integer currentUserId(HttpServletRequest req) {
+        Object u = req.getSession().getAttribute(AppConstants.SESSION_USER);
+        if (u instanceof com.wms.model.User) {
+            return ((com.wms.model.User) u).getUserId();
+        }
+        return null;
+    }
+
+    protected String currentUserRole(HttpServletRequest req) {
+        Object u = req.getSession().getAttribute(AppConstants.SESSION_USER);
+        if (u instanceof com.wms.model.User) {
+            return ((com.wms.model.User) u).getRole();
+        }
+        return null;
+    }
 }

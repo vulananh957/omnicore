@@ -5,11 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wms.dao.LazadaCategoryDAO;
 import com.wms.model.Channel;
 import com.wms.model.LazadaCategory;
-import com.wms.service.channel.ChannelGateway;
-import com.wms.service.channel.ChannelRegistry;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -31,7 +28,7 @@ public class LazadaCategorySyncService {
             String body = http.executeGet("/category/tree/get",
                     Map.of("language_code", "vi_VN"), channel);
             JsonNode root = MAPPER.readTree(body);
-            String code = root.path("code").asText("");
+            String code = root.path("code").asText();
             if (!"0".equals(code)) {
                 return new SyncResult(false, "Lazada từ chối: " + body, 0);
             }
@@ -54,7 +51,7 @@ public class LazadaCategorySyncService {
 
     private void walk(JsonNode node, Long parentId, int depth, List<LazadaCategory> out) {
         if (node == null || !node.isObject()) return;
-        String name = node.path("name").asText("");
+        String name = node.path("name").asText();
         if (name.isBlank()) return; // skip empty names (occasional gaps in Lazada tree)
         LazadaCategory c = new LazadaCategory();
         c.setLazadaCategoryId(node.path("category_id").asLong(0));

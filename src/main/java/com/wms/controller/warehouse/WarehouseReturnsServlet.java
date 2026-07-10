@@ -3,11 +3,10 @@ package com.wms.controller.warehouse;
 import com.wms.controller.BaseController;
 import com.wms.model.Channel;
 import com.wms.model.ReturnItem;
-import com.wms.model.ReturnOrder;
 import com.wms.model.Warehouse;
 import com.wms.service.sales.ChannelService;
 import com.wms.service.warehouse.ReturnService;
-import com.wms.service.NotificationService;
+import com.wms.service.common.NotificationService;
 import com.wms.service.warehouse.WarehouseService;
 
 import jakarta.servlet.ServletException;
@@ -136,17 +135,7 @@ public class WarehouseReturnsServlet extends BaseController {
                         new com.fasterxml.jackson.core.type.TypeReference<List<ReturnItem>>() {});
                     boolean success = returnService.saveQC(returnId, items, userId);
                     if (success) {
-                        // Notify managers: return QC pending approval
-                        String whName;
-                        try {
-                            WarehouseService ws = new WarehouseService();
-                            Warehouse wh = ws.findById(warehouseId);
-                            whName = wh != null ? wh.getWarehouseName() : String.valueOf(warehouseId);
-                        } catch (Exception e) {
-                            whName = String.valueOf(warehouseId);
-                        }
-                        notificationService.notifyReturnPending(warehouseId, whName, returnId, String.valueOf(returnId));
-                        setFlashSuccess(req, "Cập nhật kết quả QC cho phiếu #" + returnId + " thành công. Đã gửi duyệt.");
+                        setFlashSuccess(req, "Cập nhật kết quả QC cho phiếu #" + returnId + " thành công.");
                     } else {
                         setFlashError(req, "Lưu kết quả QC thất bại.");
                     }
@@ -174,20 +163,6 @@ public class WarehouseReturnsServlet extends BaseController {
 
                     boolean success = returnService.applyRestock(returnId, userId);
                     if (success) {
-                        // Notify managers: return restock applied
-                        String whName;
-                        try {
-                            WarehouseService ws = new WarehouseService();
-                            Warehouse wh = ws.findById(warehouseId);
-                            whName = wh != null ? wh.getWarehouseName() : String.valueOf(warehouseId);
-                        } catch (Exception e) {
-                            whName = String.valueOf(warehouseId);
-                        }
-                        notificationService.notifyManagers(
-                                "Phiếu hoàn hàng đã xử lý",
-                                "Kho " + whName + " đã áp dụng kết quả QC cho phiếu #" + returnId + ". Tồn kho đã cập nhật.",
-                                "RMA", (long) returnId,
-                                com.wms.model.Notification.PRIORITY_NORMAL);
                         setFlashSuccess(req, "Áp dụng kết quả hàng hoàn, cập nhật tồn kho thành công!");
                     } else {
                         setFlashError(req, "Áp dụng kết quả hàng hoàn thất bại.");

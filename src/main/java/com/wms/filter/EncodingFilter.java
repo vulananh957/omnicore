@@ -2,7 +2,6 @@ package com.wms.filter;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 /**
@@ -18,7 +17,6 @@ public class EncodingFilter implements Filter {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest  req  = (HttpServletRequest)  request;
-        HttpServletResponse res  = (HttpServletResponse) response;
 
         String path = req.getRequestURI();
 
@@ -30,6 +28,9 @@ public class EncodingFilter implements Filter {
             return;
         }
 
+        // Set request character encoding first thing before reading any parameters
+        request.setCharacterEncoding("UTF-8");
+
         // Skip setting content-type for ajax/JSON endpoints — servlet owns the
         // response type. Forcing text/html here can cause Tomcat to start the
         // chunked transfer and then the servlet swaps the content-type,
@@ -38,12 +39,10 @@ public class EncodingFilter implements Filter {
         boolean isAjax = "XMLHttpRequest".equalsIgnoreCase(req.getHeader("X-Requested-With"))
                 || (accept != null && accept.contains("application/json"))
                 || "1".equals(req.getParameter("ajax"));
+        
+        response.setCharacterEncoding("UTF-8");
         if (!isAjax) {
-            response.setCharacterEncoding("UTF-8");
             response.setContentType("text/html; charset=UTF-8");
-        } else {
-            request.setCharacterEncoding("UTF-8");
-            response.setCharacterEncoding("UTF-8");
         }
         chain.doFilter(request, response);
     }

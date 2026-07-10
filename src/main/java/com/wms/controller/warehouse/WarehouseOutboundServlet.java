@@ -2,6 +2,7 @@ package com.wms.controller.warehouse;
 
 import com.wms.controller.BaseController;
 import com.wms.dao.FulfillmentRequestDAO;
+import com.wms.dao.InventoryDAO;
 import com.wms.model.FulfillmentRequest;
 import com.wms.model.OutboundOrder;
 import com.wms.model.User;
@@ -13,13 +14,13 @@ import com.wms.service.warehouse.InboundService;
 import com.wms.service.warehouse.OutboundService;
 import com.wms.service.warehouse.RtvService;
 import com.wms.service.warehouse.WarehouseService;
-import com.wms.service.NotificationService;
 import com.wms.util.AppConstants;
 import com.wms.util.JsonUtil;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.annotation.MultipartConfig;
 import java.io.IOException;
 import java.util.List;
 
@@ -31,16 +32,18 @@ import java.util.List;
  * to that single warehouse, and the staff may create disposal notes that are saved
  * (not deducted) for BM approval.
  */
+@MultipartConfig
 public class WarehouseOutboundServlet extends BaseController {
 
     private static final String CONTEXT_PATH = "/warehouse/outbound";
     private final OutboundService outboundService = new OutboundService();
     private final WarehouseService warehouseService = new WarehouseService();
+    private final InventoryDAO inventoryDAO = new InventoryDAO();
     private final FulfillmentRequestDAO fulfillmentDAO = new FulfillmentRequestDAO();
     private final ProductService productService = new ProductService();
     private final InboundService inboundService = new InboundService();
     private final RtvService rtvService = new RtvService();
-    private final NotificationService notificationService = new NotificationService();
+    private final com.wms.service.sales.OrderService orderService = new com.wms.service.sales.OrderService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -69,6 +72,14 @@ public class WarehouseOutboundServlet extends BaseController {
 
             setJsonAttr(req, "productsJson", productService.findAll());
 
+            // Real-time inventory stock for stock validation on dispatch
+            try {
+                var stockRows = inventoryDAO.findInventorySummaryByWarehouse(myWarehouseId);
+                setJsonAttr(req, "inventoryStockJson", stockRows);
+            } catch (Exception ex) {
+                setJsonAttr(req, "inventoryStockJson", List.of());
+            }
+
             List<com.wms.model.InboundOrder> inboundList = inboundService.findByWarehouse(myWarehouseId);
             req.setAttribute("inboundList", inboundList);
 
@@ -82,6 +93,7 @@ public class WarehouseOutboundServlet extends BaseController {
             req.setAttribute("fulfillmentRequests", List.<FulfillmentRequest>of());
             req.setAttribute("fulfillmentRequestsJson", "[]");
             req.setAttribute("productsJson", "[]");
+            req.setAttribute("inventoryStockJson", "[]");
             req.setAttribute("inboundList", List.of());
             req.setAttribute("rtvList", List.of());
             setJsonAttr(req, "rtvListJson", "[]");
@@ -114,6 +126,11 @@ public class WarehouseOutboundServlet extends BaseController {
             return;
         }
 
+        if ("generateTracking".equals(action)) {
+            handleGenerateTracking(req, resp);
+            return;
+        }
+
         if ("cancel".equals(action)) {
             handleCancel(req, resp);
             return;
@@ -126,6 +143,11 @@ public class WarehouseOutboundServlet extends BaseController {
 
         if ("disposal".equals(action)) {
             handleDisposal(req, resp);
+            return;
+        }
+
+        if ("restock".equals(action)) {
+            handleRestock(req, resp);
             return;
         }
 
@@ -175,7 +197,7 @@ public class WarehouseOutboundServlet extends BaseController {
         }
 
         try {
-            int newId = outboundService.createOutbound(orderId, warehouseId, notes);
+            int newId = outboundService.createOutbound(orderId, warehouseId, notes, currentUserId(req));
             if (newId > 0) {
                 setFlashSuccess(req, "Tạo phiếu xuất kho thành công!");
             } else {
@@ -221,6 +243,73 @@ public class WarehouseOutboundServlet extends BaseController {
         redirect(resp, req.getContextPath() + CONTEXT_PATH);
     }
 
+    /** AJAX: sinh mã vận đơn cho đơn đã pick xong (sub-tab "Chờ cấp mã"). */
+    private void handleGenerateTracking(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=UTF-8");
+        String orderCode = req.getParameter("orderCode");
+        if (orderCode == null || orderCode.trim().isEmpty()) {
+            resp.getWriter().write("{\"success\":false,\"message\":\"Thiếu mã đơn hàng\"}");
+            return;
+        }
+
+        int myWarehouseId = currentWarehouseId(req);
+
+        com.wms.dao.OrderDAO orderDAO = new com.wms.dao.OrderDAO();
+        com.wms.model.Order order = orderDAO.findByOrderCode(orderCode);
+        if (order == null) {
+            resp.getWriter().write("{\"success\":false,\"message\":\"Không tìm thấy đơn hàng: " + escapeJson(orderCode) + "\"}");
+            return;
+        }
+        if (order.getWarehouseId() != myWarehouseId) {
+            resp.getWriter().write("{\"success\":false,\"message\":\"Bạn không có quyền cấp mã cho đơn thuộc kho khác.\"}");
+            return;
+        }
+
+        try {
+            // Bước 1 — sinh tracking_no (Lazada API hoặc local). Bê nguyên logic
+            // từ PendingTrackingServlet cũ (đã xoá); service đã có sẵn idempotency.
+            com.wms.service.sales.OrderService.ActionResult result =
+                orderService.handleAction("generate_tracking", orderCode,
+                    null, null, null, null, null, null, null, null, null, 1, "SYSTEM");
+            if (!result.isSuccess()) {
+                resp.getWriter().write("{\"success\":false,\"message\":\""
+                    + escapeJson(result.getMessage()) + "\"}");
+                return;
+            }
+
+            // Bước 2 — cập nhật PACKED (giống PendingTrackingServlet cũ).
+            // Nếu chỉ cấp tracking mà không PACKED thì đơn kẹt ở PICKING mãi
+            // và không xuất hiện ở tab "Đã đóng gói".
+            com.wms.service.sales.OrderService.ActionResult packResult =
+                orderService.handleAction("print_shipping", orderCode,
+                    null, null, null, null, null, null, null, null, null, 1, "SYSTEM");
+            if (!packResult.isSuccess()) {
+                resp.getWriter().write("{\"success\":false,\"message\":\""
+                    + escapeJson("Đã sinh tracking nhưng cập nhật PACKED lỗi: " + packResult.getMessage())
+                    + "\"}");
+                return;
+            }
+
+            String trackingNo = "";
+            if (result.getData() instanceof java.util.Map) {
+                Object t = ((java.util.Map<?, ?>) result.getData()).get("trackingNo");
+                if (t != null) trackingNo = t.toString();
+            }
+            resp.getWriter().write("{\"success\":true,\"message\":\"Đã cấp mã vận đơn và in tem thành công\",\"trackingNo\":\""
+                + escapeJson(trackingNo) + "\"}");
+        } catch (Exception e) {
+            resp.getWriter().write("{\"success\":false,\"message\":\"Lỗi: "
+                + escapeJson(e.getMessage()) + "\"}");
+        }
+    }
+
+    @Override
+    protected String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "");
+    }
+
     private void handleCancel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String outboundIdStr = req.getParameter("outboundId");
 
@@ -244,6 +333,43 @@ public class WarehouseOutboundServlet extends BaseController {
                 setFlashSuccess(req, result.getMessage());
             } else {
                 setFlashError(req, result.getMessage());
+            }
+        } catch (NumberFormatException e) {
+            setFlashError(req, "ID phiếu xuất không hợp lệ.");
+        }
+
+        redirect(resp, req.getContextPath() + CONTEXT_PATH);
+    }
+
+    /**
+     * Handles "Hoàn kệ" action for cancelled outbound orders.
+     * Releases the temporary inventory allocation back to available stock.
+     */
+    private void handleRestock(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String outboundIdStr = req.getParameter("outboundId");
+
+        if (outboundIdStr == null || outboundIdStr.trim().isEmpty()) {
+            setFlashError(req, "Thiếu ID phiếu xuất cần hoàn kệ.");
+            redirect(resp, req.getContextPath() + CONTEXT_PATH);
+            return;
+        }
+
+        try {
+            int outboundId = Integer.parseInt(outboundIdStr.trim());
+            OutboundOrder oo = outboundService.findById(outboundId);
+            int myWarehouseId = currentWarehouseId(req);
+            if (oo == null || oo.getWarehouseId() != myWarehouseId) {
+                setFlashError(req, "Bạn không có quyền hoàn kệ phiếu xuất thuộc kho khác.");
+                redirect(resp, req.getContextPath() + CONTEXT_PATH);
+                return;
+            }
+
+            // Release inventory allocation for this outbound
+            boolean released = outboundService.releaseAllocationsForOutbound(outboundId);
+            if (released) {
+                setFlashSuccess(req, "Đã hoàn kệ thành công. Tồn kho đã được giải phóng.");
+            } else {
+                setFlashSuccess(req, "Đã xác nhận hoàn kệ (hoặc tồn kho đã được giải phóng trước đó).");
             }
         } catch (NumberFormatException e) {
             setFlashError(req, "ID phiếu xuất không hợp lệ.");
@@ -295,14 +421,6 @@ public class WarehouseOutboundServlet extends BaseController {
         redirect(resp, req.getContextPath() + CONTEXT_PATH);
     }
 
-    private Integer currentUserId(HttpServletRequest req) {
-        Object u = req.getSession().getAttribute(AppConstants.SESSION_USER);
-        if (u instanceof User) {
-            return ((User) u).getUserId();
-        }
-        return null;
-    }
-
     private void handleCreateRtv(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=UTF-8");
         try {
@@ -328,16 +446,6 @@ public class WarehouseOutboundServlet extends BaseController {
             Integer currentUserId = currentUserId(req);
             int uid = currentUserId != null ? currentUserId : 1;
             RtvService.RtvResult result = rtvService.createRtv(inboundId, itemRequests, reason, note, uid, poCode, supplierCode, contactPerson, proposal);
-            if (result.isSuccess() && result.getRtvId() > 0) {
-                // Notify managers: new RTV needs approval
-                String whName = io.getWarehouseName();
-                notificationService.notifyManagers(
-                        "Phiếu trả hàng NCC (RTV) mới",
-                        "Kho " + (whName != null ? whName : io.getWarehouseId()) +
-                        " tạo phiếu RTV #" + result.getRtvId() + " cần phê duyệt.",
-                        "RTV", (long) result.getRtvId(),
-                        com.wms.model.Notification.PRIORITY_HIGH);
-            }
             resp.getWriter().write("{\"success\":" + result.isSuccess()
                     + ",\"message\":\"" + rtvEscapeJson(result.getMessage()) + "\"}");
         } catch (Exception e) {

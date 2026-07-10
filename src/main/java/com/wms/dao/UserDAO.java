@@ -6,7 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -335,6 +334,32 @@ public class UserDAO {
         }
     }
                 
+    /**
+     * Returns the primary warehouse staff for a given warehouse.
+     * Scans users by role WAREHOUSE_STAFF and matches warehouse_id.
+     * Falls back to any active warehouse staff if none is marked primary.
+     * Returns null if no warehouse staff is found for the given warehouse.
+     */
+    public User findPrimaryWarehouseStaff(int warehouseId) throws SQLException {
+        String sql =
+            "SELECT user_id, full_name, username, email, phone, role, active, warehouse_id "
+          + "FROM users "
+          + "WHERE role = 'WAREHOUSE_STAFF' AND warehouse_id = ? AND active = 1 "
+          + "ORDER BY (warehouse_id = ?) DESC "  // primary assignment first
+          + "LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, warehouseId);
+            ps.setInt(2, warehouseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+        }
+        return null;
+    }
+
     // ── Row mapper ────────────────────────────────────────────
 
     private User mapRow(ResultSet rs) throws SQLException {

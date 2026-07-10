@@ -4,7 +4,6 @@ import com.wms.controller.BaseController;
 import com.wms.dao.InventoryDAO;
 import com.wms.dao.WarehouseDAO;
 import com.wms.model.Warehouse;
-import com.wms.util.AppConstants;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

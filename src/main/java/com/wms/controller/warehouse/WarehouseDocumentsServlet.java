@@ -2,11 +2,9 @@ package com.wms.controller.warehouse;
 
 import com.wms.controller.BaseController;
 import com.wms.dao.LedgerDAO;
-import com.wms.model.User;
 import com.wms.model.Warehouse;
 import com.wms.service.ledger.LedgerService;
 import com.wms.service.warehouse.WarehouseService;
-import com.wms.util.AppConstants;
 import com.wms.util.JsonUtil;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,6 +62,25 @@ public class WarehouseDocumentsServlet extends BaseController {
             setJsonAttr(req, "documentsJson", documents);
         } catch (Exception e) {
             req.setAttribute("documentsJson", "[]");
+        }
+
+        // Load system settings (company info) so PDF headers reflect real data
+        try {
+            java.util.Map<String, String> settings = new java.util.HashMap<>();
+            try (java.sql.Connection conn = com.wms.util.DBConnection.getConnection();
+                 java.sql.PreparedStatement ps = conn.prepareStatement(
+                     "SELECT setting_key, setting_value FROM system_settings");
+                 java.sql.ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    settings.put(rs.getString("setting_key"), rs.getString("setting_value"));
+                }
+            }
+            req.setAttribute("companyName",    settings.getOrDefault("company_name", "Công ty TNHH OmniCore"));
+            req.setAttribute("companyAddress", settings.getOrDefault("company_address", ""));
+            req.setAttribute("companyPhone",   settings.getOrDefault("company_phone", ""));
+            req.setAttribute("companyTaxCode", settings.getOrDefault("company_tax_code", ""));
+        } catch (Exception e) {
+            req.setAttribute("companyName", "Công ty TNHH OmniCore");
         }
 
         req.setAttribute("pageTitle",    "Sổ Kho");

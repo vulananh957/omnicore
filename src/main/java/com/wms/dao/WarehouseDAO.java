@@ -283,6 +283,13 @@ public class WarehouseDAO extends BaseDAO {
             name, type, description, capacity, zoneId, warehouseId) > 0;
     }
 
+    public boolean updateDefaultZone(int zoneId, int warehouseId, String description, Integer capacity) {
+        return update(LOGGER,
+            "UPDATE zones SET description = ?, capacity = ? "
+          + "WHERE zone_id = ? AND warehouse_id = ?",
+            description, capacity, zoneId, warehouseId) > 0;
+    }
+
     /** Deletes a non-default zone; falls back to deactivation if the delete is blocked. */
     public boolean deleteZone(int zoneId, int warehouseId) {
         int affected = update(LOGGER,
@@ -572,7 +579,7 @@ public class WarehouseDAO extends BaseDAO {
             conn.setAutoCommit(false);
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE physical_inventories SET status = 'IN_PROGRESS' WHERE inventory_check_id = ?")) {
+                    "UPDATE physical_inventories SET status = 'APPROVED' WHERE inventory_check_id = ?")) {
                 ps.setInt(1, checkId);
                 ps.executeUpdate();
             }

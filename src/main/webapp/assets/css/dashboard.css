@@ -237,7 +237,7 @@ html, body {
 }
 .topbar__title { color: var(--navy); font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
 .topbar__subtitle { color: rgba(16,55,92,0.50); font-size: 12px; margin-top: 2px; }
-.topbar__right { display: flex; align-items: center; gap: 12px; }
+.topbar__right { display: flex; align-items: center; gap: 12px; position: relative; }
 
 .search-box {
   position: relative;

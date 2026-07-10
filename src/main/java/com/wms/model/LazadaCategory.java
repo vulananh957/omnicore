@@ -11,6 +11,7 @@ public class LazadaCategory {
     private boolean leaf;
     private boolean hasVariation;
     private int depth;
+    private String path;
 
     public long getLazadaCategoryId() { return lazadaCategoryId; }
     public void setLazadaCategoryId(long v) { this.lazadaCategoryId = v; }
@@ -29,4 +30,7 @@ public class LazadaCategory {
 
     public int getDepth() { return depth; }
     public void setDepth(int v) { this.depth = v; }
+
+    public String getPath() { return path; }
+    public void setPath(String v) { this.path = v; }
 }

@@ -1,119 +1,110 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" isELIgnored="false" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ page import="com.wms.model.Product" %>
+<%@ page import="com.wms.model.SkuMapping" %>
 <%@ page import="java.util.List" %>
-<%@ page import="com.fasterxml.jackson.databind.ObjectMapper" %>
+<%@ page import="java.util.Map" %>
+<%@ page import="com.wms.util.JsonUtil" %>
 <%
     List<Product> products = (List<Product>) request.getAttribute("products");
     if (products == null) products = java.util.Collections.emptyList();
 
-    ObjectMapper mapper = new ObjectMapper();
-    String productsJson = mapper.valueToTree(products).toString();
-    request.setAttribute("productsJson", productsJson);
-%>
+    List<SkuMapping> skuMappings = (List<SkuMapping>) request.getAttribute("skuMappings");
+    if (skuMappings == null) skuMappings = java.util.Collections.emptyList();
 
-<%-- ══════════════════════════════════════════════════════════════════
-     Sales Staff — Trung Tâm Ánh Xạ SKU Đa Sàn (SKU Mapping Center)
-     JSP port of React: SKUMapping.tsx
-     All logic is pure vanilla JS — no hardcoded data, no seed data.
-     ══════════════════════════════════════════════════════════════════ --%>
+    List<Map<String, Object>> unresolvedExceptions = (List<Map<String, Object>>) request.getAttribute("unresolvedExceptions");
+    if (unresolvedExceptions == null) unresolvedExceptions = java.util.Collections.emptyList();
+
+    String productsJson = JsonUtil.toJson(products);
+    String mappingsJson = JsonUtil.toJson(skuMappings);
+    String unresolvedJson = JsonUtil.toJson(unresolvedExceptions);
+
+    request.setAttribute("productsJson", productsJson);
+    request.setAttribute("mappingsJson", mappingsJson);
+    request.setAttribute("unresolvedJson", unresolvedJson);
+%>
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/sales--sku-mapping.css"/>
 
-<%-- ── STATS CARDS — populated by JSP on first load; updated by JS on subsequent renders ── --%>
-<div class="sm-stats-grid">
-    <div class="sm-stat-card">
-        <div class="sm-stat-icon-wrapper blue">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-        </div>
-        <div>
-            <div class="sm-stat-num" id="statTotalMaster">${totalMappings}</div>
-            <div class="sm-stat-label">Tổng Ánh Xạ SKU (Database)</div>
-        </div>
+
+
+<%-- ── ALERT BANNER ── --%>
+<div class="sm-alert-banner" id="smAlertBanner" style="display:none">
+    <div class="sm-alert-inner">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Có <strong id="bannerCount">0</strong> sản phẩm mới từ sàn chưa được ánh xạ vào Master SKU.</span>
     </div>
-    <div class="sm-stat-card">
-        <div class="sm-stat-icon-wrapper orange">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-        </div>
-        <div>
-            <div class="sm-stat-num" id="statUnmapped">${pendingMappings}</div>
-            <div class="sm-stat-label">Ánh xạ PENDING / ERROR</div>
-        </div>
-    </div>
-    <div class="sm-stat-card">
-        <div class="sm-stat-icon-wrapper emerald">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-        </div>
-        <div>
-            <div class="sm-stat-num" id="statMappings">${syncedMappings}</div>
-            <div class="sm-stat-label">Ánh xạ SYNCED</div>
-        </div>
-    </div>
+    <button class="sm-alert-btn" onclick="openDrawer()">Xử lý ngay →</button>
 </div>
 
-<%-- ── TABS BAR ── --%>
-<div class="sm-tab-bar">
-    <div class="sm-tab-buttons">
-        <button class="sm-tab active" id="tabUnmapped" onclick="switchTab('unmapped')">
-            SẢN PHẨM CHƯA ÁNH XẠ (UNMAPPED SKUs)
-            <span class="sm-tab-badge" id="badgeUnmappedCount" style="margin-left:4px;display:none">0</span>
-        </button>
-        <button class="sm-tab" id="tabMapped" onclick="switchTab('mapped')">
-            DANH SÁCH ĐÃ ÁNH XẠ (MAPPED SKUs)
-        </button>
-    </div>
-    <div>
-        <button class="sm-btn-pull" onclick="pullMarketplaceProducts()" id="btnPullProducts">
-            <svg id="pullSpinnerIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
-            Kéo sản phẩm từ Sàn
-        </button>
-        <button class="sm-btn-pull" onclick="suggestMappings()" id="btnSuggestMappings" style="margin-left:0.5rem" title="Tự động gợi ý ánh xạ dựa trên seller_sku ↔ sku_code">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Gợi ý ánh xạ
-        </button>
-    </div>
-</div>
-
-<%-- ── SEARCH FILTER TOOLBAR ── --%>
-<div class="sm-filter-bar">
+<%-- ── TOOLBAR: chỉ search + kéo sàn ── --%>
+<div class="sm-toolbar">
     <div class="sm-search">
         <svg class="sm-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input type="text" placeholder="Tìm theo mã sàn, tên SP trên sàn..." id="smSearchInput" oninput="onSearch(this.value)" />
+        <input type="text" placeholder="Tìm theo Master SKU, tên sản phẩm..." id="smSearchInput" oninput="onSearch(this.value)" />
     </div>
-    <select class="sm-select" id="smChannelFilter" onchange="onChannelFilterChange(this.value)" style="min-width:140px">
-        <option value="">Tất cả kênh</option>
-        <c:forEach var="ch" items="${channels}">
-            <option value="${ch.channelId}">${ch.channelName} (${ch.platform})</option>
-        </c:forEach>
-    </select>
+    <div class="sm-toolbar-right">
+        <button class="sm-btn-pull" onclick="pullMarketplaceProducts()" id="btnPullProducts">
+            <svg id="pullSpinnerIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+            Kéo từ Sàn
+        </button>
+    </div>
 </div>
 
-<%-- ── DATA GRID TABLE ── --%>
+<%-- ── MAIN TABLE — Interactive Empty States ── --%>
 <div class="sm-table-card">
-    <%-- Pulling loading overlay --%>
     <div class="sm-pull-overlay" id="smPullOverlay">
-        <div class="sm-loader-spinner"></div>
-        <div style="font-size: 13px; font-weight: 700; color: var(--navy)">Đang kết nối API Gateway Sandbox đa sàn...</div>
-        <div style="font-size: 10px; color: rgba(16,55,92,.4); margin-top: 4px">Đang kéo các sản phẩm chưa gán ánh xạ từ Shopee, Lazada, TikTok API...</div>
+        <div class="sm-loading-card">
+            <div class="sm-loader-spinner">
+                <div class="sm-loader-spinner-outer"></div>
+            </div>
+            <div class="loading-title">Đang kết nối...</div>
+            <div class="loading-sub">Đang kéo các sản phẩm chưa gán ánh xạ từ Shopee, Lazada, TikTok API...</div>
+        </div>
     </div>
-
     <div class="sm-table-scroll">
         <table class="sm-table">
             <thead>
-                <tr id="smTableHeader">
-                    <%-- Populated by JS for unmapped/mapped tabs --%>
+                <tr>
+                    <th style="width:148px">Master SKU</th>
+                    <th>Tên sản phẩm</th>
+                    <th style="width:140px">Danh mục</th>
+                    <th style="width:120px; text-align:right" title="Giá nhập bình quân (Moving Average Cost)">Giá nhập</th>
+                    <th style="width:195px"><span class="sm-col-channel-label lazada-dot">Lazada</span></th>
+                    <th style="width:195px"><span class="sm-col-channel-label website-dot">Website</span></th>
+                    <th style="width:110px;text-align:right">Tồn kho</th>
                 </tr>
             </thead>
-            <tbody id="smTableBody">
-                <%-- Populated by JS for unmapped/mapped tabs --%>
-            </tbody>
+            <tbody id="smTableBody"></tbody>
         </table>
     </div>
 </div>
 
-<%-- ── MAPPING CONFIG DIALOG MODAL ── --%>
+<%-- ── RIGHT DRAWER — Inbox ── --%>
+<div class="sm-drawer-backdrop" id="smDrawerBackdrop" onclick="closeDrawer()"></div>
+<div class="sm-drawer" id="smDrawer">
+    <div class="sm-drawer-header">
+        <div class="sm-drawer-title">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Hộp thư — Sản phẩm từ Sàn chờ ánh xạ
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+            <span class="sm-drawer-badge" id="drawerBadgeCount">0</span>
+            <button class="sm-modal-close" onclick="closeDrawer()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+    </div>
+    <div class="sm-drawer-search">
+        <svg class="sm-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" placeholder="Lọc theo mã sàn hoặc tên sản phẩm..." id="drawerSearchInput" oninput="onDrawerSearch(this.value)" />
+    </div>
+    <div class="sm-drawer-body" id="smDrawerBody"></div>
+</div>
+
+<%-- ── MAPPING MODAL ── --%>
 <div class="sm-modal-overlay" id="smMappingModalOverlay" onclick="closeMappingModal()">
     <div class="sm-modal" onclick="event.stopPropagation()">
         <div class="sm-modal-header">
@@ -126,37 +117,28 @@
             </button>
         </div>
         <div class="sm-modal-body">
-            <%-- PART 1: CHANNEL ITEM INFO --%>
             <div class="sm-channel-box">
                 <div class="sm-channel-box-title">1. Sản phẩm trên Sàn (Channel Item)</div>
-                <div style="display:grid;grid-template-columns: 1fr 1fr; gap:12px; font-size:13px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
                     <div>
                         <div style="color:rgba(16,55,92,.4);font-size:10px">Kênh bán hàng</div>
                         <strong id="mdChannelName">-</strong>
                     </div>
                     <div>
-                        <div style="color:rgba(16,55,92,.4);font-size:10px">Mã SKU trên sàn (Mã Sàn)</div>
+                        <div style="color:rgba(16,55,92,.4);font-size:10px">Mã SKU trên sàn</div>
                         <strong id="mdChannelSKU" style="font-family:monospace">-</strong>
                     </div>
                 </div>
-                <div style="border-top:1px solid rgba(229,234,243,.6); margin-top:8px; padding-top:8px; font-size:13px">
-                    <div style="color:rgba(16,55,92,.4);font-size:10px">Tên SP hiển thị trên sàn</div>
+                <div style="border-top:1px solid rgba(229,234,243,.6);margin-top:8px;padding-top:8px;font-size:13px">
+                    <div style="color:rgba(16,55,92,.4);font-size:10px">Tên SP trên sàn</div>
                     <strong id="mdChannelItemName" style="color:var(--navy)">-</strong>
                 </div>
             </div>
-
-            <%-- PART 2: WMS MASTER SKU ALLOCATIONS --%>
             <div>
                 <div class="sm-mapping-section-header">
-                    <span class="sm-mapping-section-title">2. Liên kết với Master SKU nội bộ (Hệ thống WMS)</span>
-                    <button class="sm-btn-add-row" onclick="addLinkedRow()" id="btnModalAddRow">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        Thêm mã nội bộ
-                    </button>
+                    <span class="sm-mapping-section-title">2. Liên kết với Master SKU nội bộ (WMS)</span>
                 </div>
-                <div id="mdLinkedRowsContainer">
-                    <%-- Dynamic allocation rows --%>
-                </div>
+                <div id="mdLinkedRowsContainer"></div>
             </div>
         </div>
         <div class="sm-modal-footer">
@@ -166,430 +148,301 @@
     </div>
 </div>
 
-<%-- ── NOTIFICATION TOAST POPUP ── --%>
-<div class="op-toast" id="opToast" style="position: fixed; top: 2rem; right: 2rem; background: var(--navy); color: #fff; padding: 1rem 1.5rem; border-radius: var(--radius-btn); box-shadow: 0 10px 25px rgba(0,0,0,.15); z-index: 120; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 0.75rem; transform: translateY(-20px); opacity: 0; pointer-events: none; transition: all .25s ease-out;">
+<%-- ── TOAST ── --%>
+<div class="op-toast" id="opToast" style="position:fixed;top:2rem;right:2rem;background:var(--navy);color:#fff;padding:1rem 1.5rem;border-radius:var(--radius-btn);box-shadow:0 10px 25px rgba(0,0,0,.15);z-index:9999;font-size:13px;font-weight:700;display:flex;align-items:center;gap:.75rem;transform:translateY(-20px);opacity:0;pointer-events:none;transition:all .25s ease-out;">
     <svg id="opToastIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
     <span id="opToastMsg">Thông báo hệ thống</span>
 </div>
 
-<%
-    // Clear session toast after displaying
-    if (request.getSession().getAttribute("toastMessage") != null) {
-        request.getSession().removeAttribute("toastMessage");
-        request.getSession().removeAttribute("toastSuccess");
-    }
-%>
 <div id="productsJsonData" style="display:none;"><c:out value="${productsJson}"/></div>
+<div id="mappingsJsonData" style="display:none;"><c:out value="${mappingsJson}"/></div>
+<div id="unresolvedJsonData" style="display:none;"><c:out value="${unresolvedJson}"/></div>
 
 <script>
-// ── GLOBALS ─────────────────────────────────────────────────────────
-let activeTab = "unmapped";
-let searchQuery = "";
-let channelFilter = "";
+// ════════════════════════════════════════════════════════════════
+// GLOBALS
+// ════════════════════════════════════════════════════════════════
+let searchQuery       = "";
+let drawerSearchQuery = "";
+let drawerChannelFilter = ""; // set khi mở từ nút dashed
 
 let APPROVED_MASTER_SKUS = [];
-let unmappedList = [];
-let rawMappings = [];
+let unmappedList  = [];
+let rawMappings   = [];
 
 let selectedUnmappedProduct = null;
 let modalLinkedRows = [];
 
-// ── INIT DOMContentLoaded ──────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", function() {
-    loadDataFromStorage();
+const CHANNEL_COLORS = { shopee: "#EE4D2D", tiktok: "#00B0AA", lazada: "#0F146D", website: "#EB8317" };
+
+// ════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", function () {
+    loadDataFromServer();
     renderAll();
 
-    // Server-side toast from session
-    const toastMsg = "<c:out value='${sessionScope.toastMessage}' />";
+    const toastMsg     = "<c:out value='${sessionScope.toastMessage}' />";
     const toastSuccess = "<c:out value='${sessionScope.toastSuccess}' />";
-    if (toastMsg && toastMsg !== "") {
-        showToast(toastMsg, toastSuccess === "true" ? "success" : "error");
-    }
-
-    window.addEventListener("ORDER_STORE_UPDATED", function() {
-        loadDataFromStorage();
-        renderAll();
-    });
+    if (toastMsg) showToast(toastMsg, toastSuccess === "true" ? "success" : "error");
 });
 
-function loadDataFromStorage() {
-    // 1. Mappings intermediate join table
-    const storedMappings = localStorage.getItem("sku_raw_mappings_v2");
-    if (storedMappings) {
-        try { rawMappings = JSON.parse(storedMappings); } catch(e) { rawMappings = []; }
-    } else {
-        rawMappings = [];
-        localStorage.setItem("sku_raw_mappings_v2", JSON.stringify([]));
-    }
-    
-    // 2. Unmapped pool
-    const storedPool = localStorage.getItem("sku_unmapped_pool_v2");
-    if (storedPool) {
-        try { unmappedList = JSON.parse(storedPool); } catch(e) { unmappedList = []; }
-    } else {
-        unmappedList = []; // Empty initially
-    }
+function loadDataFromServer() {
+    // 1. Mappings
+    try {
+        const raw = document.getElementById("mappingsJsonData").textContent.trim();
+        if (raw) rawMappings = JSON.parse(raw).map(m => ({
+            mappingId:     m.mappingId,
+            masterSKU:     m.skuCode,
+            channel:       m.channelPlatform || m.channelName || "Lazada",
+            channelSKU:    m.externalSku,
+            channelCategory: m.channelCategory || ""
+        }));
+    } catch(e) { rawMappings = []; }
 
-    // 3. Approved WMS Master SKUs
-    const prodElem = document.getElementById("productsJsonData");
-    if (prodElem && prodElem.textContent.trim()) {
-        try {
-            const parsed = JSON.parse(prodElem.textContent.trim());
-            APPROVED_MASTER_SKUS = parsed.map(p => {
-                return {
-                    id: p.productId,
-                    sku: p.sku || p.skuCode || '',
-                    name: p.name || p.productName || '',
-                    category: p.categoryName || '',
-                    qtyOnHand: p.qtyOnHand || 0
-                };
-            });
-        } catch(e) {
-            console.error("Failed to parse database products in sku-mapping:", e);
-            APPROVED_MASTER_SKUS = [];
-        }
-    } else {
-        const savedSKUs = localStorage.getItem("wms_skus");
-        if (savedSKUs) {
-            try {
-                APPROVED_MASTER_SKUS = JSON.parse(savedSKUs);
-            } catch(e) {
-                APPROVED_MASTER_SKUS = [];
-            }
-        } else {
-            APPROVED_MASTER_SKUS = [];
-        }
-    }
+    // 2. Unmapped inbox
+    try {
+        const raw = document.getElementById("unresolvedJsonData").textContent.trim();
+        if (raw) unmappedList = JSON.parse(raw).map(ex => {
+            const platform = ex.platform || "Lazada";
+            return {
+                id:              ex.exceptionId,
+                channelId:       ex.channelId,
+                channel:         platform,
+                shopName:        ex.channelName || "",
+                channelColor:    CHANNEL_COLORS[platform.toLowerCase()] || "#0f146d",
+                channelSKU:      ex.externalSku,
+                channelItemId:   ex.channelItemId || ex.externalSku,
+                sellerSku:       ex.sellerSku || ex.externalSku,
+                channelItemName: ex.reason || ("Sản phẩm sàn (" + ex.externalSku + ")")
+            };
+        });
+    } catch(e) { unmappedList = []; }
+
+    // 3. Master SKUs
+    try {
+        const raw = document.getElementById("productsJsonData").textContent.trim();
+    if (raw) APPROVED_MASTER_SKUS = JSON.parse(raw).map(p => ({
+        id:       p.productId,
+        sku:      p.sku || p.skuCode || "",
+        name:     p.name || p.productName || "",
+        category: p.categoryName || "",
+        qtyOnHand: p.qtyOnHand || 0,
+        macPrice: p.macPrice || 0
+    }));
+    } catch(e) { APPROVED_MASTER_SKUS = []; }
 }
 
-function saveOrdersToStorage() {
-    localStorage.setItem("sku_raw_mappings_v2", JSON.stringify(rawMappings));
-    localStorage.setItem("sku_unmapped_pool_v2", JSON.stringify(unmappedList));
-    // Trigger sync
-    window.dispatchEvent(new CustomEvent("ORDER_STORE_UPDATED"));
-}
-
-function getSKUTotalStock(skuCode) {
-    const ps = JSON.parse(localStorage.getItem('wh_pricing_sales') || '[]');
-    const record = ps.find(p => p.sku === skuCode);
-    if (record) {
-        if (record.warehouseStock) {
-            let total = 0;
-            for (let key in record.warehouseStock) {
-                total += record.warehouseStock[key] || 0;
-            }
-            return total;
-        }
-        if (record.qtyAvailable !== undefined) return record.qtyAvailable;
-        if (record.qtyOnHand !== undefined) return record.qtyOnHand;
-    }
-    
-    // Fallback to wms_skus record
-    const wmsItem = APPROVED_MASTER_SKUS.find(item => item.sku === skuCode);
-    return wmsItem ? (wmsItem.qtyOnHand || 0) : 0;
-}
-
-// ── TOAST NOTIFICATIONS POPUP ──
-function showToast(msg, type = "success") {
-    const toast = document.getElementById("opToast");
-    const label = document.getElementById("opToastMsg");
-    const icon = document.getElementById("opToastIcon");
-    
-    if (type === "success") {
-        toast.style.background = "#059669";
-        icon.innerHTML = `<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>`;
-    } else {
-        toast.style.background = "#dc2626";
-        icon.innerHTML = `<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>`;
-    }
-    label.textContent = msg;
-    
-    toast.style.opacity = 1;
-    toast.style.transform = "translateY(0)";
-    setTimeout(() => {
-        toast.style.opacity = 0;
-        toast.style.transform = "translateY(-20px)";
-    }, 4000);
-}
-
-// ── RENDER & SWITCH TABS ─────────────────────────────────────────────
-function switchTab(tabId) {
-    activeTab = tabId;
-
-    document.querySelectorAll(".sm-tab").forEach(btn => btn.classList.remove("active"));
-    if (tabId === "unmapped") document.getElementById("tabUnmapped").classList.add("active");
-    if (tabId === "mapped") document.getElementById("tabMapped").classList.add("active");
-
-    const searchInp = document.getElementById("smSearchInput");
-    if (tabId === "unmapped") {
-        searchInp.placeholder = "Tìm theo mã sàn, tên SP trên sàn...";
-    } else if (tabId === "mapped") {
-        searchInp.placeholder = "Tìm theo Master SKU, tên SP gốc WMS...";
-    }
-
-    renderAll();
-}
-
+// ════════════════════════════════════════════════════════════════
+// RENDER ALL
+// ════════════════════════════════════════════════════════════════
 function renderAll() {
-    renderStats();
-    renderTabBadges();
-    renderTableHeader();
+    renderAlertBanner();
     renderTableBody();
+    renderDrawerBody();
 }
 
-function renderStats() {
-    document.getElementById("statTotalMaster").textContent = APPROVED_MASTER_SKUS.length;
-    document.getElementById("statUnmapped").textContent = unmappedList.length;
-    document.getElementById("statMappings").textContent = rawMappings.length;
-}
-
-function renderTabBadges() {
-    const badge = document.getElementById("badgeUnmappedCount");
+function renderAlertBanner() {
+    const banner = document.getElementById("smAlertBanner");
     if (unmappedList.length > 0) {
-        badge.textContent = unmappedList.length;
-        badge.style.display = "inline-block";
+        document.getElementById("bannerCount").textContent = unmappedList.length;
+        banner.style.display = "flex";
     } else {
-        badge.style.display = "none";
+        banner.style.display = "none";
     }
 }
 
+// ════════════════════════════════════════════════════════════════
+// MAIN TABLE — Interactive Empty States
+// ════════════════════════════════════════════════════════════════
 function onSearch(val) {
     searchQuery = val.trim().toLowerCase();
-    renderAll();
-}
-
-function onChannelFilterChange(val) {
-    channelFilter = val;
-}
-
-// ── MARKETPLACE PRODUCT PULL — calls server which delegates to LazadaProductService ──
-async function pullMarketplaceProducts() {
-    const chId = document.getElementById("smChannelFilter").value;
-    if (!chId) {
-        showToast("Vui lòng chọn kênh cần kéo sản phẩm trước.", "error");
-        return;
-    }
-
-    const overlay = document.getElementById("smPullOverlay");
-    const icon = document.getElementById("pullSpinnerIcon");
-    const btn = document.getElementById("btnPullProducts");
-    overlay.classList.add("open");
-    icon.style.animation = "spin 1s linear infinite";
-    btn.disabled = true;
-
-    try {
-        // Fire-and-forget: the server processes this in the background.
-        const res = await fetch("${pageContext.request.contextPath}/sales/channel-products?action=pull&channelId=" + chId);
-        if (!res.ok) {
-            showToast("Kéo sản phẩm thất bại: HTTP " + res.status, "error");
-        } else {
-            showToast("Đã gửi yêu cầu kéo sản phẩm. Vui lòng đợi vài phút rồi refresh trang.", "success");
-        }
-    } catch (e) {
-        showToast("Lỗi kết nối: " + e.message, "error");
-    } finally {
-        overlay.classList.remove("open");
-        icon.style.animation = "none";
-        btn.disabled = false;
-    }
-}
-
-// ── AUTO-SUGGEST MAPPING — calls SkuMappingSuggestService ──
-async function suggestMappings() {
-    const chId = document.getElementById("smChannelFilter").value;
-    if (!chId) {
-        showToast("Vui lòng chọn kênh trước.", "error");
-        return;
-    }
-    try {
-        const res = await fetch("${pageContext.request.contextPath}/sales/sku-mapping?action=suggest&channelId=" + chId);
-        if (!res.ok) {
-            showToast("Lỗi HTTP " + res.status, "error");
-            return;
-        }
-        const data = await res.json();
-        showToast("Đã tạo gợi ý cho " + data.length + " SKU chưa ánh xạ. Mở tab Unmapped để xem chi tiết.", "success");
-    } catch (e) {
-        showToast("Lỗi: " + e.message, "error");
-    }
-}
-
-// ── RENDER DYNAMIC TABLES ────────────────────────────────────────────
-function renderTableHeader() {
-    const header = document.getElementById("smTableHeader");
-
-    let html = "";
-    if (activeTab === "unmapped") {
-        html = `
-            <th style="width: 120px">Kênh Bán</th>
-            <th style="width: 160px">Mã SKU Sàn (Channel SKU)</th>
-            <th style="width: 280px">Tên sản phẩm trên Sàn</th>
-            <th style="width: 320px">Mô tả chi tiết sàn</th>
-            <th style="width: 120px; text-align: center">Hành Động</th>
-        `;
-    } else {
-        html = `
-            <th style="width: 144px">Master SKU</th>
-            <th style="width: 250px">Tên sản phẩm gốc WMS</th>
-            <th style="width: 160px">Ngành hàng</th>
-            <th style="width: 128px; text-align: center">Lazada</th>
-            <th style="width: 128px; text-align: center">Website</th>
-            <th style="width: 144px; text-align: right">Tồn kho khả dụng</th>
-        `;
-    }
-    header.innerHTML = html;
+    renderTableBody();
 }
 
 function renderTableBody() {
     const tbody = document.getElementById("smTableBody");
     tbody.innerHTML = "";
 
-    if (activeTab === "unmapped") {
-        const filtered = unmappedList.filter(item => {
-            if (!searchQuery) return true;
-            return (item.channelSKU && item.channelSKU.toLowerCase().indexOf(searchQuery) > -1) ||
-                   (item.channelItemName && item.channelItemName.toLowerCase().indexOf(searchQuery) > -1);
-        });
+    const filtered = APPROVED_MASTER_SKUS.filter(wms => {
+        if (!searchQuery) return true;
+        return (wms.sku  && wms.sku.toLowerCase().includes(searchQuery)) ||
+               (wms.name && wms.name.toLowerCase().includes(searchQuery));
+    });
 
-        if (filtered.length === 0) {
-            tbody.innerHTML = '<tr>' +
-                '<td colspan="5" class="op-empty">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>' +
-                    (unmappedList.length === 0 ? "Không có sản phẩm sàn nào. Vui lòng nhấn nút [ Kéo sản phẩm từ Sàn ] ở góc trên để tải." : "Không tìm thấy sản phẩm sàn nào khớp với từ khóa tìm kiếm.") +
-                '</td>' +
-            '</tr>';
-            return;
-        }
+    if (filtered.length === 0) {
+        const msg = APPROVED_MASTER_SKUS.length === 0
+            ? "Chưa có Master SKU nào trong hệ thống. Vui lòng tạo sản phẩm trước."
+            : "Không tìm thấy sản phẩm nào khớp với từ khóa.";
+        tbody.innerHTML =
+            '<tr><td colspan="7" class="op-empty">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<rect x="3" y="3" width="18" height="18" rx="2"></rect>' +
+            '<line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>' +
+            msg + '</td></tr>';
+        return;
+    }
 
-        filtered.forEach(item => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = '<td>' +
-                    '<span class="sm-badge-channel" style="background:' + (item.channelColor || '#64748b') + '">' +
-                        item.channel +
+    filtered.forEach(wms => {
+        const rels     = rawMappings.filter(m => m.masterSKU === wms.sku);
+        const category = wms.category || (rels[0] && rels[0].channelCategory) || "";
+        const qty      = wms.qtyOnHand || 0;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+            '<td><span style="font-family:monospace;font-weight:700;color:var(--navy)">' + esc(wms.sku)  + '</span></td>' +
+            '<td><strong style="color:var(--navy)">'                                     + esc(wms.name) + '</strong></td>' +
+            '<td><span class="sm-category-text">'                                        + (category ? esc(category) : '<span style="color:rgba(16,55,92,.2)">—</span>') + '</span></td>' +
+            '<td style="text-align:right">' + (wms.macPrice > 0 ? Number(wms.macPrice).toLocaleString('vi-VN') + ' đ' : '<span style="color:rgba(16,55,92,.35);">—</span>') + '</td>' +
+            '<td>' + buildChannelCell(rels, 'lazada',  'Lazada')  + '</td>' +
+            '<td>' + buildChannelCell(rels, 'website', 'Website') + '</td>' +
+            '<td style="text-align:right">' + stockBadge(qty) + '</td>';
+        tbody.appendChild(tr);
+    });
+}
+
+/**
+ * Ô channel:
+ *   - Có mapping  → pill(s) với unlink ×
+ *   - Chưa map    → nút dashed "+ Kết nối [Channel]"
+ */
+function buildChannelCell(rels, chanKey, chanLabel) {
+    const matched = rels.filter(r => r.channel.toLowerCase().replace(/\s+/g, "").includes(chanKey));
+    const color   = CHANNEL_COLORS[chanKey] || "#64748b";
+
+    if (matched.length > 0) {
+        return '<div style="display:flex;flex-wrap:wrap;gap:5px">' +
+            matched.map(m =>
+                '<div class="sm-mapped-pill" title="' + chanLabel + ': ' + esc(m.channelSKU) + '">' +
+                    '<span class="sm-pill-dot" style="background:' + color + '"></span>' +
+                    '<span class="sm-mapped-sku">' + esc(m.channelSKU) + '</span>' +
+                    '<span class="sm-unlink-btn" onclick="event.stopPropagation();deleteMapping(\'' + m.mappingId + '\')">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
                     '</span>' +
-                '</td>' +
-                '<td><span style="font-weight:700;font-family:monospace">' + item.channelSKU + '</span></td>' +
-                '<td><span style="font-weight:600">' + item.channelItemName + '</span></td>' +
-                '<td><span style="color:rgba(16,55,92,.6);font-size:11.5px;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:300px">' + item.desc + '</span></td>' +
-                '<td style="text-align:center">' +
-                    '<button class="sm-btn-action" onclick="openMappingModal(\'' + item.id + '\')">' +
-                        '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>' +
-                        'Ánh Xạ' +
-                    '</button>' +
-                '</td>';
-            tbody.appendChild(tr);
-        });
-        
-    } else { // mapped tab
-        const filtered = APPROVED_MASTER_SKUS.filter(wms => {
-            // Check if has mapped relations
-            const matchedRels = rawMappings.filter(m => m.masterSKU === wms.sku);
-            if (matchedRels.length === 0) return false;
-            
-            if (!searchQuery) return true;
-            return (wms.sku && wms.sku.toLowerCase().indexOf(searchQuery) > -1) ||
-                   (wms.name && wms.name.toLowerCase().indexOf(searchQuery) > -1);
-        });
-        
-        if (filtered.length === 0) {
-            tbody.innerHTML = '<tr>' +
-                '<td colspan="8" class="op-empty">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>' +
-                    (APPROVED_MASTER_SKUS.length === 0 
-                        ? 'Không tìm thấy Master SKU đã duyệt nào trong hệ thống. Vui lòng vào trang quản lý Master SKU để tạo và duyệt sản phẩm trước.' 
-                        : 'Không có sản phẩm nào đã gán ánh xạ phù hợp.'
-                    ) +
-                '</td>' +
-            '</tr>';
-            return;
-        }
-        
-        filtered.forEach(wms => {
-            const tr = document.createElement("tr");
-            const rels = rawMappings.filter(m => m.masterSKU === wms.sku);
-            
-            const getChannelRelsHtml = (chan) => {
-                const matched = rels.filter(r => r.channel.toLowerCase().indexOf(chan.toLowerCase()) > -1);
-                if (matched.length === 0) return '<span style="color:rgba(16,55,92,.2)">—</span>';
-                return '<div style="display:flex;flex-direction:column;align-items:center;gap:6px">' +
-                    matched.map(m => 
-                        '<div class="sm-mapped-pill" title="Mã SKU Sàn: ' + m.channelSKU + ' - Click để hủy liên kết">' +
-                            '<span class="sm-mapped-sku">' + m.channelSKU + '</span>' +
-                            (m.conversionRate > 1 ? '<span class="sm-conversion-tag">x' + m.conversionRate + '</span>' : '') +
-                            '<span class="sm-unlink-btn" onclick="event.stopPropagation(); deleteMapping(\'' + m.mappingId + '\')">' +
-                                '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
-                            '</span>' +
-                        '</div>'
-                    ).join('') +
-                '</div>';
-            };
-            
-            const qty = getSKUTotalStock(wms.sku);
-            
-            tr.innerHTML = '<td><span style="font-family:monospace;font-weight:700">' + wms.sku + '</span></td>' +
-                '<td><strong style="color:var(--navy)">' + wms.name + '</strong></td>' +
-                '<td><span style="color:rgba(16,55,92,.6)">' + (wms.category || 'Chưa phân loại') + '</span></td>' +
-                '<td style="text-align:center">' + getChannelRelsHtml('lazada') + '</td>' +
-                '<td style="text-align:center">' + getChannelRelsHtml('website') + '</td>' +
-                '<td style="text-align:right"><strong style="font-size:13.5px">' + qty.toLocaleString() + '</strong></td>';
-            tbody.appendChild(tr);
-        });
+                '</div>'
+            ).join('') +
+        '</div>';
     }
+
+    // Dashed "Điền vào chỗ trống" button
+    return '<button class="sm-connect-btn" onclick="openDrawerForChannel(\'' + chanKey + '\')" title="Nhấn để kết nối ' + chanLabel + '">' +
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' +
+        'Kết nối ' + chanLabel +
+    '</button>';
 }
 
-// ── UNLINK/DELETE MAPPING RELATION ────────────────────────────────────
-function deleteMapping(mappingId) {
-    if (confirm("Bạn có chắc chắn muốn hủy liên kết ánh xạ này không?")) {
-        rawMappings = rawMappings.filter(m => m.mappingId !== mappingId);
-        localStorage.setItem("sku_raw_mappings_v2", JSON.stringify(rawMappings));
-        
-        // Also remove from channel products grid
-        const stored = localStorage.getItem("channel_products_v2");
-        if (stored) {
-            try {
-                let products = JSON.parse(stored);
-                products = products.filter(p => p.id !== "p_" + mappingId);
-                localStorage.setItem("channel_products_v2", JSON.stringify(products));
-            } catch(e) {
-                console.error(e);
-            }
-        }
-        
-        saveOrdersToStorage();
-        renderAll();
-        showToast("Đã hủy liên kết ánh xạ thành công!", "success");
-    }
+function stockBadge(qty) {
+    const color = qty > 10 ? "#059669" : qty > 0 ? "#d97706" : "rgba(16,55,92,.3)";
+    return '<span style="font-size:13px;font-weight:800;color:' + color + '">' + qty.toLocaleString() + '</span>';
 }
 
-// ── MAPPING MODAL CONTROLS ───────────────────────────────────────────
+function esc(str) {
+    if (!str) return "";
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ════════════════════════════════════════════════════════════════
+// RIGHT DRAWER
+// ════════════════════════════════════════════════════════════════
+function openDrawer() {
+    drawerChannelFilter = drawerChannelFilter || "";
+    document.getElementById("smDrawer").classList.add("open");
+    document.getElementById("smDrawerBackdrop").classList.add("open");
+    renderDrawerBody();
+}
+
+/** Mở từ nút "+ Kết nối" — drawer đã lọc sẵn theo kênh */
+function openDrawerForChannel(chanKey) {
+    drawerChannelFilter = chanKey;
+    document.getElementById("smDrawer").classList.add("open");
+    document.getElementById("smDrawerBackdrop").classList.add("open");
+    document.getElementById("drawerSearchInput").value = "";
+    drawerSearchQuery = "";
+    renderDrawerBody();
+}
+
+function closeDrawer() {
+    document.getElementById("smDrawer").classList.remove("open");
+    document.getElementById("smDrawerBackdrop").classList.remove("open");
+    drawerChannelFilter = "";
+}
+
+function onDrawerSearch(val) {
+    drawerSearchQuery = val.trim().toLowerCase();
+    renderDrawerBody();
+}
+
+function renderDrawerBody() {
+    const body  = document.getElementById("smDrawerBody");
+    const badge = document.getElementById("drawerBadgeCount");
+
+    // Pool lọc theo kênh nếu mở từ dashed button
+    let pool = unmappedList;
+    if (drawerChannelFilter) {
+        pool = pool.filter(x => x.channel.toLowerCase().replace(/\s+/g, "").includes(drawerChannelFilter));
+    }
+
+    const LABELS = { lazada: "Lazada", website: "Website", shopee: "Shopee", tiktok: "TikTok" };
+    badge.textContent = pool.length + (drawerChannelFilter ? " " + (LABELS[drawerChannelFilter] || drawerChannelFilter) : "");
+
+    const filtered = pool.filter(item => {
+        if (!drawerSearchQuery) return true;
+        return (item.channelSKU      && item.channelSKU.toLowerCase().includes(drawerSearchQuery)) ||
+               (item.channelItemName && item.channelItemName.toLowerCase().includes(drawerSearchQuery));
+    });
+
+    if (filtered.length === 0) {
+        const CHAN = drawerChannelFilter ? (LABELS[drawerChannelFilter] || drawerChannelFilter) : "";
+        body.innerHTML =
+            '<div class="sm-drawer-empty">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+            '<p>' + (pool.length === 0
+                ? (CHAN ? "Không có sản phẩm " + CHAN + " nào chờ ánh xạ." : "Tuyệt vời! Tất cả sản phẩm từ sàn đã được ánh xạ.")
+                : "Không tìm thấy sản phẩm khớp.") +
+            '</p></div>';
+        return;
+    }
+
+    body.innerHTML = filtered.map(item => {
+        const color = CHANNEL_COLORS[item.channel.toLowerCase()] || item.channelColor || "#64748b";
+        return '<div class="sm-drawer-item">' +
+            '<div class="sm-drawer-item-header">' +
+                '<span class="sm-badge-channel" style="background:' + color + '">' + esc(item.channel) + '</span>' +
+                (item.shopName ? '<span class="sm-drawer-shop">' + esc(item.shopName) + '</span>' : '') +
+            '</div>' +
+            '<div class="sm-drawer-sku">'  + esc(item.channelSKU) + '</div>' +
+            '<div class="sm-drawer-name">' + esc(item.channelItemName) + '</div>' +
+            '<button class="sm-btn-action sm-drawer-map-btn" onclick="openMappingModal(\'' + item.id + '\')">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>' +
+                'Ánh Xạ vào Master SKU' +
+            '</button>' +
+        '</div>';
+    }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAPPING MODAL
+// ════════════════════════════════════════════════════════════════
 function openMappingModal(id) {
-    const item = unmappedList.find(x => x.id === id);
+    const item = unmappedList.find(x => x.id == id);
     if (!item) return;
-    
     selectedUnmappedProduct = item;
-    
-    // Header channel details
-    document.getElementById("mdChannelName").textContent = item.channel;
-    document.getElementById("mdChannelName").style.color = item.channelColor || "#10375c";
-    document.getElementById("mdChannelSKU").textContent = item.channelSKU;
+
+    document.getElementById("mdChannelName").textContent     = item.channel + (item.shopName ? " (" + item.shopName + ")" : "");
+    document.getElementById("mdChannelName").style.color     = item.channelColor || "#10375c";
+    document.getElementById("mdChannelSKU").textContent      = item.channelSKU;
     document.getElementById("mdChannelItemName").textContent = item.channelItemName;
-    
-    // Check if approved master SKUs list is empty
+
     if (APPROVED_MASTER_SKUS.length === 0) {
-        document.getElementById("btnModalAddRow").disabled = true;
         document.getElementById("btnModalSave").disabled = true;
-        document.getElementById("mdLinkedRowsContainer").innerHTML = `
-            <div style="padding: 1.5rem; text-align: center; color: #dc2626; font-size:12.5px; font-weight:700; background:#fef2f2; border:1px solid #fecaca; border-radius:8px">
-                Không tìm thấy WMS Master SKU nào đã được phê duyệt! <br/>Vui lòng liên hệ Admin/Warehouse Staff để phê duyệt sản phẩm trước.
-            </div>
-        `;
+        document.getElementById("mdLinkedRowsContainer").innerHTML =
+            '<div style="padding:1.5rem;text-align:center;color:#dc2626;font-size:12.5px;font-weight:700;background:#fef2f2;border:1px solid #fecaca;border-radius:8px">' +
+            'Không tìm thấy WMS Master SKU nào! Vui lòng tạo sản phẩm trước.</div>';
     } else {
-        document.getElementById("btnModalAddRow").disabled = false;
         document.getElementById("btnModalSave").disabled = false;
-        modalLinkedRows = [{ masterSKU: APPROVED_MASTER_SKUS[0].sku, conversionRate: 1 }];
+        modalLinkedRows = [{ masterSKU: APPROVED_MASTER_SKUS[0].sku }];
         renderModalRows();
     }
-    
     document.getElementById("smMappingModalOverlay").classList.add("open");
 }
 
@@ -602,143 +455,106 @@ function closeMappingModal() {
 function renderModalRows() {
     const container = document.getElementById("mdLinkedRowsContainer");
     container.innerHTML = "";
-    
     modalLinkedRows.forEach((row, idx) => {
         const div = document.createElement("div");
         div.className = "sm-row-card";
-        
-        let selectOptionsHtml = "";
-        APPROVED_MASTER_SKUS.forEach(sku => {
-            selectOptionsHtml += '<option value="' + sku.sku + '" ' + (sku.sku === row.masterSKU ? 'selected' : '') + '>' + sku.name + ' (' + sku.sku + ')</option>';
-        });
-        
-        div.innerHTML = '<div style="flex:1;min-width:0">' +
+        const opts = APPROVED_MASTER_SKUS.map(s =>
+            '<option value="' + s.sku + '"' + (s.sku === row.masterSKU ? ' selected' : '') + '>' + esc(s.name) + ' (' + esc(s.sku) + ')</option>'
+        ).join('');
+        div.innerHTML =
+            '<div style="flex:1;min-width:0">' +
                 '<span class="sm-field-label">Chọn sản phẩm gốc kho WMS</span>' +
-                '<select class="sm-select" onchange="updateLinkedRow(' + idx + ', \'masterSKU\', this.value)">' +
-                    selectOptionsHtml +
-                '</select>' +
-            '</div>' +
-            '<div style="width:80px;flex-shrink:0">' +
-                '<span class="sm-field-label" style="text-align:center">Tỉ lệ</span>' +
-                '<input type="number" class="sm-input" min="1" value="' + row.conversionRate + '" onchange="updateLinkedRow(' + idx + ', \'conversionRate\', this.value)"/>' +
-            '</div>' +
-            (modalLinkedRows.length > 1 ? 
-                '<div style="padding-top:14px;flex-shrink:0">' +
-                    '<button class="sm-btn-remove" onclick="removeLinkedRow(' + idx + ')">' +
-                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>' +
-                    '</button>' +
-                '</div>'
-             : '');
+                '<select class="sm-select" onchange="updateLinkedRow(' + idx + ', this.value)">' + opts + '</select>' +
+            '</div>';
         container.appendChild(div);
     });
 }
 
-function addLinkedRow() {
-    if (APPROVED_MASTER_SKUS.length === 0) return;
-    modalLinkedRows.push({ masterSKU: APPROVED_MASTER_SKUS[0].sku, conversionRate: 1 });
-    renderModalRows();
-}
+function updateLinkedRow(idx, value) { modalLinkedRows[idx].masterSKU = value; }
 
-function removeLinkedRow(idx) {
-    if (modalLinkedRows.length <= 1) return;
-    modalLinkedRows.splice(idx, 1);
-    renderModalRows();
-}
-
-function updateLinkedRow(idx, field, value) {
-    if (field === "masterSKU") {
-        modalLinkedRows[idx].masterSKU = value;
-    } else {
-        modalLinkedRows[idx].conversionRate = Math.max(1, parseInt(value) || 1);
-    }
-}
-
-// ── SAVE MAPPINGS INTERACTION ────────────────────────────────────────
-function syncMappingToChannelProducts(mappingId, masterSKU, channelName, channelSKU, productName, stock, description) {
-    const stored = localStorage.getItem("channel_products_v2");
-    let products = [];
-    if (stored) {
-        try { products = JSON.parse(stored); } catch (e) { products = []; }
-    }
-    
-    const channelColors = {
-        Shopee: "#EE4D2D",
-        TikTok: "#69C9D0",
-        "TikTok Shop": "#69C9D0",
-        Lazada: "#0F146D",
-        Website: "#EB8317"
-    };
-    const chan = channelName.toLowerCase().replace(" shop", "");
-    const exists = products.some(p => p.masterSKU === masterSKU && p.channel === chan);
-    
-    if (!exists) {
-        const newItem = {
-            id: "p_" + mappingId, // Binds to mappingId so it deletes nicely
-            masterSKU: masterSKU,
-            channelSKU: channelSKU,
-            channel: chan,
-            channelName: channelName.replace(" Shop", ""),
-            channelColor: channelColors[channelName] || "#64748b",
-            productName: productName,
-            description: description || (productName + " - Kết nối ánh xạ đa sàn."),
-            images: [
-                chan === "shopee" 
-                ? "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&auto=format&fit=crop" 
-                : chan === "lazada" 
-                    ? "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&auto=format&fit=crop" 
-                    : "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400&auto=format&fit=crop"
-            ],
-            price: chan === "shopee" ? 250000 : chan === "lazada" ? 220000 : 190000,
-            status: "active",
-            stock: stock,
-            channelItemId: chan.toUpperCase().slice(0,3) + "-ITEM-" + Math.floor(100000 + Math.random() * 900000),
-            bufferStock: 0,
-            syncStatus: "success"
-        };
-        products.push(newItem);
-        localStorage.setItem("channel_products_v2", JSON.stringify(products));
-    }
-}
-
+// ════════════════════════════════════════════════════════════════
+// SAVE / DELETE
+// ════════════════════════════════════════════════════════════════
 function saveMappingConfig() {
-    if (modalLinkedRows.length === 0) {
-        alert("Vui lòng thêm ít nhất một liên kết Master SKU!");
-        return;
-    }
-    
-    modalLinkedRows.forEach(row => {
-        const matched = APPROVED_MASTER_SKUS.find(wms => wms.sku === row.masterSKU);
-        const mapId = "map_" + Date.now() + "_" + Math.floor(100 + Math.random() * 900);
-        
-        rawMappings.push({
-            mappingId: mapId,
-            masterSKU: row.masterSKU,
-            masterName: matched ? matched.name : "Sản phẩm gốc",
-            channel: selectedUnmappedProduct.channel,
-            channelSKU: selectedUnmappedProduct.channelSKU,
-            channelItemName: selectedUnmappedProduct.channelItemName,
-            conversionRate: row.conversionRate
-        });
-        
-        // Sync to channel products database
-        const stockQty = getSKUTotalStock(row.masterSKU);
-        syncMappingToChannelProducts(
-            mapId,
-            row.masterSKU,
-            selectedUnmappedProduct.channel,
-            selectedUnmappedProduct.channelSKU,
-            selectedUnmappedProduct.channelItemName,
-            stockQty || 100,
-            selectedUnmappedProduct.desc
-        );
+    if (!modalLinkedRows.length) { alert("Vui lòng chọn ít nhất một Master SKU!"); return; }
+    const matched = APPROVED_MASTER_SKUS.find(w => w.sku === modalLinkedRows[0].masterSKU);
+    if (!matched) { alert("Không tìm thấy Master SKU tương ứng!"); return; }
+
+    submitForm("${pageContext.request.contextPath}/sales/sku-mapping", {
+        action:     "create",
+        productId:  matched.id,
+        channelId:  selectedUnmappedProduct.channelId,
+        channelSku: selectedUnmappedProduct.channelItemId || selectedUnmappedProduct.channelSKU,
+        sellerSku:  selectedUnmappedProduct.sellerSku || selectedUnmappedProduct.channelSKU,
+        ...(selectedUnmappedProduct.id ? { exceptionId: selectedUnmappedProduct.id } : {})
     });
-    
-    // Save unmapped pool reduction
-    unmappedList = unmappedList.filter(item => item.id !== selectedUnmappedProduct.id);
-    
-    saveOrdersToStorage();
-    closeMappingModal();
-    renderAll();
-    showToast("Thiết lập ánh xạ Nhiều-Nhiều và các quy tắc Combo quy đổi thành công!", "success");
 }
+
+function deleteMapping(mappingId) {
+    if (confirm("Bạn có chắc chắn muốn hủy liên kết ánh xạ này không?")) {
+        submitForm("${pageContext.request.contextPath}/sales/sku-mapping", { action: "delete", mappingId });
+    }
+}
+
+function submitForm(action, fields) {
+    const form = document.createElement("form");
+    form.method = "POST"; form.action = action;
+    Object.entries(fields).forEach(([n, v]) => {
+        const i = document.createElement("input"); i.type = "hidden"; i.name = n; i.value = v; form.appendChild(i);
+    });
+    document.body.appendChild(form); form.submit();
+}
+
+// ════════════════════════════════════════════════════════════════
+// PULL FROM MARKETPLACE
+// ════════════════════════════════════════════════════════════════
+async function pullMarketplaceProducts() {
+    const channelIds = [];
+    <c:forEach var="ch" items="${channels}">
+    channelIds.push("${ch.channelId}");
+    </c:forEach>
+
+    if (!channelIds.length) { showToast("Không tìm thấy kênh bán hàng nào để kéo sản phẩm.", "error"); return; }
+
+    const overlay = document.getElementById("smPullOverlay");
+    const icon    = document.getElementById("pullSpinnerIcon");
+    const btn     = document.getElementById("btnPullProducts");
+    overlay.classList.add("open"); icon.style.animation = "spin 1s linear infinite"; btn.disabled = true;
+
+    try {
+        let ok = 0, msgs = [];
+        for (const id of channelIds) {
+            const res = await fetch("${pageContext.request.contextPath}/sales/channel-products", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: "action=pull&channelId=" + encodeURIComponent(id)
+            });
+            if (res.ok) { const d = await res.json(); d.success ? ok++ : msgs.push(d.message); }
+            else msgs.push("HTTP " + res.status);
+        }
+        if (ok > 0) { showToast("Kéo thành công từ " + ok + "/" + channelIds.length + " kênh!", "success"); setTimeout(() => location.reload(), 1500); }
+        else          showToast("Thất bại: " + msgs.join(" | "), "error");
+    } catch(e) { showToast("Lỗi: " + e.message, "error"); }
+    finally { overlay.classList.remove("open"); icon.style.animation = "none"; btn.disabled = false; }
+}
+
+// ════════════════════════════════════════════════════════════════
+// TOAST
+// ════════════════════════════════════════════════════════════════
+function showToast(msg, type = "success") {
+    const t = document.getElementById("opToast");
+    const i = document.getElementById("opToastIcon");
+    t.style.background = type === "success" ? "#059669" : "#dc2626";
+    i.innerHTML = type === "success"
+        ? '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>'
+        : '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>';
+    document.getElementById("opToastMsg").textContent = msg;
+    t.style.opacity = 1; t.style.transform = "translateY(0)";
+    setTimeout(() => { t.style.opacity = 0; t.style.transform = "translateY(-20px)"; }, 4000);
+}
+
+// spin keyframe
+const _s = document.createElement("style");
+_s.textContent = "@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}";
+document.head.appendChild(_s);
 </script>

@@ -8,6 +8,7 @@ import com.wms.model.Product;
 import com.wms.model.Warehouse;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -25,6 +26,7 @@ public class TransferService {
     private final TransferDAO transferDAO = new TransferDAO();
     private final ProductDAO productDAO = new ProductDAO();
     private final WarehouseDAO warehouseDAO = new WarehouseDAO();
+    private final com.wms.dao.InventoryDAO inventoryDAO = new com.wms.dao.InventoryDAO();
 
     public List<TransferDAO.Transfer> findAll() throws SQLException {
         return transferDAO.findAll();
@@ -71,7 +73,7 @@ public class TransferService {
         t.setFromWarehouseId(fromWarehouseId);
         t.setToWarehouseId(toWarehouseId);
         t.setCreatedBy(createdBy);
-        t.setStatus(TransferDAO.Transfer.STATUS_DRAFT);
+        t.setStatus(TransferDAO.Transfer.STATUS_IN_TRANSIT);
         t.setNote(note);
 
         try {
@@ -88,6 +90,15 @@ public class TransferService {
                 item.setShippedQty(qty);
                 item.setReceivedQty(BigDecimal.ZERO);
                 transferDAO.insertItem(item);
+
+                // Trừ tồn kho nguồn ngay khi tạo phiếu — không cần chờ duyệt (đang di chuyển trên đường)
+                boolean deducted = inventoryDAO.deductTransferOut(
+                        product.getProductId(), fromWarehouseId, qty);
+                if (!deducted) {
+                    throw new RuntimeException(
+                            "Không đủ tồn kho để chuyển: SKU=" + sku + ", SL=" + qty
+                            + " tại kho nguồn (warehouseId=" + fromWarehouseId + ")");
+                }
             }
             return t;
         } catch (SQLException e) {

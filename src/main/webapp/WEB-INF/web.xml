@@ -16,6 +16,11 @@
         <listener-class>com.wms.listener.SchemaInitListener</listener-class>
     </listener>
 
+    <!-- Lazada Order Sync Scheduler — runs on startup, schedules periodic sync -->
+    <listener>
+        <listener-class>com.wms.scheduler.LazadaOrderSyncScheduler</listener-class>
+    </listener>
+
     <!-- ======================================================
          CONTEXT PARAMETERS
     ====================================================== -->
@@ -57,7 +62,7 @@
     <!-- Lazada Product Sync (UC-B2C01) — disabled by default; enable when channel is set up -->
     <context-param>
         <param-name>lazada.product.sync.enabled</param-name>
-        <param-value>false</param-value>
+        <param-value>true</param-value>
     </context-param>
     <context-param>
         <param-name>lazada.product.sync.interval.minutes</param-name>
@@ -67,7 +72,7 @@
     <!-- Lazada Stock Push (BR-02) — disabled by default; enable when channel is set up -->
     <context-param>
         <param-name>lazada.stock.push.enabled</param-name>
-        <param-value>false</param-value>
+        <param-value>true</param-value>
     </context-param>
     <context-param>
         <param-name>lazada.stock.push.interval.minutes</param-name>
@@ -86,6 +91,20 @@
     <context-param>
         <param-name>lazada.tracking.poll.interval.minutes</param-name>
         <param-value>30</param-value>
+    </context-param>
+
+    <!-- Lazada Order Sync Scheduler (UC-B2C03) -->
+    <context-param>
+        <param-name>lazada.orderSync.enabled</param-name>
+        <param-value>true</param-value>
+    </context-param>
+    <context-param>
+        <param-name>lazada.orderSync.interval.minutes</param-name>
+        <param-value>2</param-value>
+    </context-param>
+    <context-param>
+        <param-name>lazada.orderSync.limit</param-name>
+        <param-value>100</param-value>
     </context-param>
 
     <!-- ROP Auto-Calculation (Reorder Point) — enabled by default, runs daily -->
@@ -214,8 +233,14 @@
         <url-pattern>/business/dashboard</url-pattern>
     </servlet-mapping>
 
-
-
+    <servlet>
+        <servlet-name>ProductPerformanceServlet</servlet-name>
+        <servlet-class>com.wms.controller.business.ProductPerformanceServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ProductPerformanceServlet</servlet-name>
+        <url-pattern>/business/performance</url-pattern>
+    </servlet-mapping>
 
     <servlet>
         <servlet-name>WarehouseServlet</servlet-name>
@@ -379,19 +404,12 @@
         <url-pattern>/warehouse/profile</url-pattern>
     </servlet-mapping>
 
-    <servlet>
-        <servlet-name>PendingTrackingServlet</servlet-name>
-        <servlet-class>com.wms.controller.warehouse.PendingTrackingServlet</servlet-class>
-    </servlet>
-    <servlet-mapping>
-        <servlet-name>PendingTrackingServlet</servlet-name>
-        <url-pattern>/warehouse/pending-tracking</url-pattern>
-    </servlet-mapping>
+    <!-- (Đã xoá PendingTrackingServlet — tính năng cấp mã vận đơn đã được tích hợp vào WarehouseOutboundServlet dưới dạng sub-tab "Chờ cấp mã & in tem") -->
 
     <!-- Notification API -->
     <servlet>
         <servlet-name>NotificationServlet</servlet-name>
-        <servlet-class>com.wms.controller.NotificationServlet</servlet-class>
+        <servlet-class>com.wms.controller.api.NotificationServlet</servlet-class>
     </servlet>
     <servlet-mapping>
         <servlet-name>NotificationServlet</servlet-name>
@@ -429,6 +447,25 @@
     <servlet-mapping>
         <servlet-name>SalesOrdersServlet</servlet-name>
         <url-pattern>/sales/orders</url-pattern>
+    </servlet-mapping>
+
+    <!-- Lightweight JSON poll endpoint for real-time order updates (every 30s from frontend) -->
+    <servlet>
+        <servlet-name>SalesOrdersPollServlet</servlet-name>
+        <servlet-class>com.wms.controller.sales.SalesOrdersPollServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>SalesOrdersPollServlet</servlet-name>
+        <url-pattern>/sales/orders/poll</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>LazadaShipmentProviderServlet</servlet-name>
+        <servlet-class>com.wms.controller.sales.LazadaShipmentProviderServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LazadaShipmentProviderServlet</servlet-name>
+        <url-pattern>/sales/shipment-providers</url-pattern>
     </servlet-mapping>
 
     <servlet>
@@ -577,6 +614,38 @@
          LazadaWebhookServlet is also @WebServlet-mapped, so this is redundant but
          keeps web.xml self-documenting. -->
 
+    <!-- ── Manager routes ───────────────────────────────────────── -->
+    <servlet>
+        <servlet-name>ManagerConfigServlet</servlet-name>
+        <servlet-class>com.wms.controller.business.ManagerConfigServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ManagerConfigServlet</servlet-name>
+        <url-pattern>/business/config</url-pattern>
+    </servlet-mapping>
+
+    <!-- Pricing thresholds JSON API (public — thresholds only) -->
+    <servlet>
+        <servlet-name>ConfigPricingApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.ConfigPricingApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ConfigPricingApiServlet</servlet-name>
+        <url-pattern>/api/config/pricing</url-pattern>
+    </servlet-mapping>
+
+    <!-- Lazada Order Management Servlets -->
+
+    <!-- Label print: /lazada/print-label -->
+    <servlet>
+        <servlet-name>LazadaLabelPrintServlet</servlet-name>
+        <servlet-class>com.wms.controller.lazada.LazadaLabelPrintServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LazadaLabelPrintServlet</servlet-name>
+        <url-pattern>/lazada/print-label</url-pattern>
+    </servlet-mapping>
+
     <!-- ======================================================
          WELCOME & ERROR PAGES
     ====================================================== -->
@@ -618,6 +687,33 @@
         <exception-type>java.lang.Exception</exception-type>
         <location>/WEB-INF/views/error/500.jsp</location>
     </error-page>
+
+    <servlet>
+        <servlet-name>DebugLazadaOrdersServlet</servlet-name>
+        <servlet-class>com.wms.util.DebugLazadaOrdersServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DebugLazadaOrdersServlet</servlet-name>
+        <url-pattern>/debug/lazada-orders</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>LazadaStockSyncServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.LazadaStockSyncServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LazadaStockSyncServlet</servlet-name>
+        <url-pattern>/api/lazada/stock-sync</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>LazadaOrderApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.LazadaOrderApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LazadaOrderApiServlet</servlet-name>
+        <url-pattern>/api/lazada/*</url-pattern>
+    </servlet-mapping>
 
     <!-- ── Storefront (omnicore-web) API — HMAC-SHA256 auth, see BaseApiServlet ── -->
     <servlet>

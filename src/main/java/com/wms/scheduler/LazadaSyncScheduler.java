@@ -115,10 +115,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
         private final ChannelDAO channelDAO = new ChannelDAO();
         private final LazadaOrderSyncService syncService = new LazadaOrderSyncService();
         private final int lookbackMinutes;
-        private final ServletContext ctx;
-
         SyncTask(ServletContext servletContext) {
-            this.ctx = servletContext;
             this.lookbackMinutes = parseLookback(servletContext);
         }
 
@@ -166,7 +163,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
             long sinceSeconds = sinceMs / 1000L;
 
             // 1. List orders (status=pending, updated after our last sync)
-            String listJson = orderService.getOrders(channel, "pending", null, sinceSeconds);
+            String listJson = orderService.getOrders(channel, "pending", null, sinceMs);
             logSync(channel.getChannelId(), "ORDER_LIST", "SUCCESS", null, listJson, null);
 
             JsonNode root;
@@ -187,7 +184,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
             try (Connection conn = DBConnection.getConnection()) {
                 conn.setAutoCommit(false);
                 for (JsonNode orderNode : ordersArray) {
-                    String orderCode = orderNode.path("order_id").asText("");
+                    String orderCode = orderNode.path("order_id").asText();
                     String detailJson = null;
                     try {
                         detailJson = orderService.getOrderDetail(channel, orderCode);

@@ -75,7 +75,7 @@
                     <th style="width: 130px;">Danh mục</th>
                     <th style="width: 150px;">Kích thước / Trọng lượng</th>
                     <th style="width: 180px;">Khu vực cất hàng (Zone)</th>
-                    <th style="width: 170px; text-align: right;">Định mức (Min / Max)</th>
+                    <th style="width: 150px; text-align: right;" title="Giá vốn bình quân (Moving Average Cost)">Giá vốn (MAC)</th>
                     <th style="width: 150px;">Cập nhật</th>
                     <th style="width: 150px; text-align: center;">Thao tác</th>
                 </tr>
@@ -735,9 +735,11 @@ function renderAll() {
                 '<div style="font-size: 11px; color: rgba(16,55,92,0.5); margin-top: 2px;">' + escapeHtml(item.weight || '—') + '</div>' +
             '</td>' +
             '<td>' + locHtml + '</td>' +
-            '<td style="text-align: right;">' +
-                '<div style="font-size: 13px; color: var(--navy); font-weight: 600;">' + item.minStock + ' / ' + item.maxStock + '</div>' +
-                (item.ropCalculated > 0 ? '<div style="font-size: 11px; color: rgba(16,55,92,.45); margin-top: 2px;">Gợi ý ROP: <strong style="color:' + (item.qtyOnHand <= item.ropCalculated ? '#dc2626' : '#16a34a') + '">' + Number(item.ropCalculated).toLocaleString() + '</strong></div>' : '<div style="font-size: 11px; color: rgba(16,55,92,.35); margin-top: 2px;">Chưa tính ROP</div>') +
+            '<td style="text-align: right;" title="Giá vốn bình quân (Moving Average Cost)">' +
+                '<div style="font-size: 13px; color: var(--navy); font-weight: 600;">' +
+                    (item.macPrice > 0 ? Number(item.macPrice).toLocaleString('vi-VN') + ' đ' : '<span style="color:rgba(16,55,92,0.35); font-weight:400;">Chưa nhập</span>') +
+                '</div>' +
+                '<div style="font-size: 10px; color: rgba(16,55,92,0.45); margin-top: 2px;">MAC</div>' +
             '</td>' +
             '<td>' +
                 '<div style="font-size: 12px; color: var(--navy); font-weight: 500;">' + (item.lastUpdated || item.createdAt || '—') + '</div>' +

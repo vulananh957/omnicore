@@ -31,8 +31,8 @@
                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                     <polyline points="9 22 9 12 15 12 15 22"/>
-                </svg>
-            </div>
+                    </svg>
+                </div>
             <div class="whinfo-hdr__body">
                 <div class="whinfo-hdr__top">
                     <div>
@@ -147,10 +147,10 @@
                                     </svg>
                                     <div class="whinfo-kpi-card__num"><c:out value="${dashboardMetrics.alertCount}"/></div>
                                     <div class="whinfo-kpi-card__lbl">Cảnh báo</div>
-                                </div>
+            </div>
                             </c:otherwise>
                         </c:choose>
-                    </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -443,18 +443,31 @@
                 document.getElementById('zoneFormAction').value = 'createZone';
                 document.getElementById('zoneFormId').value = '';
                 document.getElementById('zoneFormName').value = '';
+                document.getElementById('zoneFormName').removeAttribute('disabled');
                 document.getElementById('zoneFormDesc').value = '';
                 document.getElementById('zoneFormCapacity').value = '';
                 document.getElementById('zoneFormCustomType').value = '';
+                document.getElementById('zoneFormCustomType').removeAttribute('disabled');
                 document.getElementById('customTypeWrap').style.display = 'none';
                 document.getElementById('zoneFormTypeResolved').value = 'NORMAL';
                 document.querySelector('input[name="zoneTypeRadio"][value="NORMAL"]').checked = true;
+                
+                document.querySelectorAll('input[name="zoneTypeRadio"]').forEach(function(radio) {
+                    radio.removeAttribute('disabled');
+                });
+                
                 document.querySelectorAll('.zm-type-item').forEach(function(el){ el.classList.remove('active'); });
                 document.querySelector('.zm-type-item[data-type="NORMAL"]').classList.add('active');
+                
+                var notice = document.getElementById('defaultZoneNotice');
+                if (notice) notice.style.display = 'none';
+
                 document.getElementById('zoneModalOverlay').style.display = 'flex';
             }
 
             function openEditZone(btn) {
+                var isDefault = btn.getAttribute('data-default') === 'true';
+
                 document.getElementById('zoneModalTitle').textContent = 'Chỉnh sửa phân khu';
                 document.getElementById('zoneFormAction').value = 'updateZone';
                 document.getElementById('zoneFormId').value = btn.getAttribute('data-id');
@@ -478,6 +491,37 @@
                 if (radio) radio.checked = true;
                 document.querySelectorAll('.zm-type-item').forEach(function(el){ el.classList.remove('active'); });
                 if (radio) radio.closest('.zm-type-item').classList.add('active');
+
+                // System default zone restrictions
+                if (isDefault) {
+                    document.getElementById('zoneFormName').setAttribute('disabled', 'disabled');
+                    document.querySelectorAll('input[name="zoneTypeRadio"]').forEach(function(r) {
+                        r.setAttribute('disabled', 'disabled');
+                    });
+                    document.getElementById('zoneFormCustomType').setAttribute('disabled', 'disabled');
+                    
+                    var notice = document.getElementById('defaultZoneNotice');
+                    if (!notice) {
+                        notice = document.createElement('div');
+                        notice.id = 'defaultZoneNotice';
+                        notice.style.color = '#ef4444';
+                        notice.style.fontSize = '12px';
+                        notice.style.marginTop = '6px';
+                        notice.style.fontWeight = '600';
+                        notice.textContent = 'Khu mặc định của hệ thống: Không thể thay đổi Tên và Loại khu.';
+                        document.getElementById('zoneFormName').parentNode.appendChild(notice);
+                    }
+                    notice.style.display = 'block';
+                } else {
+                    document.getElementById('zoneFormName').removeAttribute('disabled');
+                    document.querySelectorAll('input[name="zoneTypeRadio"]').forEach(function(r) {
+                        r.removeAttribute('disabled');
+                    });
+                    document.getElementById('zoneFormCustomType').removeAttribute('disabled');
+                    
+                    var notice = document.getElementById('defaultZoneNotice');
+                    if (notice) notice.style.display = 'none';
+                }
 
                 document.getElementById('zoneModalOverlay').style.display = 'flex';
             }

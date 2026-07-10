@@ -1,0 +1,630 @@
+/* ═══════════════════════════════════════════════════════════════
+   business--suppliers.css
+   Supplier Management - Enterprise Style
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Page Container ─────────────────────────────────────── */
+.suppliers-page {
+    padding: 0;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* ─── Toolbar (Header + Filters - Single Row) ──────────── */
+.suppliers-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #F0F3F8;
+    margin-bottom: 12px;
+    flex-wrap: nowrap;
+}
+
+.suppliers-toolbar__left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.suppliers-toolbar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ─── Search ──────────────────────────────────────────── */
+.suppliers-search {
+    position: relative;
+    width: 280px;
+    flex-shrink: 0;
+}
+
+.suppliers-search__icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(16, 55, 92, 0.3);
+    pointer-events: none;
+}
+
+.suppliers-search__icon svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    overflow: hidden;
+}
+
+.suppliers-search input {
+    width: 100%;
+    padding: 6px 10px 6px 30px;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #10375C;
+    background: #FAFBFC;
+    transition: all 0.12s;
+}
+
+.suppliers-search input::placeholder {
+    color: rgba(16, 55, 92, 0.35);
+}
+
+.suppliers-search input:focus {
+    outline: none;
+    border-color: #CBD5E1;
+    background: #fff;
+}
+
+/* ─── Dropdown Selects ───────────────────────────────── */
+.suppliers-select select {
+    appearance: none;
+    padding: 5px 26px 5px 9px;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(16, 55, 92, 0.7);
+    background: #FAFBFC url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310375C' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 5px center;
+    background-size: 12px;
+    cursor: pointer;
+    min-width: 130px;
+    transition: all 0.12s;
+}
+
+.suppliers-select select:hover {
+    border-color: #CBD5E1;
+}
+
+.suppliers-select select:focus {
+    outline: none;
+    border-color: #94A3B8;
+    background-color: #fff;
+}
+
+/* ─── Add Button ─────────────────────────────────────── */
+.suppliers-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #10375C;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.suppliers-add-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.suppliers-add-btn:hover {
+    background: #1a4a73;
+}
+
+/* ─── Data Table ─────────────────────────────────────── */
+.suppliers-table-card {
+    background: #fff;
+    border: 1px solid #F0F3F8;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.suppliers-table-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid #F0F3F8;
+    background: #FAFBFC;
+}
+
+.suppliers-table-card__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #10375C;
+}
+
+.suppliers-table-card__count {
+    font-size: 12px;
+    color: rgba(16, 55, 92, 0.4);
+    margin-left: 6px;
+}
+
+.suppliers-table-wrap {
+    overflow-x: auto;
+}
+
+.suppliers-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.suppliers-table thead th {
+    background: #F8FAFC;
+    padding: 9px 12px;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: rgba(16, 55, 92, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #EEF1F6;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.suppliers-table thead th.sortable {
+    cursor: pointer;
+}
+
+.suppliers-table thead th.sortable:hover {
+    color: #10375C;
+    background: #F4F6F9;
+}
+
+.suppliers-table thead th .th-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.suppliers-table thead th .sort-icon {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid rgba(16, 55, 92, 0.4);
+    opacity: 0.5;
+}
+
+.suppliers-table thead th.sorted .sort-icon {
+    border-bottom-color: #10375C;
+    opacity: 0.9;
+}
+
+.suppliers-table thead th.sorted.desc .sort-icon {
+    border-bottom: none;
+    border-top: 5px solid #10375C;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: none;
+    opacity: 0.9;
+}
+
+.suppliers-table thead th.right,
+.suppliers-table tbody td.right {
+    text-align: right;
+}
+
+.suppliers-table tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #F8FAFC;
+    vertical-align: middle;
+    color: #334155;
+}
+
+.suppliers-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.suppliers-table tbody tr:hover {
+    background: #FAFBFC;
+}
+
+/* ─── Supplier Cell ─────────────────────────────────── */
+.supplier-code {
+    font-size: 11px;
+    font-weight: 700;
+    color: #10375C;
+    background: #F0F3F8;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.supplier-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+}
+
+/* ─── Contact Cell ───────────────────────────────────── */
+.contact-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.contact-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #334155;
+}
+
+.contact-phone {
+    font-size: 11px;
+    color: rgba(51, 65, 85, 0.5);
+}
+
+/* ─── Payment Terms ──────────────────────────────────── */
+.payment-terms {
+    font-size: 12px;
+    color: rgba(51, 65, 85, 0.7);
+}
+
+.payment-terms--net {
+    font-weight: 600;
+    color: #7C3AED;
+    background: #F3E8FF;
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.payment-terms--cod {
+    font-weight: 600;
+    color: #B45309;
+    background: #FEF3C7;
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.payment-terms.muted {
+    color: rgba(51, 65, 85, 0.3);
+}
+
+/* ─── Amount Cells ───────────────────────────────────── */
+.amount {
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.debt-warning {
+    color: #DC2626;
+    font-weight: 700;
+}
+
+.no-debt {
+    color: #059669;
+}
+
+/* ─── Detail Button ───────────────────────────────────── */
+.supplier-detail-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(105, 201, 208, 0.06);
+    color: #475569;
+    border: 1px solid rgba(105, 201, 208, 0.15);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.supplier-detail-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.supplier-detail-btn:hover {
+    background: #69C9D0;
+    color: #fff;
+    border-color: #69C9D0;
+}
+
+/* ─── Pagination ──────────────────────────────────────── */
+.suppliers-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-top: 1px solid #F0F3F8;
+    background: #FAFBFC;
+}
+
+.pagination-info {
+    font-size: 12px;
+    color: rgba(51, 65, 85, 0.6);
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 28px;
+    padding: 0 8px;
+    background: #fff;
+    color: #475569;
+    border: 1px solid #E8ECF1;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.1s;
+}
+
+.pagination-btn:hover:not(.active) {
+    background: #F0F3F8;
+    border-color: #CBD5E1;
+}
+
+.pagination-btn.active {
+    background: #10375C;
+    color: #fff;
+    border-color: #10375C;
+}
+
+/* ─── Empty State ────────────────────────────────────── */
+.suppliers-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: rgba(51, 65, 85, 0.35);
+}
+
+.suppliers-empty__icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 10px;
+    background: #F5F7FA;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.suppliers-empty__icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.suppliers-empty__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(51, 65, 85, 0.5);
+    margin-bottom: 4px;
+}
+
+.suppliers-empty__text {
+    font-size: 11px;
+}
+
+/* ─── Modal ──────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.modal-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal-content {
+    background: #fff;
+    border-radius: 10px;
+    width: 680px;
+    max-width: 95vw;
+    max-height: 92vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #F0F3F8;
+}
+
+.modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #10375C;
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: #94A3B8;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #475569;
+}
+
+.modal-body {
+    padding: 18px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 18px;
+    border-top: 1px solid #F0F3F8;
+    background: #FAFBFC;
+}
+
+/* ─── Form ───────────────────────────────────────────── */
+.form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.form-group {
+    margin-bottom: 14px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.form-group .required {
+    color: #DC2626;
+}
+
+.form-hint {
+    display: block;
+    font-size: 11px;
+    color: #94A3B8;
+    margin-top: 3px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #334155;
+    background: #FAFBFC;
+    transition: all 0.12s;
+    box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #94A3B8;
+    background: #fff;
+}
+
+.form-group input:disabled {
+    background: #F0F3F8;
+    color: #94A3B8;
+    cursor: not-allowed;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* ─── Buttons ────────────────────────────────────────── */
+.btn-cancel {
+    padding: 8px 16px;
+    background: #fff;
+    color: #475569;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.btn-cancel:hover {
+    background: #F0F3F8;
+}
+
+.btn-save {
+    padding: 8px 18px;
+    background: #10375C;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.btn-save:hover {
+    background: #1a4a73;
+}
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .suppliers-toolbar {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 768px) {
+    .suppliers-toolbar__right {
+        flex-wrap: wrap;
+    }
+
+    .suppliers-search {
+        width: 100%;
+    }
+
+    #creditLimit:disabled {
+        background-color: #F1F5F9;
+        color: #94A3B8;
+        cursor: not-allowed;
+        border-color: #E2E8F0;
+    }
+}

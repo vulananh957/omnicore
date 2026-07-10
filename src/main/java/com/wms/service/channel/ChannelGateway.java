@@ -26,6 +26,9 @@ public interface ChannelGateway {
     /** Fetches the platform's product list (paginated). */
     String listProducts(Channel channel, int pageNumber, int pageSize);
 
+    /** Fetches a single product by its platform item_id (no pagination needed). */
+    String getProductByItemId(Channel channel, String itemId);
+
     /** Creates a product on the channel. */
     String createProduct(Channel channel, Map<String, String> payload);
 
@@ -52,6 +55,11 @@ public interface ChannelGateway {
      * @return raw JSON response from the channel
      */
     String migrateImages(Channel channel, List<String> externalUrls);
+
+    /** Removes a product or specific SKUs from the channel. */
+    default String removeProduct(Channel channel, String sellerSkuListJson, String skuIdListJson) {
+        return "{}";
+    }
 
     // ── Stock & Price sync (BR-02 buffer stock rule) ────────
 
@@ -103,13 +111,48 @@ public interface ChannelGateway {
     String updateReverseOrder(Channel channel, String reverseOrderId, String action,
                               Map<String, String> payload);
 
+    // ── Cancel ────────────────────────────────────────────────
+
+    /**
+     * Step 1 of the cancel flow: validates whether an order can be cancelled
+     * and returns the available reason options.
+     *
+     * <p>Endpoint: GET /order/reverse/cancel/validate</p>
+     *
+     * @param orderId         Lazada order ID
+     * @param orderItemIdList JSON array string of order_item_ids, e.g. ["100827","..."]
+     * @return raw Lazada JSON response
+     */
+    default String cancelValidate(Channel channel, String orderId, String orderItemIdList) {
+        throw new UnsupportedOperationException(
+                "cancelValidate is not supported by " + platformName());
+    }
+
+    /**
+     * Step 2 of the cancel flow: submits the cancel request.
+     *
+     * <p>Endpoint: GET /order/reverse/cancel/create</p>
+     *
+     * @param orderId         Lazada order ID
+     * @param orderItemIdList JSON array string of order_item_ids, e.g. ["100827","..."]
+     * @param reasonId        reason ID selected by staff
+     * @return raw Lazada JSON response
+     */
+    default String cancelCreate(Channel channel, String orderId,
+                               String orderItemIdList, String reasonId) {
+        throw new UnsupportedOperationException(
+                "cancelCreate is not supported by " + platformName());
+    }
+
     // ── DTOs ─────────────────────────────────────────────────
 
     final class StockUpdate {
         public final String sellerSku;
+        public final String skuId;   // Lazada's internal SkuId (required for stock updates post-Nov 2023)
         public final int qty;
-        public StockUpdate(String sellerSku, int qty) {
+        public StockUpdate(String sellerSku, String skuId, int qty) {
             this.sellerSku = sellerSku;
+            this.skuId = skuId;
             this.qty = qty;
         }
     }

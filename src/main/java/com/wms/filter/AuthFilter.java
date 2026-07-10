@@ -44,7 +44,14 @@ public class AuthFilter implements Filter {
             // Lazada end-to-end: webhooks fire from Lazada servers with no
             // session. Auth is enforced via channel-level signature instead
             // (verified in LazadaWebhookServlet once a secret is configured).
-            "/lazada/webhook"
+            "/lazada/webhook",
+            "/webhook/lazada",
+            // Pricing thresholds: public JSON endpoint — no sensitive data
+            "/api/config/pricing",
+            // Manual stock sync trigger — no sensitive data
+            "/api/lazada/stock-sync",
+            // Lazada order API: public JSON endpoint for internal JS fetch
+            "/api/lazada/"
     ));
 
     /** Map URL prefix → allowed roles. */

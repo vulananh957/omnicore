@@ -23,7 +23,6 @@ import java.util.Map;
  */
 public class FulfillmentRequestServlet extends BaseController {
 
-    private static final String CONTEXT_PATH = "/warehouse/fulfillment";
     private final FulfillmentRequestDAO dao = new FulfillmentRequestDAO();
 
     @Override
@@ -85,7 +84,12 @@ public class FulfillmentRequestServlet extends BaseController {
             }
             boolean updated = dao.updateStatus(requestId, FulfillmentRequest.STATUS_CONVERTED);
             if (updated) {
-                new com.wms.service.warehouse.OutboundService().autoCreateFromOrder(fr.getOrderId(), fr.getWarehouseId(), 1);
+                Integer currentUserId = currentUserId(req);
+                String currentRole = currentUserRole(req);
+                new com.wms.service.warehouse.OutboundService().autoCreateFromOrder(
+                        fr.getOrderId(), fr.getWarehouseId(),
+                        currentUserId != null ? currentUserId : 1,
+                        currentRole != null ? currentRole : "");
                 response.put("success", true);
                 response.put("message", "Đã chuyển yêu cầu " + requestId + " thành CONVERTED và tạo phiếu xuất.");
             } else {

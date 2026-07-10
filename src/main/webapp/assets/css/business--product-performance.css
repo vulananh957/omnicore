@@ -1,0 +1,472 @@
+/* ═══════════════════════════════════════════════════════════════
+   business--product-performance.css
+   Product Performance Dashboard - Minimalist Enterprise Style
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Page Container ─────────────────────────────────────── */
+.perf-page {
+    padding: 0;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+/* ─── Toolbar (Header + Filters - Single Row) ──────────── */
+.perf-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #F0F3F8;
+    margin-bottom: 12px;
+    flex-wrap: nowrap;
+}
+
+.perf-toolbar__left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.perf-toolbar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ─── Search - Minimal ────────────────────────────────── */
+.perf-search {
+    position: relative;
+    width: 280px;
+    flex-shrink: 0;
+}
+
+.perf-search__icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(16, 55, 92, 0.3);
+    pointer-events: none;
+}
+
+.perf-search__icon svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    overflow: hidden;
+}
+
+.perf-search input {
+    width: 100%;
+    padding: 6px 10px 6px 30px;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #10375C;
+    background: #FAFBFC;
+    transition: all 0.12s;
+}
+
+.perf-search input::placeholder {
+    color: rgba(16, 55, 92, 0.35);
+}
+
+.perf-search input:focus {
+    outline: none;
+    border-color: #CBD5E1;
+    background: #fff;
+}
+
+/* ─── Period Tabs - Minimal Segmented ────────────────── */
+.perf-period-group {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    background: #F5F7FA;
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.perf-period-tab {
+    padding: 4px 10px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(16, 55, 92, 0.5);
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.perf-period-tab:hover:not(.active) {
+    color: #10375C;
+}
+
+.perf-period-tab.active {
+    background: #fff;
+    color: #10375C;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* ─── Dropdown Selects - Small ───────────────────────── */
+.perf-select select {
+    appearance: none;
+    padding: 5px 26px 5px 9px;
+    border: 1px solid #E8ECF1;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(16, 55, 92, 0.7);
+    background: #FAFBFC url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310375C' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 5px center;
+    background-size: 12px;
+    cursor: pointer;
+    min-width: 100px;
+    transition: all 0.12s;
+}
+
+.perf-select select:hover {
+    border-color: #CBD5E1;
+}
+
+.perf-select select:focus {
+    outline: none;
+    border-color: #94A3B8;
+    background-color: #fff;
+}
+
+.perf-select select option {
+    font-size: 12px;
+}
+
+/* ─── Data Table - Enterprise Style ───────────────────── */
+.perf-table-card {
+    background: #fff;
+    border: 1px solid #F0F3F8;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.perf-table-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid #F0F3F8;
+    background: #FAFBFC;
+}
+
+.perf-table-card__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #10375C;
+}
+
+.perf-table-card__count {
+    font-size: 12px;
+    color: rgba(16, 55, 92, 0.4);
+    margin-left: 6px;
+}
+
+.perf-table-wrap {
+    overflow-x: auto;
+}
+
+.perf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.perf-table thead th {
+    background: #F8FAFC;
+    padding: 9px 12px;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: rgba(16, 55, 92, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #EEF1F6;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.perf-table thead th.sortable {
+    cursor: pointer;
+}
+
+.perf-table thead th.sortable:first-child {
+    justify-content: flex-start;
+}
+
+.perf-table thead th .th-label {
+    flex-shrink: 0;
+}
+
+.perf-table thead th.sortable:hover {
+    color: #10375C;
+    background: #F4F6F9;
+}
+
+.perf-table thead th.sort-icon {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid rgba(16, 55, 92, 0.4);
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.perf-table thead th.sorted .sort-icon {
+    border-bottom-color: #10375C;
+    opacity: 0.9;
+}
+
+.perf-table thead th.sorted.desc .sort-icon {
+    border-bottom: none;
+    border-top: 5px solid #10375C;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    opacity: 0.9;
+}
+
+.perf-table thead th.right,
+.perf-table tbody td.right {
+    text-align: right;
+}
+
+.perf-table tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #F8FAFC;
+    vertical-align: middle;
+    color: #334155;
+}
+
+.perf-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.perf-table tbody tr:hover {
+    background: #FAFBFC;
+}
+
+/* ─── Product Cell ────────────────────────────────────── */
+.perf-product {
+    display: block;
+    overflow: hidden;
+}
+
+.perf-product__info {
+    overflow: hidden;
+}
+
+.perf-product__sku {
+    font-size: 10px;
+    color: rgba(16, 55, 92, 0.35);
+    font-weight: 600;
+    margin-bottom: 1px;
+}
+
+.perf-product__name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+}
+
+/* ─── Lazada Link Cell ─────────────────────────────── */
+.lazada-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(16, 55, 92, 0.35);
+    transition: color 0.12s;
+    text-decoration: none;
+}
+
+.lazada-link:hover {
+    color: #EB8317;
+}
+
+/* ─── Cells ───────────────────────────────────────────── */
+.perf-price {
+    font-weight: 600;
+    font-size: 12px;
+    color: #334155;
+}
+
+.perf-price--range {
+    font-size: 11px;
+    color: rgba(51, 65, 85, 0.6);
+}
+
+.perf-qty {
+    font-weight: 600;
+    font-size: 12px;
+    color: #334155;
+}
+
+/* ─── Gross Margin ────────────────────────────────────── */
+.perf-margin {
+    text-align: right;
+}
+
+.perf-margin__pct {
+    font-size: 12px;
+    font-weight: 700;
+    display: block;
+}
+
+.perf-margin__amount {
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(51, 65, 85, 0.5);
+    display: block;
+}
+
+.perf-margin--profit .perf-margin__pct {
+    color: #059669;
+}
+
+.perf-margin--loss .perf-margin__pct {
+    color: #DC2626;
+}
+
+.perf-margin--neutral .perf-margin__pct {
+    color: #D97706;
+}
+
+/* ─── Health Badge ────────────────────────────────────── */
+.health-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.health-badge::before {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+}
+
+.health-badge--normal {
+    background: rgba(5, 150, 105, 0.06);
+    color: #047857;
+}
+
+.health-badge--normal::before {
+    background: #059669;
+}
+
+.health-badge--low-stock {
+    background: rgba(217, 119, 6, 0.06);
+    color: #B45309;
+}
+
+.health-badge--low-stock::before {
+    background: #D97706;
+}
+
+.health-badge--overstocked {
+    background: rgba(139, 92, 246, 0.06);
+    color: #7C3AED;
+}
+
+.health-badge--overstocked::before {
+    background: #8B5CF6;
+}
+
+.health-badge--dead-stock {
+    background: rgba(220, 38, 38, 0.06);
+    color: #B91C1C;
+}
+
+.health-badge--dead-stock::before {
+    background: #DC2626;
+}
+
+/* ─── Detail Button ───────────────────────────────────── */
+.perf-detail-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    background: rgba(105, 201, 208, 0.06);
+    color: #475569;
+    border: 1px solid rgba(105, 201, 208, 0.15);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.perf-detail-btn svg {
+    width: 11px;
+    height: 11px;
+}
+
+.perf-detail-btn:hover {
+    background: #69C9D0;
+    color: #fff;
+    border-color: #69C9D0;
+}
+
+/* ─── Empty State ──────────────────────────────────── */
+.perf-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: rgba(51, 65, 85, 0.35);
+}
+
+.perf-empty__icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 10px;
+    background: #F5F7FA;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.perf-empty__icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.perf-empty__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(51, 65, 85, 0.5);
+    margin-bottom: 4px;
+}
+
+.perf-empty__text {
+    font-size: 11px;
+}
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .perf-toolbar {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 768px) {
+    .perf-toolbar__right {
+        flex-wrap: wrap;
+    }
+
+    .perf-period-group {
+        flex-wrap: wrap;
+    }
+}

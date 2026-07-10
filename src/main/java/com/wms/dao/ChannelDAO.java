@@ -102,6 +102,26 @@ public class ChannelDAO {
     }
 
     /**
+     * Retrieves all active channels (where is_active = 1).
+     *
+     * @return A list of active channels.
+     */
+    public List<Channel> findAllActive() {
+        List<Channel> list = new ArrayList<>();
+        String sql = "SELECT * FROM channels WHERE is_active = 1 ORDER BY channel_name ASC";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                list.add(mapResultSetToChannel(rs));
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find active channels", e);
+        }
+        return list;
+    }
+
+    /**
      * Finds a single channel by its primary key.
      *
      * @param channelId The channel ID to look up.
@@ -119,25 +139,6 @@ public class ChannelDAO {
             }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find channel by ID " + channelId, e);
-        }
-        return null;
-    }
-
-    public Channel findByPlatform(String platform) {
-        if (platform == null || platform.isBlank()) {
-            return null;
-        }
-        String sql = "SELECT * FROM channels WHERE platform = ? ORDER BY channel_id ASC LIMIT 1";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, platform);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return mapResultSetToChannel(rs);
-                }
-            }
-        } catch (SQLException e) {
-            LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find channel by platform " + platform, e);
         }
         return null;
     }
@@ -212,11 +213,38 @@ public class ChannelDAO {
      * @return true if a row was deleted, false otherwise.
      */
     public boolean delete(int channelId) {
-        String sql = "DELETE FROM channels WHERE channel_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, channelId);
-            return ps.executeUpdate() > 0;
+        String deleteItems = "DELETE FROM lazada_order_items WHERE lazada_order_id_str IN (SELECT lazada_order_id_str FROM lazada_orders WHERE channel_id = ?)";
+        String deleteOrders = "DELETE FROM lazada_orders WHERE channel_id = ?";
+        String deleteSkuMappings = "DELETE FROM sku_mappings WHERE channel_id = ?";
+        String deleteChannel = "DELETE FROM channels WHERE channel_id = ?";
+
+        try (Connection conn = DBConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(deleteItems)) {
+                    ps.setInt(1, channelId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(deleteOrders)) {
+                    ps.setInt(1, channelId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(deleteSkuMappings)) {
+                    ps.setInt(1, channelId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(deleteChannel)) {
+                    ps.setInt(1, channelId);
+                    boolean ok = ps.executeUpdate() > 0;
+                    conn.commit();
+                    return ok;
+                }
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "ChannelDAO: Failed to delete channel " + channelId, e);
             return false;
@@ -299,5 +327,41 @@ public class ChannelDAO {
             LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find channels needing token refresh", e);
         }
         return list;
+    }
+
+    /**
+     * Finds the single active channel for a given platform (e.g. "OwnWebsite").
+     * Used by the storefront API auth layer to look up the shared HMAC secret.
+     *
+     * @param platform The platform identifier to look up.
+     * @return The active Channel for that platform, or null if none configured.
+     */
+    public Channel findByPlatform(String platform) {
+        String sql = "SELECT * FROM channels WHERE platform = ? AND is_active = 1 LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, platform);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapResultSetToChannel(rs);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find channel by platform " + platform, e);
+        }
+        return null;
+    }
+
+    public boolean updateLastOrderSyncAt(int channelId, java.time.LocalDateTime lastOrderSyncAt) {
+        String sql = "UPDATE channels SET last_order_sync_at = ?, updated_at = CURRENT_TIMESTAMP WHERE channel_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, lastOrderSyncAt != null ? Timestamp.valueOf(lastOrderSyncAt) : null);
+            ps.setInt(2, channelId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelDAO: Failed to update last_order_sync_at for channel " + channelId, e);
+            return false;
+        }
     }
 }

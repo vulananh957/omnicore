@@ -8,11 +8,11 @@
 <!-- ══ PERIOD FILTER BAR ══════════════════════════════════════ -->
 <div class="filter-bar">
     <div class="period-tabs" id="periodTabs">
-        <button class="period-tab" data-period="7ngay">7 ngày</button>
-        <button class="period-tab active" data-period="30ngay">30 ngày</button>
-        <button class="period-tab" data-period="3thang">3 tháng</button>
-        <button class="period-tab" data-period="6thang">6 tháng</button>
-        <button class="period-tab" data-period="1nam">1 năm</button>
+        <button class="period-tab ${period == '7ngay' ? 'active' : ''}" data-period="7ngay">7 ngày</button>
+        <button class="period-tab ${period == '30ngay' || period == null || period == '' ? 'active' : ''}" data-period="30ngay">30 ngày</button>
+        <button class="period-tab ${period == '3thang' ? 'active' : ''}" data-period="3thang">3 tháng</button>
+        <button class="period-tab ${period == '6thang' ? 'active' : ''}" data-period="6thang">6 tháng</button>
+        <button class="period-tab ${period == '1nam' ? 'active' : ''}" data-period="1nam">1 năm</button>
     </div>
     <div class="action-btns">
         <button class="btn-outline" id="btnRefresh">
@@ -147,16 +147,16 @@
 <!-- ══ PIE + DONUT ═══════════════════════════════════════════ -->
 <div class="two-col-grid">
 
-    <!-- Pie: channel revenue breakdown -->
+    <!-- Pie: category revenue breakdown -->
     <div class="panel">
-        <div class="panel__title">Cơ cấu doanh thu theo kênh</div>
-        <div class="panel__sub" id="pieSubLabel">Doanh thu bán hàng theo kênh trong 30 ngày</div>
+        <div class="panel__title">Cơ cấu doanh thu theo danh mục</div>
+        <div class="panel__sub" id="pieSubLabel">Doanh thu bán hàng theo danh mục trong 30 ngày</div>
         <div style="display:flex;justify-content:center;margin:16px 0;position:relative;" id="pieWrap">
             <svg id="pieChart" width="280" height="280" viewBox="0 0 280 280" style="overflow:visible"></svg>
             <div class="chart-tooltip" id="pieTooltip" style="display:none;position:absolute;top:-8px;left:50%;transform:translate(-50%,-100%)"></div>
         </div>
         <hr class="divider-light"/>
-        <div id="channelRows"></div>
+        <div id="categoryRows"></div>
     </div>
 
     <!-- Donut: order status -->
@@ -215,7 +215,7 @@
      data-avg-growth="${avgOrderGrowth != null ? avgOrderGrowth : 'null'}"
      data-return-growth="${returnRateGrowth != null ? returnRateGrowth : 'null'}"
      data-daily='${dailyDataJson != null ? dailyDataJson : "null"}'
-     data-channel='${channelDataJson != null ? channelDataJson : "null"}'
+     data-category='${categoryDataJson != null ? categoryDataJson : "null"}'
      data-status='${orderStatusJson != null ? orderStatusJson : "null"}'
      data-products='${topProductsJson != null ? topProductsJson : "null"}'>
 </div>
@@ -246,13 +246,13 @@
         avgOrderGrowth: parseMetadata(metaEl.getAttribute('data-avg-growth')),
         returnRateGrowth: parseMetadata(metaEl.getAttribute('data-return-growth')),
         dailyData: parseMetadata(metaEl.getAttribute('data-daily')),
-        channelData: parseMetadata(metaEl.getAttribute('data-channel')),
+        categoryData: parseMetadata(metaEl.getAttribute('data-category')),
         orderStatus: parseMetadata(metaEl.getAttribute('data-status')),
         topProducts: parseMetadata(metaEl.getAttribute('data-products'))
     };
 
 /* ─── Config ─────────────────────────────────────────────── */
-var CHANNEL_COLORS = {};
+var CHANNEL_COLORS = { Shopee:'#EE4D2D', TikTok:'#69C9D0', Lazada:'#0F146D', Website:'#EB8317', ONLINE:'#10B981', STORE:'#F59E0B', B2B:'#8B5CF6', 'Khác':'#6B7280' };
 var CHANNELS = [];
 try {
     var rawChJson = '<c:out value="${channelsJson}" escapeXml="false"/>';
@@ -260,16 +260,24 @@ try {
         var chData = JSON.parse(rawChJson);
         CHANNELS = chData.map(function(c) { return c.channelName; });
         chData.forEach(function(c) {
-            CHANNEL_COLORS[c.channelName] = '#69C9D0';
+            if (!CHANNEL_COLORS[c.channelName]) {
+                CHANNEL_COLORS[c.channelName] = '#69C9D0';
+            }
         });
     }
 } catch (e) {}
 if (CHANNELS.length === 0) {
-    CHANNELS = ['Shopee','TikTok','Lazada','Website'];
-    CHANNEL_COLORS = { Shopee:'#EE4D2D', TikTok:'#69C9D0', Lazada:'#0F146D', Website:'#EB8317' };
+    CHANNELS = ['Shopee','TikTok','Lazada','Website','ONLINE','STORE','B2B','Khác'];
 }
+
+var CATEGORY_COLORS = ['#69C9D0', '#EB8317', '#0F146D', '#EE4D2D', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#3B82F6'];
+function getCategoryColor(name, idx) {
+    if (name === 'Khác') return '#6B7280';
+    return CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
+}
+
 var PERIOD_DAYS = { '7ngay':7, '30ngay':30, '3thang':90, '6thang':180, '1nam':365 };
-var PERIOD_LABELS = { '7ngay':'7 ngay', '30ngay':'30 ngay', '3thang':'3 thang', '6thang':'6 thang', '1nam':'1 nam' };
+var PERIOD_LABELS = { '7ngay':'7 ngày', '30ngay':'30 ngày', '3thang':'3 tháng', '6thang':'6 tháng', '1nam':'1 năm' };
 var TICK_INTERVALS = { '7ngay':0, '30ngay':4, '3thang':14, '6thang':29, '1nam':59 };
 
 // Bind backend data (passed from servlet) or fall back to empty
@@ -283,22 +291,20 @@ var data = window.WMS_DASHBOARD_DATA || {
     avgOrderGrowth: null,
     returnRateGrowth: null,
     dailyData: null,
-    channelData: null,
+    categoryData: null,
     orderStatus: null,
     topProducts: null
 };
 
 /* ─── State ──────────────────────────────────────────────── */
-var currentPeriod = '30ngay';
+var currentPeriod = '${period != null ? period : "30ngay"}';
 var showAll = false;
 
 /* ─── Period tab click ───────────────────────────────────── */
 document.querySelectorAll('.period-tab').forEach(function(btn) {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('.period-tab').forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        currentPeriod = btn.dataset.period;
-        updateAll();
+        var period = btn.dataset.period;
+        window.location.href = window.location.pathname + '?period=' + period;
     });
 });
 
@@ -324,6 +330,146 @@ if (btnViewAll) {
     });
 }
 
+/* ─── Export report ──────────────────────────────────────── */
+var btnExport = document.getElementById('btnExport');
+if (btnExport) {
+    btnExport.addEventListener('click', function() {
+        exportDashboardCsv();
+    });
+}
+
+function fmtVndRaw(n) {
+    if (n === null || n === undefined) return '0';
+    return Number(n).toLocaleString('vi-VN');
+}
+
+function csvEscape(val) {
+    if (val === null || val === undefined) return '';
+    var s = String(val);
+    if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+        return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+function exportDashboardCsv() {
+    var periodLabel = PERIOD_LABELS[currentPeriod] || currentPeriod;
+    var now = new Date();
+    var ts = now.getFullYear() + '-' +
+              String(now.getMonth()+1).padStart(2,'0') + '-' +
+              String(now.getDate()).padStart(2,'0') + '_' +
+              String(now.getHours()).padStart(2,'0') +
+              String(now.getMinutes()).padStart(2,'0');
+
+    var lines = [];
+
+    // ── BOM for Excel UTF-8 compatibility
+    var BOM = '\uFEFF';
+
+    // ── Section 1: KPI Tổng quan
+    lines.push('=== KPI TỔNG QUAN (' + periodLabel + ') ===');
+    lines.push(['Chỉ số', 'Giá trị', 'Tăng trưởng'].map(csvEscape).join(','));
+    lines.push([
+        'Tổng doanh thu (đồng)',
+        fmtVndRaw(data.totalRevenue),
+        data.revenueGrowth !== null ? (data.revenueGrowth >= 0 ? '+' : '') + Number(data.revenueGrowth).toFixed(1) + '%' : 'N/A'
+    ].map(csvEscape).join(','));
+    lines.push([
+        'Tổng đơn hàng',
+        data.totalOrders || 0,
+        data.ordersGrowth !== null ? (data.ordersGrowth >= 0 ? '+' : '') + Number(data.ordersGrowth).toFixed(1) + '%' : 'N/A'
+    ].map(csvEscape).join(','));
+    lines.push([
+        'Giá trị đơn trung bình (đồng)',
+        fmtVndRaw(data.avgOrderValue),
+        data.avgOrderGrowth !== null ? (data.avgOrderGrowth >= 0 ? '+' : '') + Number(data.avgOrderGrowth).toFixed(1) + '%' : 'N/A'
+    ].map(csvEscape).join(','));
+    lines.push([
+        'Tỷ lệ hoàn trả (%)',
+        data.returnRate !== null ? Number(data.returnRate).toFixed(1) : '0.0',
+        data.returnRateGrowth !== null ? (data.returnRateGrowth >= 0 ? '+' : '') + Number(data.returnRateGrowth).toFixed(1) + '%' : 'N/A'
+    ].map(csvEscape).join(','));
+    lines.push('');
+
+    // ── Section 2: Doanh thu theo ngày
+    lines.push('=== DOANH THU THEO NGÀY ===');
+    var dailyData = data.dailyData || [];
+    if (dailyData.length > 0) {
+        var channelCols = Object.keys(dailyData[0]).filter(function(k) { return k !== 'date'; });
+        lines.push(['Ngày'].concat(channelCols).concat(['Tổng']).map(csvEscape).join(','));
+        dailyData.forEach(function(row) {
+            var total = channelCols.reduce(function(s, ch) { return s + (row[ch] || 0); }, 0);
+            var cols = [row.date].concat(channelCols.map(function(ch) { return fmtVndRaw(row[ch] || 0); })).concat([fmtVndRaw(total)]);
+            lines.push(cols.map(csvEscape).join(','));
+        });
+    } else {
+        lines.push('Không có dữ liệu');
+    }
+    lines.push('');
+
+    // ── Section 3: Doanh thu theo danh mục
+    lines.push('=== DOANH THU THEO DANH MỤC ===');
+    var catData = data.categoryData;
+    if (catData && Object.keys(catData).length > 0) {
+        lines.push(['Danh mục', 'Doanh thu (đồng)', 'Tỷ trọng (%)'].map(csvEscape).join(','));
+        var catTotal = Object.values(catData).reduce(function(s, v) { return s + Number(v); }, 0);
+        Object.keys(catData).forEach(function(cat) {
+            var rev = Number(catData[cat]);
+            var pct = catTotal > 0 ? ((rev / catTotal) * 100).toFixed(1) : '0.0';
+            lines.push([cat, fmtVndRaw(rev), pct].map(csvEscape).join(','));
+        });
+    } else {
+        lines.push('Không có dữ liệu');
+    }
+    lines.push('');
+
+    // ── Section 4: Phân bổ trạng thái đơn hàng
+    lines.push('=== PHÂN BỔ TRẠNG THÁI ĐƠN HÀNG ===');
+    var statusList = data.orderStatus || [];
+    if (statusList.length > 0) {
+        lines.push(['Trạng thái', 'Số đơn', 'Tỷ trọng (%)'].map(csvEscape).join(','));
+        statusList.forEach(function(s) {
+            lines.push([s.name, s.count || 0, (s.value || 0).toFixed ? Number(s.value).toFixed(1) : s.value].map(csvEscape).join(','));
+        });
+    } else {
+        lines.push('Không có dữ liệu');
+    }
+    lines.push('');
+
+    // ── Section 5: Top sản phẩm
+    lines.push('=== TOP SẢN PHẨM ===');
+    var topProds = data.topProducts || [];
+    if (topProds.length > 0) {
+        lines.push(['STT', 'SKU', 'Tên sản phẩm', 'Kênh', 'Số lượng bán', 'Doanh thu (đồng)', 'Tăng trưởng (%)'].map(csvEscape).join(','));
+        topProds.forEach(function(p, i) {
+            var channels = (p.channels || []).join(' / ');
+            lines.push([
+                i + 1,
+                p.sku || '',
+                p.name || '',
+                channels,
+                p.totalQuantity || 0,
+                fmtVndRaw(p.totalRevenue || 0),
+                (p.growth >= 0 ? '+' : '') + Number(p.growth || 0).toFixed(1)
+            ].map(csvEscape).join(','));
+        });
+    } else {
+        lines.push('Không có dữ liệu');
+    }
+
+    // ── Trigger download
+    var csvContent = BOM + lines.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'baocao_kinhdoanh_' + ts + '.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
 /* ─── Helpers ────────────────────────────────────────────── */
 function fmtVnd(n) {
     if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B (đồng)';
@@ -337,45 +483,41 @@ function updateAll() {
     var days = PERIOD_DAYS[currentPeriod];
     var label = PERIOD_LABELS[currentPeriod];
 
-    var periodData = data.dailyData ? data.dailyData[currentPeriod] : null;
+    var periodData = data.dailyData || [];
     
-    var totalRev = 0;
-    var totalOrd = 0;
-    var avgOrd   = 0;
-    var retRate  = 0;
+    var totalRev = data.totalRevenue || 0;
+    var totalOrd = data.totalOrders || 0;
+    var avgOrd   = data.avgOrderValue || 0;
+    var retRate  = data.returnRate || 0;
     
-    var revGrowth   = null;
-    var ordGrowth   = null;
-    var avgGrowth   = null;
-    var retGrowth   = null;
+    var revGrowth   = data.revenueGrowth;
+    var ordGrowth   = data.ordersGrowth;
+    var avgGrowth   = data.avgOrderGrowth;
+    var retGrowth   = data.returnRateGrowth;
     
-    var channelList = [];
-    var statusList  = [
+    var categoryList = [];
+    var statusList  = data.orderStatus || [
         { name:'Đã giao',    value:0, color:'#10b981' },
         { name:'Đang giao',  value:0, color:'#EB8317' },
         { name:'Chờ xử lý', value:0,  color:'#F3C623' },
         { name:'Đã huỷ',    value:0,  color:'#ef4444' },
         { name:'Hoàn hàng', value:0,  color:'#8b5cf6' }
     ];
-    var topProducts = [];
+    var topProducts = data.topProducts || [];
 
-    if (periodData && periodData.length > 0) {
-        totalRev = data.totalRevenue ? data.totalRevenue[currentPeriod] : 0;
-        totalOrd = data.totalOrders ? data.totalOrders[currentPeriod] : 0;
-        avgOrd   = data.avgOrderValue ? data.avgOrderValue[currentPeriod] : 0;
-        retRate  = data.returnRate ? data.returnRate[currentPeriod] : 0;
-        
-        revGrowth = data.revenueGrowth ? data.revenueGrowth[currentPeriod] : null;
-        ordGrowth = data.ordersGrowth ? data.ordersGrowth[currentPeriod] : null;
-        avgGrowth = data.avgOrderGrowth ? data.avgOrderGrowth[currentPeriod] : null;
-        retGrowth = data.returnRateGrowth ? data.returnRateGrowth[currentPeriod] : null;
-        
-        channelList = data.channelData ? data.channelData[currentPeriod] : [];
-        statusList  = data.orderStatus ? data.orderStatus[currentPeriod] : statusList;
-        topProducts = data.topProducts ? data.topProducts[currentPeriod] : [];
-    } else {
-        // Zero-state placeholders
-        periodData = [];
+    if (data.categoryData) {
+        var idx = 0;
+        Object.keys(data.categoryData).forEach(function(cat) {
+            categoryList.push({
+                category: cat,
+                revenue: data.categoryData[cat],
+                color: getCategoryColor(cat, idx++)
+            });
+        });
+    }
+
+    if (periodData.length === 0) {
+        // Zero-state placeholders for trend chart
         for (var i = days - 1; i >= 0; i--) {
             var d = new Date();
             d.setDate(d.getDate() - i);
@@ -384,21 +526,19 @@ function updateAll() {
             CHANNELS.forEach(function(ch) { row[ch] = 0; });
             periodData.push(row);
         }
-        CHANNELS.forEach(function(ch) {
-            channelList.push({ channel: ch, revenue: 0 });
-        });
     }
 
     /* KPI values */
-    document.getElementById('kpi-revenue-value').textContent = fmtVnd(totalRev * 1000);
+    document.getElementById('kpi-revenue-value').textContent = fmtVnd(totalRev);
     document.getElementById('kpi-revenue-sub').textContent = label + ' qua';
     document.getElementById('kpi-orders-value').textContent = totalOrd.toLocaleString();
-    document.getElementById('kpi-avg-value').textContent = fmtVnd(avgOrd * 1000);
+    document.getElementById('kpi-avg-value').textContent = fmtVnd(avgOrd);
     document.getElementById('kpi-return-value').textContent = retRate.toFixed(1) + '%';
 
-    document.getElementById('donutNum').textContent = totalOrd.toLocaleString();
-    document.getElementById('chartSubLabel').textContent = 'Doanh thu (nghìn VNĐ) — ' + label + ' gần nhất';
-    document.getElementById('pieSubLabel').textContent = 'Doanh thu bán hàng theo kênh trong ' + label;
+    var statusTotal = statusList.reduce(function(s, d) { return s + (d.count || 0); }, 0);
+    document.getElementById('donutNum').textContent = statusTotal.toLocaleString();
+    document.getElementById('chartSubLabel').textContent = 'Xu hướng doanh thu bán hàng theo kênh — ' + label + ' gần nhất';
+    document.getElementById('pieSubLabel').textContent = 'Doanh thu bán hàng theo danh mục trong ' + label;
     document.getElementById('productsSubLabel').textContent =
         showAll ? 'Tất cả sản phẩm' : 'Top 5 sản phẩm trong ' + label;
 
@@ -410,9 +550,9 @@ function updateAll() {
 
     /* Charts */
     renderLineChart(periodData, TICK_INTERVALS[currentPeriod]);
-    renderPieChart(channelList);
+    renderPieChart(categoryList);
     renderDonut(statusList, totalOrd);
-    renderChannelRows(channelList, totalRev);
+    renderCategoryRows(categoryList, totalRev);
     renderStatusRows(statusList, totalOrd);
     renderProductsTable(topProducts);
 }
@@ -445,7 +585,7 @@ function renderLineChart(data, tickInterval) {
     var plotH = LC.h - LC.pt - LC.pb;
 
     var allVals = [];
-    data.forEach(function(d) { CHANNELS.forEach(function(ch) { allVals.push(d[ch]); }); });
+    data.forEach(function(d) { CHANNELS.forEach(function(ch) { allVals.push(d[ch] || 0); }); });
     var maxY = Math.max.apply(null, allVals);
     if (maxY <= 0) maxY = 100;
     maxY = maxY * 1.15;
@@ -459,7 +599,7 @@ function renderLineChart(data, tickInterval) {
         var line = mkEl('line', { x1:LC.pl, y1:yS(v), x2:LC.w-LC.pr, y2:yS(v), stroke:'#F0F3FA', 'stroke-width':1 });
         svg.appendChild(line);
         var txt = mkEl('text', { x:LC.pl-6, y:yS(v), 'text-anchor':'end', 'dominant-baseline':'middle', 'font-size':10, fill:'rgba(16,55,92,0.6)' });
-        txt.textContent = v >= 1000 ? Math.round(v/1000)+'tr' : v;
+        txt.textContent = v >= 1e6 ? Math.round(v/1e6)+'tr' : (v >= 1e3 ? Math.round(v/1e3)+'k' : v);
         svg.appendChild(txt);
     });
 
@@ -477,7 +617,7 @@ function renderLineChart(data, tickInterval) {
     });
 
     var hasData = data.some(function(d) {
-        return CHANNELS.some(function(ch) { return d[ch] > 0; });
+        return CHANNELS.some(function(ch) { return (d[ch] || 0) > 0; });
     });
 
     if (!hasData) {
@@ -493,7 +633,7 @@ function renderLineChart(data, tickInterval) {
 
     /* Lines */
     CHANNELS.forEach(function(ch) {
-        var d = data.map(function(row, i) { return (i===0?'M':'L')+' '+xS(i).toFixed(1)+' '+yS(row[ch]).toFixed(1); }).join(' ');
+        var d = data.map(function(row, i) { return (i===0?'M':'L')+' '+xS(i).toFixed(1)+' '+yS(row[ch] || 0).toFixed(1); }).join(' ');
         var path = mkEl('path', { d:d, fill:'none', stroke:CHANNEL_COLORS[ch], 'stroke-width':2, 'stroke-linecap':'round', 'stroke-linejoin':'round' });
         svg.appendChild(path);
     });
@@ -525,56 +665,66 @@ function renderLineChart(data, tickInterval) {
 
 function showLineTooltip(data, idx, xS, yS, pct) {
     var x = xS(idx);
-    var ch_html = CHANNELS.map(function(ch) {
+
+    // Derive actual channel keys from this data row (exclude 'date')
+    var rowKeys = Object.keys(data[idx]).filter(function(k) { return k !== 'date'; });
+
+    // Build tooltip rows — show all channels that have a value in this row
+    var ch_html = rowKeys.map(function(ch) {
+        var val = data[idx][ch] || 0;
+        var color = CHANNEL_COLORS[ch] || '#69C9D0';
         return '<div class="chart-tooltip__row">' +
-            '<div class="chart-tooltip__ch"><div class="chart-tooltip__dot" style="background:'+CHANNEL_COLORS[ch]+'"></div>'+ch+'</div>' +
-            '<span class="chart-tooltip__val">'+fmtVnd(data[idx][ch]*1000)+'</span>' +
+            '<div class="chart-tooltip__ch"><div class="chart-tooltip__dot" style="background:' + color + '"></div>' + ch + '</div>' +
+            '<span class="chart-tooltip__val">' + fmtVnd(val) + '</span>' +
         '</div>';
     }).join('');
-    var total = CHANNELS.reduce(function(s,ch){return s+data[idx][ch];},0);
-    lineTooltip.innerHTML = '<div class="chart-tooltip__date">'+data[idx].date+'</div>'+ch_html+
-        '<div class="chart-tooltip__total"><span>Tổng</span><span>'+fmtVnd(total*1000)+'</span></div>';
+
+    var total = rowKeys.reduce(function(s, ch) { return s + (data[idx][ch] || 0); }, 0);
+    lineTooltip.innerHTML = '<div class="chart-tooltip__date">' + data[idx].date + '</div>' + ch_html +
+        '<div class="chart-tooltip__total"><span>Tổng</span><span>' + fmtVnd(total) + '</span></div>';
     lineTooltip.style.display = 'block';
     lineTooltip.style.top = '8px';
     if (pct > 65) {
-        lineTooltip.style.left = (pct)+'%';
+        lineTooltip.style.left = (pct) + '%';
         lineTooltip.style.transform = 'translateX(calc(-100% - 8px))';
     } else {
-        lineTooltip.style.left = (pct)+'%';
+        lineTooltip.style.left = (pct) + '%';
         lineTooltip.style.transform = 'translateX(8px)';
     }
 
-    /* Update dots & crosshair */
+    /* Update dots & crosshair using actual row keys */
     var svg = document.getElementById('lineChart');
     var plotW = LC.w - LC.pl - LC.pr;
     var allVals = [];
-    data.forEach(function(d){CHANNELS.forEach(function(ch){allVals.push(d[ch]);});});
+    data.forEach(function(d) { rowKeys.forEach(function(ch) { allVals.push(d[ch] || 0); }); });
     var maxY = Math.max.apply(null, allVals);
     if (maxY <= 0) maxY = 100;
     maxY = maxY * 1.15;
-    var xPos = LC.pl + (idx/Math.max(data.length-1,1))*plotW;
-    function yS2(v){return LC.pt+(1-v/maxY)*(LC.h-LC.pt-LC.pb);}
+    var xPos = LC.pl + (idx / Math.max(data.length - 1, 1)) * plotW;
+    function yS2(v) { return LC.pt + (1 - v / maxY) * (LC.h - LC.pt - LC.pb); }
 
-    CHANNELS.forEach(function(ch) {
-        var dot = document.getElementById('dot-'+ch);
-        if (dot) { dot.setAttribute('cx', xPos); dot.setAttribute('cy', yS2(data[idx][ch])); dot.setAttribute('opacity',1); }
+    rowKeys.forEach(function(ch) {
+        var dot = document.getElementById('dot-' + ch);
+        if (dot) { dot.setAttribute('cx', xPos); dot.setAttribute('cy', yS2(data[idx][ch] || 0)); dot.setAttribute('opacity', 1); }
     });
     var cross = document.getElementById('crosshair');
-    if (cross) { cross.setAttribute('x1',xPos); cross.setAttribute('x2',xPos); cross.setAttribute('opacity',1); }
+    if (cross) { cross.setAttribute('x1', xPos); cross.setAttribute('x2', xPos); cross.setAttribute('opacity', 1); }
 }
 
 function hideLineTooltip() {
     lineTooltip.style.display = 'none';
-    CHANNELS.forEach(function(ch){var d=document.getElementById('dot-'+ch);if(d)d.setAttribute('opacity',0);});
-    var c=document.getElementById('crosshair');if(c)c.setAttribute('opacity',0);
+    // Hide all hover dots regardless of which channels are present
+    var svg = document.getElementById('lineChart');
+    if (svg) { svg.querySelectorAll('circle[id^="dot-"]').forEach(function(d) { d.setAttribute('opacity', 0); }); }
+    var c = document.getElementById('crosshair'); if (c) c.setAttribute('opacity', 0);
 }
 
 /* ══ PIE CHART ══════════════════════════════════════════ */
-function renderPieChart(channelData) {
+function renderPieChart(categoryData) {
     var svg = document.getElementById('pieChart');
     svg.innerHTML = '';
     var size=280, cx=140, cy=140, r=110;
-    var total = channelData.reduce(function(s,d){return s+d.revenue;},0);
+    var total = categoryData.reduce(function(s,d){return s+d.revenue;},0);
 
     if (total === 0) {
         var circle = mkEl('circle', { cx:cx, cy:cy, r:r, fill:'#F4F6F9', stroke:'#D8DFF0', 'stroke-width':1.5 });
@@ -589,18 +739,19 @@ function renderPieChart(channelData) {
     }
 
     var cumulative=0;
-    channelData.forEach(function(d,idx) {
+    categoryData.forEach(function(d,idx) {
+        if (d.revenue <= 0) return; // Skip 0-revenue slices
         var start=(cumulative/total)*360;
         cumulative+=d.revenue;
         var end=(cumulative/total)*360;
         var path = mkEl('path', {
             d: arcPath(cx, cy, r, start, end),
-            fill: CHANNEL_COLORS[d.channel],
+            fill: d.color,
             style:'cursor:pointer;transition:opacity 120ms',
             opacity:1
         });
         path.addEventListener('mouseenter', function() {
-            svg.querySelectorAll('path').forEach(function(p,pi){p.setAttribute('opacity',pi===idx?1:0.35);});
+            svg.querySelectorAll('path').forEach(function(p){ p.setAttribute('opacity', p === path ? 1 : 0.35); });
             showPieTooltip(d, total);
         });
         path.addEventListener('mouseleave', function() {
@@ -615,8 +766,8 @@ function showPieTooltip(d, total) {
     var tip = document.getElementById('pieTooltip');
     var pct = Math.round((d.revenue/total)*100);
     tip.innerHTML = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:700;color:#10375C">'+
-        '<div style="width:10px;height:10px;border-radius:50%;background:'+CHANNEL_COLORS[d.channel]+'"></div>'+d.channel+'</div>'+
-        '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:rgba(16,55,92,0.60)">Doanh thu</span><span style="font-weight:600;color:#10375C">'+fmtVnd(d.revenue*1000)+'</span></div>'+
+        '<div style="width:10px;height:10px;border-radius:50%;background:'+d.color+'"></div>'+d.category+'</div>'+
+        '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:rgba(16,55,92,0.60)">Doanh thu</span><span style="font-weight:600;color:#10375C">'+fmtVnd(d.revenue)+'</span></div>'+
         '<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:rgba(16,55,92,0.60)">Tỷ trọng</span><span style="font-weight:600;color:#10375C">'+pct+'%</span></div>';
     tip.style.display = 'block';
 }
@@ -630,7 +781,7 @@ function renderDonut(statusList, totalOrders) {
 
     if (total === 0) {
         var path = mkEl('path', {
-            d: donutArcPath(cx, cy, rOuter, rInner, 0, 359.99),
+            d: donutArcPath(cx, cy, rOuter, rInner, 0, 359.9),
             fill: '#F4F6F9', stroke: '#D8DFF0', 'stroke-width': 1.5
         });
         svg.appendChild(path);
@@ -639,6 +790,7 @@ function renderDonut(statusList, totalOrders) {
 
     var cumulative=0;
     statusList.forEach(function(d,idx) {
+        if (d.value <= 0) return; // Skip 0-value slices
         var start=(cumulative/total)*360;
         cumulative+=d.value;
         var end=(cumulative/total)*360;
@@ -648,7 +800,7 @@ function renderDonut(statusList, totalOrders) {
             style:'cursor:pointer;transition:opacity 120ms'
         });
         path.addEventListener('mouseenter', function() {
-            svg.querySelectorAll('path').forEach(function(p,pi){p.setAttribute('opacity',pi===idx?1:0.35);});
+            svg.querySelectorAll('path').forEach(function(p){ p.setAttribute('opacity', p === path ? 1 : 0.35); });
             showDonutTooltip(d, totalOrders);
         });
         path.addEventListener('mouseleave', function() {
@@ -661,7 +813,7 @@ function renderDonut(statusList, totalOrders) {
 
 function showDonutTooltip(d, totalOrders) {
     var tip = document.getElementById('donutTooltip');
-    var count = Math.round((d.value/100)*totalOrders);
+    var count = d.count || 0;
     tip.innerHTML = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:700;color:#10375C">'+
         '<div style="width:10px;height:10px;border-radius:50%;background:'+d.color+'"></div>'+d.name+'</div>'+
         '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:rgba(16,55,92,0.60)">Số đơn</span><span style="font-weight:600;color:#10375C">'+count.toLocaleString()+'</span></div>'+
@@ -669,21 +821,21 @@ function showDonutTooltip(d, totalOrders) {
     tip.style.display = 'block';
 }
 
-/* ══ CHANNEL BREAKDOWN ROWS ════════════════════════════ */
-function renderChannelRows(channelData, totalRevenue) {
-    var total = channelData.reduce(function(s,d){return s+d.revenue;},0);
-    var sorted = channelData.slice().sort(function(a,b){return b.revenue-a.revenue;});
-    var html = sorted.map(function(ch) {
-        var pct = total > 0 ? Math.round((ch.revenue/total)*100) : 0;
+/* ══ CATEGORY BREAKDOWN ROWS ════════════════════════════ */
+function renderCategoryRows(categoryData, totalRevenue) {
+    var total = categoryData.reduce(function(s,d){return s+d.revenue;},0);
+    var sorted = categoryData.slice().sort(function(a,b){return b.revenue-a.revenue;});
+    var html = sorted.map(function(cat) {
+        var pct = total > 0 ? Math.round((cat.revenue/total)*100) : 0;
         return '<div class="channel-row">'+
-            '<div class="channel-row__dot" style="background:'+CHANNEL_COLORS[ch.channel]+'"></div>'+
-            '<span class="channel-row__name">'+ch.channel+'</span>'+
-            '<div class="channel-row__bar-wrap"><div class="channel-row__bar" style="width:'+pct+'%;background:'+CHANNEL_COLORS[ch.channel]+'"></div></div>'+
+            '<div class="channel-row__dot" style="background:'+cat.color+'"></div>'+
+            '<span class="channel-row__name">'+cat.category+'</span>'+
+            '<div class="channel-row__bar-wrap"><div class="channel-row__bar" style="width:'+pct+'%;background:'+cat.color+'"></div></div>'+
             '<span class="channel-row__pct">'+pct+'%</span>'+
-            '<span class="channel-row__rev">'+fmtVnd(ch.revenue*1000)+'</span>'+
+            '<span class="channel-row__rev">'+fmtVnd(cat.revenue)+'</span>'+
         '</div>';
     }).join('');
-    document.getElementById('channelRows').innerHTML = html;
+    document.getElementById('categoryRows').innerHTML = html;
 }
 
 /* ══ STATUS ROWS ════════════════════════════════════════ */
@@ -691,7 +843,7 @@ function renderStatusRows(statusList, totalOrders) {
     var totalPct = statusList.reduce(function(s,d){return s+d.value;},0);
     var html = statusList.map(function(s) {
         var barW = totalPct > 0 ? ((s.value/totalPct)*100).toFixed(1) : '0.0';
-        var count = totalPct > 0 ? Math.round((s.value/100)*totalOrders) : 0;
+        var count = s.count || 0;
         return '<div class="status-row">'+
             '<div class="status-row__info"><span class="status-row__dot" style="background:'+s.color+'"></span><span class="status-row__name">'+s.name+'</span></div>'+
             '<div class="status-row__bar-wrap"><div class="status-row__bar" style="width:'+barW+'%;background:'+s.color+'"></div></div>'+
@@ -726,7 +878,7 @@ function renderProductsTable(productsList) {
             '<td><div class="product-name">'+p.name+'</div></td>'+
             '<td>'+channels+'</td>'+
             '<td class="qty-cell">'+p.totalQuantity.toLocaleString()+'</td>'+
-            '<td class="rev-cell">'+fmtVnd(p.totalRevenue*1000)+'</td>'+
+            '<td class="rev-cell">'+fmtVnd(p.totalRevenue)+'</td>'+
             '<td><span class="growth-cell '+growthClass+'">'+growthIcon+growthVal+'</span></td>'+
         '</tr>';
     }).join('');
@@ -740,6 +892,7 @@ function mkEl(tag, attrs) {
     return el;
 }
 function arcPath(cx, cy, r, startAngle, endAngle) {
+    if (endAngle - startAngle >= 360) endAngle = startAngle + 359.9;
     function toXY(a) {
         var rad = ((a-90)*Math.PI)/180;
         return [cx+r*Math.cos(rad), cy+r*Math.sin(rad)];
@@ -749,6 +902,7 @@ function arcPath(cx, cy, r, startAngle, endAngle) {
     return 'M '+cx+' '+cy+' L '+s[0]+' '+s[1]+' A '+r+' '+r+' 0 '+large+' 1 '+e[0]+' '+e[1]+' Z';
 }
 function donutArcPath(cx, cy, rOuter, rInner, startAngle, endAngle) {
+    if (endAngle - startAngle >= 360) endAngle = startAngle + 359.9;
     function toXY(a, r) {
         var rad = ((a-90)*Math.PI)/180;
         return [cx+r*Math.cos(rad), cy+r*Math.sin(rad)];

@@ -42,18 +42,6 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_users_warehouse (warehouse_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- user-warehouse assignments: N-N via join table (ERD: user_branch_assignments)
-CREATE TABLE IF NOT EXISTS user_warehouse_assignments (
-    assignment_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id       INT NOT NULL,
-    warehouse_id  INT NOT NULL,
-    is_primary    TINYINT(1) NOT NULL DEFAULT 0,
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_user_warehouse (user_id, warehouse_id),
-    FOREIGN KEY (user_id)      REFERENCES users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (warehouse_id) REFERENCES warehouses(warehouse_id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 -- ── NHOM 2: Warehouses (Branches) ─────────────────────
 
 CREATE TABLE IF NOT EXISTS warehouses (
@@ -82,6 +70,19 @@ CREATE TABLE IF NOT EXISTS zones (
     UNIQUE KEY uq_zone_code_wh (zone_code, warehouse_id),
     INDEX idx_zones_wh (warehouse_id),
     INDEX idx_zones_type (zone_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- user-warehouse assignments: N-N via join table (ERD: user_branch_assignments)
+-- Moved after warehouses table to resolve FK dependency
+CREATE TABLE IF NOT EXISTS user_warehouse_assignments (
+    assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT NOT NULL,
+    warehouse_id  INT NOT NULL,
+    is_primary    TINYINT(1) NOT NULL DEFAULT 0,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_user_warehouse (user_id, warehouse_id),
+    FOREIGN KEY (user_id)      REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (warehouse_id) REFERENCES warehouses(warehouse_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ── NHOM 3: Products & Categories ──────────────────────
@@ -151,18 +152,51 @@ CREATE TABLE IF NOT EXISTS channels (
     access_token   TEXT,
     refresh_token  TEXT,
     token_expires_at DATETIME DEFAULT NULL COMMENT 'UTC timestamp when access_token expires. NULL = unknown/never.',
-    last_order_sync_at DATETIME DEFAULT NULL COMMENT 'Last successful order sync via scheduler.',
+    last_order_sync_at    DATETIME DEFAULT NULL COMMENT 'Last successful order sync via scheduler.',
+    last_product_sync_at  DATETIME DEFAULT NULL COMMENT 'Last successful product sync via scheduler.',
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Migration: add token_expires_at column for auto token refresh (UC-B2C07)
 -- Safe to re-run on existing databases — MariaDB/MySQL ignores duplicate columns
-ALTER TABLE channels
-    ADD COLUMN IF NOT EXISTS token_expires_at DATETIME DEFAULT NULL
-    COMMENT 'UTC timestamp when access_token expires. NULL = unknown/never.',
-    ADD COLUMN IF NOT EXISTS last_order_sync_at DATETIME DEFAULT NULL
-    COMMENT 'Last successful order sync via scheduler.';
+-- Split into separate statements for MySQL 8 compatibility
+SET @dbname = DATABASE();
+SET @tablename = 'channels';
+SET @columnname = 'token_expires_at';
+SET @preparedStatement = (SELECT IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = @tablename AND COLUMN_NAME = @columnname) > 0,
+    'SELECT 1',
+    'ALTER TABLE channels ADD COLUMN token_expires_at DATETIME DEFAULT NULL COMMENT ''UTC timestamp when access_token expires. NULL = unknown/never.'''
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+SET @columnname = 'last_order_sync_at';
+SET @preparedStatement = (SELECT IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = @tablename AND COLUMN_NAME = @columnname) > 0,
+    'SELECT 1',
+    'ALTER TABLE channels ADD COLUMN last_order_sync_at DATETIME DEFAULT NULL COMMENT ''Last successful order sync via scheduler.'''
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+-- Migration: add last_product_sync_at column (UC-B2C07 product sync)
+SET @tablename = 'channels';
+SET @columnname = 'last_product_sync_at';
+SET @preparedStatement = (SELECT IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = @tablename AND COLUMN_NAME = @columnname) > 0,
+    'SELECT 1',
+    'ALTER TABLE channels ADD COLUMN last_product_sync_at DATETIME DEFAULT NULL COMMENT ''Last successful product sync via scheduler.'''
+));
+PREPARE alterIfNotExists2 FROM @preparedStatement;
+EXECUTE alterIfNotExists2;
+DEALLOCATE PREPARE alterIfNotExists2;
 
 -- Shipping carriers (dynamic, used by Sales filters and order processing)
 CREATE TABLE IF NOT EXISTS shipping_carriers (
@@ -227,10 +261,16 @@ CREATE TABLE IF NOT EXISTS webhook_logs (
     status      ENUM('SUCCESS','FAILED','PENDING') NOT NULL DEFAULT 'PENDING',
     error_trace TEXT,
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message_id  VARCHAR(100) NULL,
+    request_ip  VARCHAR(50) NULL,
+    request_signature VARCHAR(255) NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    processed_at DATETIME NULL,
     FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE SET NULL,
     INDEX idx_wl_event (event_type),
     INDEX idx_wl_status (status),
-    INDEX idx_wl_channel (channel_id)
+    INDEX idx_wl_channel (channel_id),
+    INDEX idx_message_id (message_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Stores marketplace orders that could not be matched to an internal SKU.
@@ -262,6 +302,22 @@ CREATE TABLE IF NOT EXISTS lazada_sync_log (
     FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE SET NULL,
     INDEX idx_lsl_status (status),
     INDEX idx_lsl_channel (channel_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Lazada's category tree (/category/tree/get) mirrored locally for product-push wizard.
+-- Used by SalesChannelProductsServlet.loadLazadaLeaves (UC-B2C09).
+CREATE TABLE IF NOT EXISTS lazada_categories (
+    id                    INT AUTO_INCREMENT PRIMARY KEY,
+    channel_id            INT NOT NULL,
+    lazada_category_id    BIGINT NOT NULL,
+    parent_id             BIGINT,
+    name                  VARCHAR(255) NOT NULL,
+    is_leaf               TINYINT(1) NOT NULL DEFAULT 0,
+    has_variation         TINYINT(1) NOT NULL DEFAULT 0,
+    depth                 INT NOT NULL DEFAULT 0,
+    FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE,
+    INDEX idx_lc_channel (channel_id),
+    INDEX idx_lc_leaf     (channel_id, is_leaf)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Maps a WMS category to one or more Lazada leaf categories. Lets sales staff
@@ -445,20 +501,53 @@ CREATE TABLE IF NOT EXISTS receipt_details (
     INDEX idx_rd_receipt (receipt_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ── NHÓM 15: Suppliers ───────────────────────────────
+
+CREATE TABLE IF NOT EXISTS suppliers (
+    supplier_id       INT AUTO_INCREMENT PRIMARY KEY,
+    supplier_code     VARCHAR(20) NOT NULL UNIQUE COMMENT 'Ma NCC, unique',
+    name              VARCHAR(255) NOT NULL COMMENT 'Ten cong ty',
+    contact_person    VARCHAR(100) DEFAULT NULL COMMENT 'Nguoi lien he',
+    phone             VARCHAR(20) DEFAULT NULL,
+    email             VARCHAR(100) DEFAULT NULL,
+    address           VARCHAR(500) DEFAULT NULL,
+    credit_limit      DECIMAL(15,2) DEFAULT 0.00 COMMENT 'Han muc no',
+    payment_terms     VARCHAR(50) DEFAULT NULL COMMENT 'Thoi han thanh toan, vd: "Net 30", "COD", "CIA", "Immediate"',
+    status            ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_supplier_code (supplier_code),
+    INDEX idx_supplier_status (status),
+    INDEX idx_supplier_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Legacy alias (for existing code compatibility)
 CREATE TABLE IF NOT EXISTS inbound_orders (
-    inbound_id   INT AUTO_INCREMENT PRIMARY KEY,
-    inbound_code VARCHAR(30) NOT NULL UNIQUE,
-    warehouse_id INT NOT NULL,
-    supplier     VARCHAR(100),
-    status       ENUM('PENDING','IN_PROGRESS','RECEIVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-    received_by  INT,
-    note         TEXT,
-    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    received_at  DATETIME,
+    inbound_id        INT AUTO_INCREMENT PRIMARY KEY,
+    inbound_code      VARCHAR(30) NOT NULL UNIQUE,
+    warehouse_id      INT NOT NULL,
+    zone_id           INT DEFAULT NULL COMMENT 'FK den zones.zone_id (khu vuc nhan hang trong kho)',
+    supplier          VARCHAR(100),
+    supplier_id       INT DEFAULT NULL COMMENT 'FK mem toi suppliers.supplier_id (NULL neu chua lien ket)',
+    supplier_address  VARCHAR(255),
+    supplier_phone    VARCHAR(50),
+    po_reference      VARCHAR(50),
+    status            ENUM('PENDING','PURCHASED','IN_PROGRESS','CONFIRMED','RECEIVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+    received_by       INT,
+    delivery_person   VARCHAR(100) COMMENT 'Ten nguoi giao hang / tai xe',
+    delivery_phone    VARCHAR(50) COMMENT 'SDT nguoi giao',
+    note              TEXT,
+    expected_date     DATE,
+    received_date     DATE COMMENT 'Ngay nhap hang thuc te (auto-fill luc tao phieu)',
+    payment_terms     VARCHAR(50),
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    received_at       DATETIME,
     FOREIGN KEY (warehouse_id) REFERENCES warehouses(warehouse_id),
     FOREIGN KEY (received_by)  REFERENCES users(user_id),
-    INDEX idx_inbound_status (status)
+    FOREIGN KEY (zone_id)      REFERENCES zones(zone_id) ON DELETE SET NULL,
+    INDEX idx_inbound_status (status),
+    INDEX idx_inbound_supplier (supplier_id),
+    CONSTRAINT fk_inbound_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS inbound_items (
@@ -467,6 +556,13 @@ CREATE TABLE IF NOT EXISTS inbound_items (
     product_id      INT NOT NULL,
     expected_qty    DECIMAL(12,3) NOT NULL DEFAULT 0,
     received_qty    DECIMAL(12,3) NOT NULL DEFAULT 0,
+    accepted_qty    DECIMAL(12,3) NOT NULL DEFAULT 0,
+    rejected_qty    DECIMAL(12,3) NOT NULL DEFAULT 0,
+    reject_reason   VARCHAR(255) COMMENT 'Ly do tra hang NCC: Hang mop meo, Sai mau/size, Het han, Hong van chuyen',
+    unit_cost       DECIMAL(15,2) NOT NULL DEFAULT 0,
+    lot_number      VARCHAR(50),
+    expiry_date     DATE,
+    notes           VARCHAR(255),
     FOREIGN KEY (inbound_id) REFERENCES inbound_orders(inbound_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id)  REFERENCES products(product_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -681,6 +777,8 @@ CREATE TABLE IF NOT EXISTS physical_inventory_details (
     system_qty         DECIMAL(12,3) NOT NULL DEFAULT 0,
     actual_qty         DECIMAL(12,3) DEFAULT NULL,
     delta_qty          DECIMAL(12,3) DEFAULT NULL,
+    variance_reason    VARCHAR(255),
+    lot_number         VARCHAR(50),
     counted_by         INT,
     counted_at         DATETIME,
     FOREIGN KEY (inventory_check_id) REFERENCES physical_inventories(inventory_check_id) ON DELETE CASCADE,
@@ -746,6 +844,8 @@ CREATE TABLE IF NOT EXISTS stock_transfer_items (
     product_id       INT NOT NULL,
     shipped_qty      DECIMAL(12,3) NOT NULL,
     received_qty     DECIMAL(12,3) DEFAULT NULL,
+    lot_number       VARCHAR(50),
+    notes            VARCHAR(255),
     FOREIGN KEY (transfer_id) REFERENCES stock_transfers(transfer_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id)  REFERENCES products(product_id) ON DELETE CASCADE,
     INDEX idx_sti_transfer (transfer_id)
@@ -799,15 +899,17 @@ CREATE INDEX idx_inbound_status_date
 CREATE INDEX idx_outbound_status_date
     ON outbound_orders (status, created_at);
 
--- product_default_zones: lookup zones by product (N+1 fix: fetch all in 1 query)
-CREATE INDEX idx_pdz_product
-    ON product_default_zones (product_id);
-
 -- channels: quick lookup by platform (Lazada/Shopee filter)
 CREATE INDEX idx_channels_platform
     ON channels (platform);
 
 -- ── NHOM 12: Notifications ─────────────────────────────
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    setting_key   VARCHAR(64) NOT NULL PRIMARY KEY,
+    setting_value VARCHAR(255) NOT NULL,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS notifications (
     id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -828,3 +930,106 @@ CREATE TABLE IF NOT EXISTS notifications (
     INDEX idx_notif_unread (recipient_user_id, is_read),
     INDEX idx_notif_created (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── NHOM 13: System Configuration (Manager-editable thresholds) ────
+-- Stores configurable warning thresholds for pricing/margin checks.
+-- Keys use dotted naming: <category>.<threshold_name>.
+-- Edits are managed by Manager via /manager/config/pricing page.
+
+CREATE TABLE IF NOT EXISTS system_config (
+    config_id    INT AUTO_INCREMENT PRIMARY KEY,
+    config_key   VARCHAR(100) NOT NULL UNIQUE,
+    config_value VARCHAR(500) NOT NULL,
+    description  VARCHAR(255) DEFAULT NULL,
+    is_active    TINYINT DEFAULT 1,
+    updated_by   INT DEFAULT NULL,
+    updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (updated_by) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed the default pricing-warning thresholds (Manager can override via /manager/config/pricing)
+INSERT IGNORE INTO system_config (config_key, config_value, description, is_active) VALUES
+  ('pricing.warn_margin_low',         '0.10',  'Margin dưới ngưỡng này được cảnh báo "Lãi ít" (mặc định 10%)', 1),
+  ('pricing.warn_margin_breakeven',    '0.00',  'Margin dưới ngưỡng này được cảnh báo "Hoà vốn/Lỗ nhẹ" (mặc định 0%)', 1),
+  ('pricing.warn_margin_loss_threshold','-0.05','Margin dưới ngưỡng này được cảnh báo "Bán lỗ" - đỏ (mặc định -5%)', 1);
+
+-- ── NHOM 14: Lazada Order Management ──────────────────────────────
+
+CREATE TABLE IF NOT EXISTS lazada_orders (
+    lazada_order_id INT AUTO_INCREMENT PRIMARY KEY,
+    lazada_order_id_str VARCHAR(32) NOT NULL UNIQUE,
+    lazada_order_number VARCHAR(32),
+    channel_id INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    wms_status VARCHAR(32) NOT NULL DEFAULT 'NEW',
+    customer_name VARCHAR(200),
+    customer_phone VARCHAR(20),
+    shipping_address VARCHAR(500),
+    shipping_city VARCHAR(100),
+    price DECIMAL(15,2) DEFAULT 0,
+    shipping_fee DECIMAL(10,2) DEFAULT 0,
+    voucher_seller DECIMAL(10,2) DEFAULT 0,
+    voucher_platform DECIMAL(10,2) DEFAULT 0,
+    payment_method VARCHAR(50),
+    buyer_note TEXT,
+    warehouse_id INT DEFAULT 0,
+    assigned_by INT DEFAULT 0,
+    assigned_at DATETIME,
+    package_id VARCHAR(64),
+    tracking_number VARCHAR(64),
+    shipment_provider VARCHAR(64),
+    shipment_provider_code VARCHAR(32),
+    lazada_created_at DATETIME,
+    lazada_updated_at DATETIME,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    rts_at DATETIME,
+    delivered_at DATETIME,
+    FOREIGN KEY (channel_id) REFERENCES channels(channel_id),
+    INDEX idx_lo_wms_status (wms_status),
+    INDEX idx_lo_lazada_status (status),
+    INDEX idx_lo_channel (channel_id),
+    INDEX idx_lo_updated (lazada_updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS lazada_order_items (
+    item_id INT AUTO_INCREMENT PRIMARY KEY,
+    lazada_order_id_str VARCHAR(32) NOT NULL,
+    order_item_id VARCHAR(32) NOT NULL,
+    sku VARCHAR(100),
+    shop_sku VARCHAR(100),
+    product_name VARCHAR(500),
+    product_image VARCHAR(1000),
+    quantity INT DEFAULT 1,
+    paid_price DECIMAL(15,2) DEFAULT 0,
+    item_price DECIMAL(15,2) DEFAULT 0,
+    supply_price DECIMAL(15,2) DEFAULT 0,
+    status VARCHAR(32),
+    product_id INT DEFAULT 0,
+    reserved_qty INT DEFAULT 0,
+    fulfilled_qty INT DEFAULT 0,
+    FOREIGN KEY (lazada_order_id_str) REFERENCES lazada_orders(lazada_order_id_str),
+    UNIQUE KEY uk_order_item (lazada_order_id_str, order_item_id),
+    INDEX idx_li_sku (sku)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS lazada_shipment_providers (
+    provider_id INT AUTO_INCREMENT PRIMARY KEY,
+    region VARCHAR(10) NOT NULL DEFAULT 'VN',
+    provider_code VARCHAR(32) NOT NULL,
+    provider_name VARCHAR(100) NOT NULL,
+    provider_name_vn VARCHAR(100),
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    display_order INT DEFAULT 0,
+    UNIQUE KEY uk_region_code (region, provider_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed Lazada Vietnam shipment providers (idempotent)
+INSERT IGNORE INTO lazada_shipment_providers (region, provider_code, provider_name, provider_name_vn, display_order) VALUES
+    ('VN', 'FM49', 'Flash Express',    'Flash Express', 1),
+    ('VN', 'J&T',  'J&T Express',    'J&T Express', 2),
+    ('VN', 'GHTK', 'Giao Hàng Tiết Kiệm', 'GHTK', 3),
+    ('VN', 'GHN',  'Giao Hàng Nhanh', 'GHN', 4),
+    ('VN', 'NJV',  'NinjaVan',       'NinjaVan', 5),
+    ('VN', 'SPX',  'SPX Express',   'SPX Express', 6);
+
+

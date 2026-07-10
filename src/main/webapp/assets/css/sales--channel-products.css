@@ -816,3 +816,28 @@
     font-size: 14px;
 }
 .op-empty svg { width: 44px; height: 44px; margin: 0 auto 0.75rem; color: rgba(16, 55, 92, 0.2); display: block; }
+
+/* ── Price warning chip (margin-based, configurable thresholds) ── */
+.price-warn-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+.price-warn-chip--loss {
+    background: rgba(220, 38, 38, 0.12);
+    color: #dc2626;
+    border: 1px solid rgba(220, 38, 38, 0.25);
+}
+.price-warn-chip--breakeven {
+    background: rgba(234, 179, 8, 0.12);
+    color: #b45309;
+    border: 1px solid rgba(234, 179, 8, 0.3);
+}
+.price-warn-chip--low {
+    background: rgba(245, 200, 66, 0.12);
+    color: #92400e;
+    border: 1px solid rgba(245, 200, 66, 0.3);
+}

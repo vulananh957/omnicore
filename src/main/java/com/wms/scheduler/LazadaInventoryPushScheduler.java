@@ -132,13 +132,13 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
                 String sellerSku = cp.getChannelSkuCode();
                 if (sellerSku == null || sellerSku.isEmpty()) continue;
 
-                int available = invDAO.getAvailableStock(cp.getProductId(), 1);
+                int available = invDAO.getTotalAvailableStock(cp.getProductId());
                 BigDecimal buffer = BigDecimal.valueOf(ch.getBufferStock());
                 BigDecimal pushQty = BigDecimal.valueOf(available).subtract(buffer);
                 if (pushQty.signum() < 0) pushQty = BigDecimal.ZERO;
                 int intQty = pushQty.setScale(0, RoundingMode.FLOOR).intValue();
 
-                todo.add(new SkuPushItem(cp.getProductId(), sellerSku, available, intQty,
+                todo.add(new SkuPushItem(cp.getProductId(), sellerSku, cp.getLazadaSkuId(), available, intQty,
                         ch.getBufferStock(), pushQty));
             }
             if (todo.isEmpty()) {
@@ -154,7 +154,7 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
                 List<SkuPushItem> batch = todo.subList(i, end);
 
                 List<ChannelGateway.StockUpdate> batchUpdates = batch.stream()
-                        .map(it -> new ChannelGateway.StockUpdate(it.sellerSku, it.intQty))
+                        .map(it -> new ChannelGateway.StockUpdate(it.sellerSku, it.skuId, it.intQty))
                         .toList();
 
                 long t0 = System.currentTimeMillis();
@@ -167,7 +167,7 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
                     // Log each item in batch as individual success
                     for (SkuPushItem it : batch) {
                         logPushOutcome(ch.getChannelId(), it.productId, it.sellerSku,
-                                BigDecimal.valueOf(it.qtyOnHand), BigDecimal.valueOf(it.qtyOnHand),
+                                BigDecimal.valueOf(it.available), BigDecimal.valueOf(it.available),
                                 BigDecimal.valueOf(ch.getBufferStock()), BigDecimal.ZERO,
                                 it.pushQty, "SUCCESS", null);
                         var mapping = cpDAO.findByChannelSku(ch.getChannelId(), it.sellerSku);
@@ -180,14 +180,13 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
                         pushed++;
                     }
                 } catch (Exception e) {
-                    long dt = System.currentTimeMillis() - t0;
                     ChannelSyncAudit.logFailure(ch.getChannelId(), "STOCK_PUSH_BATCH",
                             "batch(" + i + "-" + end + ")", 500,
                             "size=" + batch.size(), e.getMessage());
                     // Log every item in failed batch
                     for (SkuPushItem it : batch) {
                         logPushOutcome(ch.getChannelId(), it.productId, it.sellerSku,
-                                BigDecimal.valueOf(it.qtyOnHand), BigDecimal.valueOf(it.qtyOnHand),
+                                BigDecimal.valueOf(it.available), BigDecimal.valueOf(it.available),
                                 BigDecimal.valueOf(ch.getBufferStock()), BigDecimal.ZERO,
                                 it.pushQty, "FAILED", e.getMessage());
                         failed++;
@@ -202,7 +201,8 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
         private record SkuPushItem(
                 int productId,
                 String sellerSku,
-                int qtyOnHand,
+                String skuId,
+                int available,
                 int intQty,
                 double bufferStock,
                 BigDecimal pushQty

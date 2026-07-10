@@ -23,6 +23,7 @@ public class SkuMapping {
     private String channelPlatform;
     private String skuCode;
     private String productName;
+    private String channelCategory;
 
     public SkuMapping() {}
 
@@ -163,5 +164,13 @@ public class SkuMapping {
 
     public void setChannelItemId(String channelItemId) {
         this.channelItemId = channelItemId;
+    }
+
+    public String getChannelCategory() {
+        return channelCategory;
+    }
+
+    public void setChannelCategory(String channelCategory) {
+        this.channelCategory = channelCategory;
     }
 }

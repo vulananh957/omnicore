@@ -28,10 +28,14 @@ public class SkuMappingDAO {
         List<SkuMapping> list = new ArrayList<>();
         String sql = "SELECT sm.mapping_id, sm.sku_id, sm.channel_id, sm.external_sku, "
                    + "sm.seller_sku, sm.sync_status, sm.last_sync_at, sm.created_at, sm.updated_at, "
-                   + "c.channel_name, c.platform, s.sku_code, s.product_name "
+                   + "c.channel_name, c.platform, s.sku_code, s.product_name, "
+                   + "COALESCE(lc.name, cm.lazada_name) AS lazada_category_name "
                    + "FROM sku_mappings sm "
                    + "LEFT JOIN channels c ON sm.channel_id = c.channel_id "
                    + "LEFT JOIN products s ON sm.sku_id = s.product_id "
+                   + "LEFT JOIN channel_products cp ON sm.sku_id = cp.product_id AND sm.channel_id = cp.channel_id "
+                   + "LEFT JOIN lazada_categories lc ON cp.lazada_category_id = lc.lazada_category_id AND cp.channel_id = lc.channel_id "
+                   + "LEFT JOIN category_mappings cm ON s.category_id = cm.wms_category_id AND sm.channel_id = cm.channel_id "
                    + "ORDER BY sm.created_at DESC";
 
         try (Connection conn = DBConnection.getConnection();
@@ -273,19 +277,32 @@ public class SkuMappingDAO {
         m.setSkuCode(rs.getString("sku_code"));
         m.setProductName(rs.getString("product_name"));
 
+        try {
+            m.setChannelCategory(rs.getString("lazada_category_name"));
+        } catch (SQLException e) {
+            // Safe fallback if lazada_category_name is not present in the ResultSet
+        }
+
         return m;
     }
 
     /**
-     * Lấy tất cả APPROVED Master SKU từ bảng products để hiển thị trên form mapping.
+     * Lấy tất cả Master SKU từ bảng products kèm tổng tồn kho khả dụng.
+     *
+     * <p>Khả dụng = Tồn vật lý - Tạm giữ - Hàng lỗi (Defective)
+     * Vì hàng lỗi được lưu trong row riêng (stock_type='DEFECTIVE') với qty_available=0,
+     * ta chỉ cần SUM(qty_available) trên các row NORMAL — kết quả tự động đã trừ defective.
      */
     public List<Product> findAllSkus() {
         List<Product> list = new ArrayList<>();
-        // Manager-created SKUs are immediately active (no PENDING/APPROVED workflow).
-        // We still prefer ACTIVE rows when 'active' is 1; fallback to all rows for
-        // safety in environments where the column has not been migrated yet.
-        String sql = "SELECT product_id, sku_code, product_name FROM products "
-                   + "ORDER BY sku_code ASC";
+        String sql = "SELECT p.product_id, p.sku_code, p.product_name, "
+                   + "p.base_price, p.mac_price, "
+                   + "COALESCE(SUM(CASE WHEN i.stock_type IS NULL OR i.stock_type = 'NORMAL' "
+                   + "     THEN i.qty_available ELSE 0 END), 0) AS qty_available "
+                   + "FROM products p "
+                   + "LEFT JOIN inventory i ON p.product_id = i.product_id "
+                   + "GROUP BY p.product_id, p.sku_code, p.product_name, p.base_price, p.mac_price "
+                   + "ORDER BY p.sku_code ASC";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -294,6 +311,11 @@ public class SkuMappingDAO {
                 p.setProductId(rs.getInt("product_id"));
                 p.setSkuCode(rs.getString("sku_code"));
                 p.setProductName(rs.getString("product_name"));
+                p.setQtyOnHand(rs.getDouble("qty_available")); // Dùng qtyOnHand làm carrier cho qty_available
+                double basePrice = rs.getDouble("base_price");
+                if (!rs.wasNull()) p.setBasePrice(basePrice);
+                double macPrice = rs.getDouble("mac_price");
+                if (!rs.wasNull()) p.setMacPrice(macPrice);
                 list.add(p);
             }
         } catch (SQLException e) {
@@ -319,12 +341,13 @@ public class SkuMappingDAO {
                    + "FROM sku_mappings sm "
                    + "LEFT JOIN channels c ON sm.channel_id = c.channel_id "
                    + "LEFT JOIN products s ON sm.sku_id = s.product_id "
-                   + "WHERE sm.channel_id = ? AND sm.external_sku = ? AND sm.sync_status = 'SYNCED' "
+                   + "WHERE sm.channel_id = ? AND (sm.external_sku = ? OR sm.seller_sku = ?) AND sm.sync_status = 'SYNCED' "
                    + "LIMIT 1";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, channelId);
             ps.setString(2, externalSku.trim());
+            ps.setString(3, externalSku.trim());
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     return mapResultSetToSkuMapping(rs);
@@ -333,6 +356,37 @@ public class SkuMappingDAO {
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "SkuMappingDAO.findActiveMapping: failed channelId=" + channelId
+                    + " externalSku=" + externalSku, e);
+        }
+        return null;
+    }
+
+    /**
+     * Tìm bất kỳ mapping nào (kể cả PENDING hay SYNCED) theo channel và external_sku.
+     */
+    public SkuMapping findMappingByChannelAndExternalSku(int channelId, String externalSku) {
+        if (externalSku == null || externalSku.trim().isEmpty()) return null;
+        String sql = "SELECT sm.mapping_id, sm.sku_id, sm.channel_id, sm.external_sku, "
+                   + "sm.seller_sku, sm.sync_status, sm.last_sync_at, sm.created_at, sm.updated_at, "
+                   + "c.channel_name, c.platform, s.sku_code, s.product_name "
+                   + "FROM sku_mappings sm "
+                   + "LEFT JOIN channels c ON sm.channel_id = c.channel_id "
+                   + "LEFT JOIN products s ON sm.sku_id = s.product_id "
+                   + "WHERE sm.channel_id = ? AND (sm.external_sku = ? OR sm.seller_sku = ?) "
+                   + "LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, channelId);
+            ps.setString(2, externalSku.trim());
+            ps.setString(3, externalSku.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapResultSetToSkuMapping(rs);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING,
+                "SkuMappingDAO.findMappingByChannelAndExternalSku: failed channelId=" + channelId
                     + " externalSku=" + externalSku, e);
         }
         return null;
@@ -363,10 +417,9 @@ public class SkuMappingDAO {
                    + "LEFT JOIN products s ON sm.sku_id = s.product_id "
                    + "LEFT JOIN channel_products cp ON sm.sku_id = cp.product_id AND sm.channel_id = cp.channel_id "
                    + "WHERE sm.sku_id IN (" + placeholders + ") "
-                   + "  AND sm.channel_id = ? "
-                   + "  AND sm.sync_status = 'SYNCED' "
-                   + "  AND cp.lazada_sku_id IS NOT NULL AND cp.lazada_sku_id != '' "
-                   + "  AND cp.status = 'ACTIVE'";
+                   + "  AND sm.sync_status IN ('SYNCED','PENDING') "
+                   + "  AND cp.channel_item_id IS NOT NULL AND cp.channel_item_id != '' "
+                   + "  AND c.is_active = 1";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -391,24 +444,120 @@ public class SkuMappingDAO {
     }
 
     /**
+     * Batch-fetch channel links (for the "Lazada" column button) for a set of products.
+     * Returns rows with product_id, channel_name, platform, lazada_product_id.
+     * The lazada_product_id comes from channel_item_id in channel_products and maps
+     * to the /products/i{productId}.html URL format on Lazada.
+     *
+     * @param productIds List of internal product IDs
+     * @return List of Object[] rows: [productId, channelName, platform, lazadaProductId]
+     */
+    public List<Object[]> findChannelLinksForProducts(List<Integer> productIds) {
+        List<Object[]> rows = new ArrayList<>();
+        if (productIds == null || productIds.isEmpty()) return rows;
+
+        String placeholders = String.join(",", java.util.Collections.nCopies(productIds.size(), "?"));
+        // Join sku_mappings → channel_products to get lazada_product_id (channel_item_id)
+        String sql = "SELECT sm.sku_id, c.channel_name, c.platform, cp.lazada_sku_id, cp.channel_item_id "
+                   + "FROM sku_mappings sm "
+                   + "JOIN channels c ON sm.channel_id = c.channel_id "
+                   + "LEFT JOIN channel_products cp ON sm.sku_id = cp.product_id AND sm.channel_id = cp.channel_id "
+                   + "WHERE sm.sku_id IN (" + placeholders + ") "
+                   + "  AND sm.sync_status IN ('SYNCED','PENDING') "
+                   + "  AND cp.channel_item_id IS NOT NULL AND cp.channel_item_id != '' "
+                   + "  AND c.is_active = 1";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int idx = 1;
+            for (Integer pid : productIds) ps.setInt(idx++, pid);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    rows.add(new Object[]{
+                        rs.getInt("sku_id"),
+                        rs.getString("channel_name"),
+                        rs.getString("platform"),
+                        rs.getString("lazada_sku_id"),   // r[3] = externalSku
+                        rs.getString("channel_item_id")    // r[4] = lazadaProductId
+                    });
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING,
+                "SkuMappingDAO.findChannelLinksForProducts: failed", e);
+        }
+        return rows;
+    }
+
+    /**
      * Logs an exception when an SKU mapping is missing.
      * Feeds the "Mapping Exception Management" page used by Sales staff.
      */
     public void logMappingException(int channelId, String externalSku,
                                     String orderCode, String reason) {
-        String sql = "INSERT INTO mapping_exceptions "
-                   + "(channel_id, external_sku, order_code, reason, created_at) "
-                   + "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, channelId);
-            ps.setString(2, externalSku);
-            ps.setString(3, orderCode);
-            ps.setString(4, reason);
-            ps.executeUpdate();
+        String checkSql = "SELECT exception_id FROM mapping_exceptions "
+                        + "WHERE channel_id = ? AND external_sku = ? AND resolved = 0";
+        if (orderCode != null) {
+            checkSql += " AND order_code = ?";
+        } else {
+            checkSql += " AND order_code IS NULL";
+        }
+        try (Connection conn = DBConnection.getConnection()) {
+            try (PreparedStatement checkPs = conn.prepareStatement(checkSql)) {
+                checkPs.setInt(1, channelId);
+                checkPs.setString(2, externalSku);
+                if (orderCode != null) {
+                    checkPs.setString(3, orderCode);
+                }
+                try (ResultSet rs = checkPs.executeQuery()) {
+                    if (rs.next()) {
+                        return; // Already exists and unresolved, do not insert duplicate
+                    }
+                }
+            }
+
+            String sql = "INSERT INTO mapping_exceptions "
+                       + "(channel_id, external_sku, order_code, reason, created_at) "
+                       + "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, channelId);
+                ps.setString(2, externalSku);
+                ps.setString(3, orderCode);
+                ps.setString(4, reason);
+                ps.executeUpdate();
+            }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "SkuMappingDAO.logMappingException: failed to log", e);
+        }
+    }
+
+    /**
+     * Resolves all unresolved catalog-level exceptions (where order_code is null) for a channel.
+     * Called before pulling to ensure stale/deleted products are cleared from the exceptions list.
+     */
+    public void resolveCatalogExceptions(int channelId) {
+        String sql = "UPDATE mapping_exceptions SET resolved = 1, resolved_at = CURRENT_TIMESTAMP "
+                   + "WHERE channel_id = ? AND order_code IS NULL AND resolved = 0";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, channelId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "SkuMappingDAO.resolveCatalogExceptions: failed for channelId=" + channelId, e);
+        }
+    }
+
+    public boolean deleteByProductAndChannel(int skuId, int channelId) {
+        String sql = "DELETE FROM sku_mappings WHERE sku_id = ? AND channel_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, skuId);
+            ps.setInt(2, channelId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "SkuMappingDAO: Failed to delete mapping for sku=" + skuId + " channel=" + channelId, e);
+            return false;
         }
     }
 }

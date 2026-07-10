@@ -261,6 +261,95 @@
         color: #fff;
     }
 
+    /* ─── Picking Sub-tabs (Đang nhặt hàng / Chờ cấp mã & in tem) ─── */
+    .pick-subtabs-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0;
+        background: rgba(99, 102, 241, 0.04);
+        border: 1px dashed rgba(99, 102, 241, 0.25);
+        border-radius: var(--radius-card);
+        padding: 4px;
+        margin: -8px 0 16px 0;
+    }
+    .pick-subtab-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        font-size: 11.5px;
+        font-weight: 600;
+        border: none;
+        background: none;
+        cursor: pointer;
+        color: rgba(67, 56, 202, 0.55);
+        border-radius: calc(var(--radius-btn) - 4px);
+        transition: all 0.15s;
+    }
+    .pick-subtab-btn:hover { color: #4338ca; }
+    .pick-subtab-btn.active {
+        background: #4338ca;
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(67, 56, 202, 0.25);
+    }
+    .pick-subtab-badge {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 9999px;
+        background: rgba(67, 56, 202, 0.10);
+        color: rgba(67, 56, 202, 0.65);
+    }
+    .pick-subtab-btn.active .pick-subtab-badge {
+        background: rgba(255, 255, 255, 0.22);
+        color: #fff;
+    }
+
+    /* ─── Tracking badge (sau khi đã cấp mã) ─── */
+    .tracking-no-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+        padding: 3px 9px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #047857;
+        background: rgba(16, 185, 129, 0.12);
+        border-radius: 9999px;
+        vertical-align: middle;
+    }
+    .tracking-no-pill svg {
+        width: 12px;
+        height: 12px;
+        stroke: #047857;
+    }
+
+    /* ─── Indigo workflow button (Cấp mã & in tem) ─── */
+    .btn-workflow-step.indigo {
+        background: #4338ca;
+        color: #fff;
+    }
+    .btn-workflow-step.indigo:hover {
+        background: #3730a3;
+    }
+    .btn-workflow-step.is-loading {
+        opacity: 0.7;
+        cursor: wait;
+    }
+    .pt-spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-right: 4px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: ptSpin 0.8s linear infinite;
+        vertical-align: -2px;
+    }
+    @keyframes ptSpin { to { transform: rotate(360deg); } }
+
     /* ─── Pick Orders List ─── */
     .outbound-list {
         display: flex;

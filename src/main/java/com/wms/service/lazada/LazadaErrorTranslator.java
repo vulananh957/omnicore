@@ -65,17 +65,37 @@ public class LazadaErrorTranslator {
         Map.entry("REQUIRED_NAME", new ErrorMapping(
             "Tên sản phẩm không được để trống và phải ≤ 255 ký tự.", "name")),
         Map.entry("REQUIRED_SHORT_DESC", new ErrorMapping(
-            "Mô tả ngắn không được để trống và phải ≤ 255 ký tự.", "short_description"))
+            "Mô tả ngắn không được để trống và phải ≤ 255 ký tự.", "short_description")),
+        Map.entry("category_id", new ErrorMapping(
+            "Danh mục chưa đúng (Lazada yêu cầu chọn danh mục lá — cấp sâu nhất). Bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id"))
     );
 
     /** Translates a single Lazada error code, or returns a generic message if unknown. */
     public static ErrorMapping translate(String errorCode, String fallbackMessage) {
-        if (errorCode != null && ERROR_MAP.containsKey(errorCode)) {
-            return ERROR_MAP.get(errorCode);
+        if (errorCode != null && !errorCode.isBlank()) {
+            if (ERROR_MAP.containsKey(errorCode)) {
+                return ERROR_MAP.get(errorCode);
+            }
+            if (errorCode.contains("MTEE_RISK") || errorCode.contains("POLICY") || errorCode.contains("CATEGORY")) {
+                String msg = cleanMessage(fallbackMessage);
+                return new ErrorMapping(
+                    (msg != null && !msg.isBlank()) ? msg : "Đăng sản phẩm thất bại do chọn sai danh mục. Vui lòng cập nhật lại danh mục phù hợp và thử lại.",
+                    "category_id");
+            }
         }
+        String cleanFallback = cleanMessage(fallbackMessage);
         return new ErrorMapping(
-            fallbackMessage != null ? fallbackMessage : "Lazada từ chối yêu cầu. Vui lòng thử lại.",
+            (cleanFallback != null && !cleanFallback.isBlank()) ? cleanFallback : "Lazada từ chối yêu cầu. Vui lòng thử lại.",
             "");
+    }
+
+    public static String cleanMessage(String raw) {
+        if (raw == null || raw.isBlank()) return raw;
+        String cleaned = raw.trim();
+        // Strip technical code prefixes e.g. BIZ_CHECK_MTEE_...: or Failed by Policy(R_...):
+        cleaned = cleaned.replaceAll("^[A-Z0-9_]+:(?:Failed by Policy\\([^)]+\\):)?\\s*", "");
+        cleaned = cleaned.replaceAll("^Failed by Policy\\([^)]+\\):\\s*", "");
+        return cleaned.trim();
     }
 
     /**
@@ -83,14 +103,6 @@ public class LazadaErrorTranslator {
      * separates the top-level outcome (success/fail) from any field-level
      * error details. Tolerates malformed JSON by returning a synthetic fail
      * result.
-     *
-     * <p>Lazada surfaces field-level errors in two places:
-     * <ul>
-     *   <li>{@code detail[]} — used by the ISP (IntelliServicePlatform) error
-     *       format returned by /product/create (e.g. {@code BIZ_CHECK_*})</li>
-     *   <li>{@code data.errors[]} — Lazada's legacy success-payload format</li>
-     * </ul>
-     * Both are checked; {@code detail[]} is authoritative for failure responses.</p>
      */
     public static ParsedLazadaResponse parse(String jsonResponse) {
         ParsedLazadaResponse out = new ParsedLazadaResponse();
@@ -103,7 +115,7 @@ public class LazadaErrorTranslator {
             JsonNode root = MAPPER.readTree(jsonResponse);
             String code = textOr(root.get("code"), "");
             out.success = SUCCESS_CODE.equals(code) || SUCCESS_LEGACY.equalsIgnoreCase(code);
-            out.topMessage = textOr(root.get("message"), "");
+            out.topMessage = cleanMessage(textOr(root.get("message"), ""));
 
             // ── 1. ISP format: root-level "detail" array (authoritative for errors) ──
             JsonNode detail = root.get("detail");
@@ -113,7 +125,6 @@ public class LazadaErrorTranslator {
                     String msg = textOr(e.get("message"), "");
                     fe.code = textOr(e.get("code"), "");
                     fe.field = textOr(e.get("field"), "");
-                    // message format: "CODE:Human readable" — split on first colon
                     if (fe.code.isEmpty() && msg.contains(":")) {
                         fe.code = msg.substring(0, msg.indexOf(':')).trim();
                         msg = msg.substring(msg.indexOf(':') + 1).trim();
@@ -123,6 +134,18 @@ public class LazadaErrorTranslator {
                     fe.viMessage = m.viMessage;
                     out.fieldErrors.add(fe);
                 }
+            }
+
+            // ── 2. Fallback: single root error code when detail/data is missing ────
+            if (!out.success && out.fieldErrors.isEmpty() && !code.isEmpty()) {
+                ErrorMapping m = translate(code, out.topMessage);
+                FieldError fe = new FieldError();
+                fe.code = code;
+                fe.field = m.fieldHint;
+                fe.fieldHint = m.fieldHint;
+                fe.viMessage = m.viMessage;
+                out.fieldErrors.add(fe);
+                out.topMessage = m.viMessage;
             }
 
             // ── 2. Legacy format: data.errors[] (used in old success payloads) ────
@@ -143,9 +166,22 @@ public class LazadaErrorTranslator {
                     }
                     if (out.success) {
                         JsonNode itemId = data.get("item_id");
-                        JsonNode skuId = data.get("sku_id");
-                        if (itemId != null) out.itemId = itemId.asText();
-                        if (skuId != null) out.skuId = skuId.asText();
+                        if (itemId != null && !itemId.isNull()) out.itemId = itemId.asText();
+
+                        // Lazada /product/create returns sku_list[] with seller_sku and sku_id
+                        // for every variant. We pick the first entry — the WMS push pipeline
+                        // creates exactly one SKU per product. Lazada /product/update and
+                        // /images/migrate return a flat sku_id field instead; we handle both.
+                        JsonNode skuList = data.get("sku_list");
+                        if (skuList != null && skuList.isArray() && skuList.size() > 0) {
+                            JsonNode first = skuList.get(0);
+                            JsonNode skuId = first.get("sku_id");
+                            if (skuId != null && !skuId.isNull()) out.skuId = skuId.asText();
+                        }
+                        if (out.skuId == null || out.skuId.isEmpty()) {
+                            JsonNode skuId = data.get("sku_id");
+                            if (skuId != null && !skuId.isNull()) out.skuId = skuId.asText();
+                        }
 
                         JsonNode images = data.get("images");
                         if (images != null && images.isArray()) {
@@ -170,7 +206,9 @@ public class LazadaErrorTranslator {
     }
 
     private static String textOr(JsonNode n, String def) {
-        return (n == null || n.isNull()) ? def : n.asText(def);
+        if (n == null || n.isNull()) return def;
+        String v = n.asText();
+        return v.isEmpty() ? def : v;
     }
 
     /** Translation record: VI message + UI field hint. */

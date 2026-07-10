@@ -20,7 +20,8 @@ public class BusinessDashboardServlet extends BaseController {
             throws ServletException, IOException {
 
         String period = req.getParameter("period");
-        if (period == null || period.trim().isEmpty()) period = "week";
+        if (period == null || period.trim().isEmpty()) period = "30ngay";
+        req.setAttribute("period", period);
 
         try {
             List<Channel> channels = channelService.findAll();
@@ -33,27 +34,43 @@ public class BusinessDashboardServlet extends BaseController {
 
         // Load KPI data
         try {
-            req.setAttribute("totalRevenue", orderService.getTotalRevenue(period));
-            req.setAttribute("totalOrders", orderService.getTotalOrders(period));
-            req.setAttribute("avgOrderValue", orderService.getAvgOrderValue(period));
-            req.setAttribute("returnRate", orderService.getReturnRate(period));
-            req.setAttribute("revenueGrowth", orderService.getRevenueGrowth());
-            req.setAttribute("dailyData", orderService.getDailyRevenueData(period));
-            req.setAttribute("channelData", orderService.getChannelRevenueData(period));
-            req.setAttribute("orderStatus", orderService.getOrderStatusCounts());
-            req.setAttribute("topProducts", orderService.getTopProducts(5));
-        } catch (Exception e) {
-            // KPI loading failed — attributes remain unset, JS will show "N/A"
-        }
+            java.math.BigDecimal totalRevenue = orderService.getTotalRevenue(period);
+            int totalOrders = orderService.getTotalOrders(period);
+            java.math.BigDecimal avgOrderValue = orderService.getAvgOrderValue(period);
+            java.math.BigDecimal returnRate = orderService.getReturnRate(period);
 
-        try {
-            setJsonAttr(req, "dailyDataJson", orderService.getDailyRevenueData(period));
-            setJsonAttr(req, "channelDataJson", orderService.getChannelRevenueData(period));
-            setJsonAttr(req, "orderStatusJson", orderService.getOrderStatusCounts());
-            setJsonAttr(req, "topProductsJson", orderService.getTopProducts(5));
+            java.math.BigDecimal revenueGrowth = orderService.getRevenueGrowth(period);
+            java.math.BigDecimal ordersGrowth = orderService.getOrdersGrowth(period);
+            java.math.BigDecimal avgOrderGrowth = orderService.getAvgOrderGrowth(period);
+            java.math.BigDecimal returnRateGrowth = orderService.getReturnRateGrowth(period);
+
+            List<java.util.Map<String, Object>> dailyData = orderService.getDailyRevenueData(period);
+            java.util.Map<String, java.math.BigDecimal> categoryData = orderService.getCategoryRevenueData(period);
+            List<java.util.Map<String, Object>> orderStatus = orderService.getOrderStatusBreakdown(period);
+            List<java.util.Map<String, Object>> topProducts = orderService.getTopProductsDetailed(period, 50);
+
+            req.setAttribute("totalRevenue", totalRevenue);
+            req.setAttribute("totalOrders", totalOrders);
+            req.setAttribute("avgOrderValue", avgOrderValue);
+            req.setAttribute("returnRate", returnRate);
+
+            req.setAttribute("revenueGrowth", revenueGrowth);
+            req.setAttribute("ordersGrowth", ordersGrowth);
+            req.setAttribute("avgOrderGrowth", avgOrderGrowth);
+            req.setAttribute("returnRateGrowth", returnRateGrowth);
+
+            req.setAttribute("dailyData", dailyData);
+            req.setAttribute("categoryData", categoryData);
+            req.setAttribute("orderStatus", orderStatus);
+            req.setAttribute("topProducts", topProducts);
+
+            setJsonAttr(req, "dailyDataJson", dailyData);
+            setJsonAttr(req, "categoryDataJson", categoryData);
+            setJsonAttr(req, "orderStatusJson", orderStatus);
+            setJsonAttr(req, "topProductsJson", topProducts);
         } catch (Exception e) {
             req.setAttribute("dailyDataJson", "null");
-            req.setAttribute("channelDataJson", "null");
+            req.setAttribute("categoryDataJson", "null");
             req.setAttribute("orderStatusJson", "null");
             req.setAttribute("topProductsJson", "null");
         }

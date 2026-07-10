@@ -52,10 +52,8 @@ public class ReturnDAO {
                 PreparedStatement psOrders = conn.prepareStatement(sqlOrders);
                 ResultSet rsOrders = psOrders.executeQuery()) {
 
-            int orderCount = 0;
             try (PreparedStatement psItems = conn.prepareStatement(sqlItems)) {
                 while (rsOrders.next()) {
-                    orderCount++;
                     ReturnOrder ro = new ReturnOrder();
                     int returnId = rsOrders.getInt("return_id");
                     ro.setReturnId(returnId);

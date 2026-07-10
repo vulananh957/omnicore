@@ -1,112 +1,203 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
-<c:if test="${not empty documents}">
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
+<c:if test="${not empty documentsJson}">
 <script type="application/json" id="ledger-docs-data">${documentsJson}</script>
 </c:if>
+<script>
+window.__CURRENT_ROLE__ = 'MANAGER';
+window.__COMPANY_NAME__ = '<c:out value="${companyName}" default="Công ty TNHH OmniCore"/>';
+window.__COMPANY_ADDRESS__ = '<c:out value="${companyAddress}" default=""/>';
+window.__COMPANY_PHONE__ = '<c:out value="${companyPhone}" default=""/>';
+window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
+</script>
 
+<link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/warehouse--warehouse-documents.css"/>
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/ledger--ledger.css"/>
 
-<!-- Alert banner for pending count -->
-<div class="alert-banner" id="pendingAlertBanner" style="display: none;">
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        <path d="m9 12 2 2 4-4"/>
+<style>
+    .btn-action-approve {
+        background: #10B981;
+        color: #fff;
+        border: none;
+        padding: 6px 12px;
+        border-radius: var(--radius-btn);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: background 0.15s;
+    }
+    .btn-action-approve:hover {
+        background: #059669;
+    }
+    .btn-action-reject {
+        background: #EF4444;
+        color: #fff;
+        border: none;
+        padding: 6px 12px;
+        border-radius: var(--radius-btn);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: background 0.15s;
+    }
+    .btn-action-reject:hover {
+        background: #DC2626;
+    }
+    .doc-filter-select {
+        padding: 8px 12px;
+        border-radius: var(--radius-btn);
+        border: 1px solid var(--border);
+        background: #fff;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--navy);
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .doc-filter-select:focus {
+        border-color: var(--navy);
+    }
+</style>
+
+<!-- Toast Notification Element -->
+<div id="ledgerToast" class="toast-notification">
+    <span id="ledgerToastIcon">✓</span>
+    <span id="ledgerToastMsg">Cập nhật thành công!</span>
+</div>
+
+<!-- ══ Alert Banner ══ -->
+<div class="doc-alert-banner" id="docAlertBanner">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
     </svg>
-    <span>
-        Có <strong id="bannerCountText">0 phiếu</strong> đang chờ phê duyệt từ Warehouse Staff. Vui lòng kiểm tra và xử lý.
-    </span>
+    <p id="docAlertBannerText">Bạn đang có 0 phiếu chờ duyệt.</p>
 </div>
 
-<!-- Tabs Bar -->
-<div class="tabs-bar" id="tabsBar">
-    <button class="tab-btn active tab-all" data-tab="all">
-        Tất cả <span class="tab-badge" id="badge-all">0</span>
+<!-- ══ Tabs ══ -->
+<div class="doc-tabs-container" id="docTabsContainer">
+    <button class="doc-tab-btn active all" data-tab="all">
+        Tất cả
+        <span class="doc-tab-count" id="count-all">0</span>
     </button>
-    <button class="tab-btn tab-grn" data-tab="Phiếu Nhập Kho">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
-        Nhập Kho <span class="tab-badge" id="badge-grn">0</span>
-    </button>
-    <button class="tab-btn tab-gi" data-tab="Phiếu Xuất Kho">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v14"/><path d="m18 10-6 7-6-7"/><path d="M5 21h14"/></svg>
-        Xuất Kho <span class="tab-badge" id="badge-gi">0</span>
-    </button>
-    <button class="tab-btn tab-kk" data-tab="Phiếu Kiểm Kê">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="m9 16 2 2 4-4"/></svg>
-        Kiểm Kê <span class="tab-badge" id="badge-kk">0</span>
-    </button>
-    <button class="tab-btn tab-tr" data-tab="Phiếu Chuyển Kho">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
-        Chuyển Kho <span class="tab-badge" id="badge-tr">0</span>
-    </button>
-    <button class="tab-btn tab-rma" data-tab="Phiếu Hoàn Hàng">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-        Hoàn Hàng <span class="tab-badge" id="badge-rma">0</span>
-    </button>
-    <button class="tab-btn tab-rtv" data-tab="Phiếu Trả Hàng NCC">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><polyline points="12 9 12 21"/><polyline points="8 17 12 21 16 17"/></svg>
-        Trả Hàng NCC <span class="tab-badge" id="badge-rtv">0</span>
-    </button>
-</div>
-
-<!-- Toolbar -->
-<div class="action-bar">
-    <div class="search-input-wrap">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.3-4.3"/>
+    <button class="doc-tab-btn grn" data-tab="Phiếu Nhập Kho">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 13l-7 7-7-7m14-6l-7 7-7-7"/>
         </svg>
-        <input class="search-input" type="text" id="ledgerSearch" placeholder="Tìm theo mã phiếu, loại hoặc người tạo..."/>
-    </div>
-    
-    <!-- Test generator button removed -->
+        Nhập Kho
+        <span class="doc-tab-count" id="count-grn">0</span>
+    </button>
+    <button class="doc-tab-btn gi" data-tab="Phiếu Xuất Kho">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 11l7-7 7 7M5 19l7-7 7 7"/>
+        </svg>
+        Xuất Kho
+        <span class="doc-tab-count" id="count-gi">0</span>
+    </button>
+    <button class="doc-tab-btn kk" data-tab="Phiếu Kiểm Kê">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+        </svg>
+        Kiểm Kê
+        <span class="doc-tab-count" id="count-kk">0</span>
+    </button>
+    <button class="doc-tab-btn tr" data-tab="Phiếu Chuyển Kho">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+        </svg>
+        Chuyển Kho
+        <span class="doc-tab-count" id="count-tr">0</span>
+    </button>
+    <button class="doc-tab-btn rma" data-tab="Phiếu Hoàn Hàng">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5"/>
+        </svg>
+        Hoàn Hàng
+        <span class="doc-tab-count" id="count-rma">0</span>
+    </button>
 </div>
 
-<!-- Table Card wrapper -->
-<div class="table-card">
-    <div class="table-responsive">
-        <table class="wms-table">
+<!-- ══ Search & Toolbar ══ -->
+<div class="doc-toolbar">
+    <div style="display: flex; gap: 12px; flex: 1; align-items: center;">
+        <div class="doc-search-wrap" style="flex: 1;">
+            <svg class="doc-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text" class="doc-search-input" id="docSearchInput" placeholder="Tìm mã phiếu, loại chứng từ, người tạo..." />
+        </div>
+        <div class="doc-filter-wrap">
+            <select id="warehouseFilter" class="doc-filter-select">
+                <option value="all">Tất cả các kho</option>
+                <c:forEach var="wh" items="${warehouses}">
+                    <option value="<c:out value="${wh.warehouseName}"/>"><c:out value="${wh.warehouseName}"/></option>
+                </c:forEach>
+            </select>
+        </div>
+    </div>
+    <div class="doc-count-summary" id="docCountSummary">0 / 0 phiếu</div>
+</div>
+
+<!-- ══ Table Section ══ -->
+<div class="doc-table-card" id="documentsTableSection">
+    <div class="doc-table-wrapper">
+        <table class="doc-table">
             <thead>
                 <tr>
-                    <th style="width: 170px; padding-left: 20px;">Mã Phiếu</th>
-                    <th style="width: 140px;">Loại Chứng Từ</th>
-                    <th>Khu Vực / Kho</th>
-                    <th style="width: 150px;">Người Tạo</th>
-                    <th style="width: 150px;">Ngày Tạo</th>
-                    <th style="width: 120px; text-align: right;">Số Mặt Hàng</th>
-                    <th style="width: 150px; text-align: center;">Trạng Thái</th>
-                    <th style="width: 155px; text-align: center; padding-right: 20px;">Thao Tác</th>
+                    <th style="padding-left: 20px;">Mã Phiếu</th>
+                    <th>Loại Chứng Từ</th>
+                    <th>Kho Hàng</th>
+                    <th>Người Tạo</th>
+                    <th>Ngày Tạo</th>
+                    <th class="text-right">Số Mặt Hàng</th>
+                    <th class="text-center">Trạng Thái</th>
+                    <th class="text-center" style="padding-right: 20px;">Thao Tác</th>
                 </tr>
             </thead>
-            <tbody id="ledgerTableBody">
-                <!-- Dynamically populated -->
+            <tbody id="docTableBody">
+                <!-- Javascript populated -->
             </tbody>
         </table>
     </div>
-    <div class="table-footer">
-        <span id="showingCountEl">Hiển thị 0 / 0 chứng từ</span>
+    <div class="doc-table-footer" id="docTableFooter">
+        Hiển thị 0 / 0 chứng từ
     </div>
 </div>
 
+<!-- Shipping Label Section -->
+<div id="shippingLabelSection" style="display:none;"></div >
+
+<!-- Delivery Note Section -->
+<div id="deliveryNoteSection" style="display:none;"></div>
+
 <!-- ════════════════════════════════════════════════════
-    CONFIRM DUYỆT MODAL (Xác nhận duyệt)
+    CONFIRM DUYỆT MODAL
     ════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="approveModalOverlay">
     <div class="modal-box modal-sm">
         <div class="modal-body" style="padding: 24px;">
             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                <div class="type-icon-wrapper theme-grn" style="width: 40px; height: 40px;">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: #ECFDF5; display: flex; align-items: center; justify-content: center; color: #059669;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
                 </div>
                 <div>
-                    <h3 class="modal-title" style="font-size: 15px;">Xác nhận phê duyệt</h3>
-                    <p class="modal-subtitle">Thao tác này không thể hoàn tác</p>
+                    <h3 class="modal-title" style="font-size: 15px; font-weight: 700; color: var(--navy); margin: 0;">Xác nhận phê duyệt</h3>
+                    <p class="modal-subtitle" style="font-size: 12px; color: rgba(16, 55, 92, 0.5); margin: 0;">Thao tác này không thể hoàn tác</p>
                 </div>
             </div>
             
-            <div class="doc-callout" style="margin-bottom: 16px;">
-                <div class="doc-callout-lbl">Phiếu cần duyệt</div>
-                <div class="doc-callout-val" id="approveDocId">GRN-2026-0001</div>
-                <div class="info-block-desc" id="approveDocSubtext" style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-top: 3px;">Phiếu Nhập Kho — 120 mặt hàng</div>
+            <div style="background: rgba(16, 55, 92, 0.03); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.5); letter-spacing: 0.05em;">Phiếu cần duyệt</div>
+                <div id="approveDocId" style="font-size: 15px; font-weight: 700; color: var(--navy); margin-top: 2px;">GRN-2026-0001</div>
+                <div id="approveDocSubtext" style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-top: 3px;">Phiếu Nhập Kho — 120 mặt hàng</div>
             </div>
 
             <p style="font-size: 13px; color: rgba(16, 55, 92, 0.70); line-height: 1.5; margin-bottom: 24px;" id="approveExplanationText">
@@ -115,7 +206,7 @@
 
             <div style="display: flex; gap: 8px;">
                 <button class="btn-modal-cancel" style="flex: 1;" id="btnApproveCancel">Hủy</button>
-                <button class="btn-modal-save bg-emerald" style="flex: 1;" id="btnApproveConfirm">Xác nhận duyệt</button>
+                <button class="btn-modal-save bg-emerald" style="flex: 1; background: #10B981; color:#fff; border:none; border-radius: var(--radius-btn); font-weight:600; cursor:pointer;" id="btnApproveConfirm">Xác nhận duyệt</button>
             </div>
         </div>
     </div>
@@ -128,38 +219,33 @@
     <div class="modal-box modal-sm">
         <div class="modal-body" style="padding: 24px;">
             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                <div class="type-icon-wrapper theme-rma" style="width: 40px; height: 40px;">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: #FEF2F2; display: flex; align-items: center; justify-content: center; color: #DC2626;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
                 </div>
                 <div>
-                    <h3 class="modal-title" style="font-size: 15px;">Từ chối phiếu</h3>
-                    <p class="modal-subtitle">Warehouse Staff sẽ cần chỉnh sửa lại</p>
+                    <h3 class="modal-title" style="font-size: 15px; font-weight: 700; color: var(--navy); margin: 0;">Từ chối phiếu</h3>
+                    <p class="modal-subtitle" style="font-size: 12px; color: rgba(16, 55, 92, 0.5); margin: 0;">Nhân viên kho sẽ cần chỉnh sửa lại</p>
                 </div>
             </div>
             
-            <div class="doc-callout" style="margin-bottom: 12px;">
-                <div class="doc-callout-lbl">Phiếu bị từ chối</div>
-                <div class="doc-callout-val" id="rejectDocId">GRN-2026-0001</div>
-                <div class="info-block-desc" id="rejectDocSubtext" style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-top: 3px;">Phiếu Nhập Kho — 120 mặt hàng</div>
+            <div style="background: rgba(16, 55, 92, 0.03); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.5); letter-spacing: 0.05em;">Phiếu bị từ chối</div>
+                <div id="rejectDocId" style="font-size: 15px; font-weight: 700; color: var(--navy); margin-top: 2px;">GRN-2026-0001</div>
+                <div id="rejectDocSubtext" style="font-size: 12px; color: rgba(16, 55, 92, 0.6); margin-top: 3px;">Phiếu Nhập Kho — 120 mặt hàng</div>
             </div>
 
-            <div class="form-group" style="margin-bottom: 24px;">
-                <label class="form-label" style="font-size: 11.5px; font-weight: 700; color: rgba(16, 55, 92, 0.6);">Lý do từ chối</label>
-                <textarea class="form-input" id="rejectReasonText" rows="3" placeholder="Nhập lý do từ chối để WH Staff biết cần điều chỉnh..." style="resize: none;"></textarea>
+            <div style="margin-bottom: 24px;">
+                <label style="display:block; font-size: 11.5px; font-weight: 700; color: rgba(16, 55, 92, 0.6); margin-bottom: 6px;">Lý do từ chối</label>
+                <textarea class="form-input" id="rejectReasonText" rows="3" placeholder="Nhập lý do từ chối để WH Staff biết cần điều chỉnh..." style="resize: none; width:100%; border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 8px; font-size: 13px; outline:none; box-sizing:border-box;"></textarea>
             </div>
 
             <div style="display: flex; gap: 8px;">
                 <button class="btn-modal-cancel" style="flex: 1;" id="btnRejectCancel">Hủy</button>
-                <button class="btn-modal-save bg-red" style="flex: 1;" id="btnRejectConfirm">Xác nhận từ chối</button>
+                <button class="btn-modal-save bg-red" style="flex: 1; background: #EF4444; color:#fff; border:none; border-radius: var(--radius-btn); font-weight:600; cursor:pointer;" id="btnRejectConfirm">Xác nhận từ chối</button>
             </div>
         </div>
     </div>
 </div>
-
-<!-- ════════════════════════════════════════════════════
-    DEVELOPER TEST GENERATOR MODAL
-    ════════════════════════════════════════════════════ -->
-<!-- Developer test generator modal removed -->
 
 <!-- ════════════════════════════════════════════════════
     DOCUMENT DETAILS VIEW MODAL (PDF-like preview)
@@ -169,18 +255,18 @@
         <!-- Header actions -->
         <div class="modal-hdr" style="background: rgba(240, 244, 250, 0.30); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
             <div id="detailModalTitleArea" style="display: flex; align-items: center; gap: 12px;">
-                <h3 class="modal-title" id="detailModalTitle" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Kho</h3>
+                <h3 class="modal-title" id="detailModalTitle" style="font-size: 16px; font-weight: 700; color: var(--navy); margin: 0;">Chi tiết Phiếu Kho</h3>
             </div>
-            <div class="pdf-header-actions">
-                <button class="btn-pdf-action" onclick="alert('Đang kết nối máy in để in chứng từ PDF...');">
+            <div class="pdf-header-actions" style="display: flex; gap: 8px; align-items: center;">
+                <button class="btn-pdf-action" id="btnDetailPrint">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 9 6 2 18 2 18 9 6 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
                     In PDF
                 </button>
-                <button class="btn-pdf-action" onclick="alert('Đang trích xuất dữ liệu chứng từ Excel...');">
+                <button class="btn-pdf-action" id="btnDetailExcel">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
                     Xuất Excel
                 </button>
-                <button class="modal-close" id="btnDetailClose">&times;</button>
+                <button class="modal-close" id="btnDetailClose" style="border:none; background:none; font-size: 24px; color: rgba(16,55,92,0.4); cursor:pointer; line-height: 1;">&times;</button>
             </div>
         </div>
         
@@ -190,51 +276,84 @@
         </div>
         
         <!-- Footer actions inside modal (not printed) -->
-        <div class="modal-ftr" style="background: rgba(240, 244, 250, 0.30); border-top: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: flex-end;">
+        <div class="modal-ftr" style="background: rgba(240, 244, 250, 0.30); border-top: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: flex-end; gap: 8px;" id="detailModalFtr">
             <button class="btn-modal-cancel" id="btnDetailCloseFooter">Đóng cửa sổ</button>
         </div>
     </div>
 </div>
 
-<!-- ════════════════════════════════════════════════════
-    JAVASCRIPT STATE & LOGIC
-    ════════════════════════════════════════════════════ -->
 <script>
-    window.WMS_USER = {
-        fullName: '${loggedInUser != null ? loggedInUser.fullName : "Nhân viên kho"}',
-        role: '${loggedInUser != null ? loggedInUser.role : ""}'
-    };
-
-    // Load ledger docs from server via embedded JSON script tag
-    function safeJsonParse(raw, fallback) {
-        if (!raw || typeof raw !== 'string') return fallback;
-        try { return JSON.parse(raw); } catch (e) { return fallback; }
-    }
-    var rawData = document.getElementById('ledger-docs-data');
-    var savedDocs = rawData ? safeJsonParse(rawData.textContent, []) : [];
-    window.WMS_LEDGER_DATA = Array.isArray(savedDocs) ? savedDocs : [];
-
     (function() {
         'use strict';
 
-        // DOM elements
-        var pendingAlertBanner = document.getElementById('pendingAlertBanner');
-        var bannerCountText = document.getElementById('bannerCountText');
-        var ledgerTableBody = document.getElementById('ledgerTableBody');
-        var showingCountEl = document.getElementById('showingCountEl');
-        var ledgerSearch = document.getElementById('ledgerSearch');
-        
-        // Tab elements
-        var tabBtns = document.querySelectorAll('.tab-btn');
-        var badgeAll = document.getElementById('badge-all');
-        var badgeGrn = document.getElementById('badge-grn');
-        var badgeGi = document.getElementById('badge-gi');
-        var badgeKk = document.getElementById('badge-kk');
-        var badgeTr = document.getElementById('badge-tr');
-        var badgeRma = document.getElementById('badge-rma');
-        var badgeRtv = document.getElementById('badge-rtv');
+        // ─── Data Initialization ───
+        function safeJsonParse(raw, fallback) {
+            if (!raw || typeof raw !== 'string') return fallback;
+            try { return JSON.parse(raw); } catch (e) { return fallback; }
+        }
+        var rawDocs = document.getElementById('ledger-docs-data');
+        var savedDocs = rawDocs ? safeJsonParse(rawDocs.textContent, null) : null;
+        var docs = (savedDocs !== null && savedDocs.length > 0) ? savedDocs : [];
 
-        // Confirm modals DOM
+        // Constants matching React
+        var DOC_TYPE_CONFIG = {
+            "Phiếu Nhập Kho": {
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 13l-7 7-7-7m14-6l-7 7-7-7"/></svg>',
+                color: "text-emerald-700",
+                bg: "grn",
+                shortName: "Nhập kho"
+            },
+            "Phiếu Xuất Kho": {
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 11l7-7 7 7M5 19l7-7 7 7"/></svg>',
+                color: "text-purple-700",
+                bg: "gi",
+                shortName: "Xuất kho"
+            },
+            "Phiếu Kiểm Kê": {
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>',
+                color: "text-amber-700",
+                bg: "kk",
+                shortName: "Kiểm kê"
+            },
+            "Phiếu Chuyển Kho": {
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>',
+                color: "text-orange-700",
+                bg: "tr",
+                shortName: "Chuyển kho"
+            },
+            "Phiếu Hoàn Hàng": {
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5"/></svg>',
+                color: "text-red-700",
+                bg: "rma",
+                shortName: "Hoàn hàng"
+            }
+        };
+
+        // State variables
+        var activeTab = "all";
+        var searchQuery = "";
+        var selectedWh = "all";
+        var selectedConfirmDoc = null;
+        var selectedDoc = null;
+
+        // DOM elements
+        var docTableBody = document.getElementById('docTableBody');
+        var docSearchInput = document.getElementById('docSearchInput');
+        var warehouseFilter = document.getElementById('warehouseFilter');
+        var docCountSummary = document.getElementById('docCountSummary');
+        var docTableFooter = document.getElementById('docTableFooter');
+        var docAlertBanner = document.getElementById('docAlertBanner');
+        var docAlertBannerText = document.getElementById('docAlertBannerText');
+
+        // Tab badge counters DOM
+        var countAll = document.getElementById('count-all');
+        var countGrn = document.getElementById('count-grn');
+        var countGi = document.getElementById('count-gi');
+        var countKk = document.getElementById('count-kk');
+        var countTr = document.getElementById('count-tr');
+        var countRma = document.getElementById('count-rma');
+
+        // Overlays
         var approveOverlay = document.getElementById('approveModalOverlay');
         var approveDocId = document.getElementById('approveDocId');
         var approveDocSubtext = document.getElementById('approveDocSubtext');
@@ -249,68 +368,61 @@
         var btnRejectCancel = document.getElementById('btnRejectCancel');
         var btnRejectConfirm = document.getElementById('btnRejectConfirm');
 
-        // Developer modal DOM removed
-
-                // Detail Modal DOM
-        var detailOverlay = document.getElementById('detailModalOverlay');
+        var detailModalOverlay = document.getElementById('detailModalOverlay');
+        var detailModalTitle = document.getElementById('detailModalTitle');
+        var detailModalBody = document.getElementById('detailModalBody');
+        var btnDetailPrint = document.getElementById('btnDetailPrint');
+        var btnDetailExcel = document.getElementById('btnDetailExcel');
         var btnDetailClose = document.getElementById('btnDetailClose');
         var btnDetailCloseFooter = document.getElementById('btnDetailCloseFooter');
-        var detailModalTitleArea = document.getElementById('detailModalTitleArea');
-        var detailModalBody = document.getElementById('detailModalBody');
 
-        // States
-        var activeTab = "all";
-        var searchQuery = "";
-        var selectedConfirmDoc = null; // DocRecord
-        var viewDetailDoc = null; // DocRecord
+        // ─── Event Listeners ───
+        
+        // Search Input
+        docSearchInput.addEventListener('input', function(e) {
+            searchQuery = e.target.value.trim().toLowerCase();
+            renderDocs();
+        });
 
-        // List of document type configurations matching React
-        var TYPE_CONFIGS = {
-            "Phiếu Nhập Kho": { colorClass: "theme-grn", badgeClass: "type-badge-grn", shortName: "Nhập kho", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>' },
-            "Phiếu Xuất Kho": { colorClass: "theme-gi", badgeClass: "type-badge-gi", shortName: "Xuất kho", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v14"/><path d="m18 10-6 7-6-7"/><path d="M5 21h14"/></svg>' },
-            "Phiếu Kiểm Kê": { colorClass: "theme-kk", badgeClass: "type-badge-kk", shortName: "Kiểm kê", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="m9 16 2 2 4-4"/></svg>' },
-            "Phiếu Chuyển Kho": { colorClass: "theme-tr", badgeClass: "type-badge-tr", shortName: "Chuyển kho", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>' },
-            "Phiếu Hoàn Hàng": { colorClass: "theme-rma", badgeClass: "type-badge-rma", shortName: "Hoàn hàng", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>' },
-            "Phiếu Trả Hàng NCC": { colorClass: "theme-rma", badgeClass: "type-badge-rma", shortName: "Trả hàng NCC", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><polyline points="12 9 12 21"/><polyline points="8 17 12 21 16 17"/></svg>' }
-        };
+        // Warehouse Filter
+        if (warehouseFilter) {
+            warehouseFilter.addEventListener('change', function(e) {
+                selectedWh = e.target.value;
+                renderDocs();
+            });
+        }
 
-        var PENDING_STATUSES = ["Đang xét QC", "Đang xử lý", "Đang giao", "Chờ duyệt", "Chờ BM duyệt", "Trình duyệt"];
-
-        // Init tab clicks
-        tabBtns.forEach(function(btn) {
+        // Tabs Click
+        var tabButtons = document.querySelectorAll('.doc-tab-btn');
+        tabButtons.forEach(function(btn) {
             btn.addEventListener('click', function() {
-                tabBtns.forEach(function(b) { b.classList.remove('active'); });
+                tabButtons.forEach(function(b) { b.classList.remove('active'); });
                 btn.classList.add('active');
                 activeTab = btn.getAttribute('data-tab');
-                renderLedger();
+                renderDocs();
             });
         });
 
-        // Search listener
-        ledgerSearch.addEventListener('input', function(e) {
-            searchQuery = e.target.value;
-            renderLedger();
-        });
-
-        // Dev mock triggers removed
-
-        // Approve Confirm listeners
-        btnApproveCancel.addEventListener('click', function() { approveOverlay.classList.remove('active'); });
-        btnApproveConfirm.addEventListener('click', performApproval);
-
-        // Reject Confirm listeners
-        btnRejectCancel.addEventListener('click', function() { rejectOverlay.classList.remove('active'); });
-        btnRejectConfirm.addEventListener('click', performRejection);
-
-        // Detail Modal listeners
+        // Modals Closing Listeners
+        btnApproveCancel.addEventListener('click', function() { approveOverlay.classList.remove('active'); selectedConfirmDoc = null; });
+        btnRejectCancel.addEventListener('click', function() { rejectOverlay.classList.remove('active'); selectedConfirmDoc = null; });
         btnDetailClose.addEventListener('click', closeDetailModal);
         btnDetailCloseFooter.addEventListener('click', closeDetailModal);
-        function closeDetailModal() {
-            detailOverlay.classList.remove('active');
-            viewDetailDoc = null;
-        }
 
-        // Backdrop Dismissals for all overlays
+        // Approve execution
+        btnApproveConfirm.addEventListener('click', performApproval);
+        // Reject execution
+        btnRejectConfirm.addEventListener('click', performRejection);
+
+        // Print & Excel listeners
+        btnDetailPrint.addEventListener('click', function() {
+            window.print();
+        });
+        btnDetailExcel.addEventListener('click', function() {
+            alert('Xuất excel chứng từ thành công!');
+        });
+
+        // Backdrop Dismissals for overlays
         approveOverlay.addEventListener('click', function(e) {
             if (e.target === approveOverlay) {
                 approveOverlay.classList.remove('active');
@@ -323,18 +435,65 @@
                 selectedConfirmDoc = null;
             }
         });
-        detailOverlay.addEventListener('click', function(e) {
-            if (e.target === detailOverlay) {
+        detailModalOverlay.addEventListener('click', function(e) {
+            if (e.target === detailModalOverlay) {
                 closeDetailModal();
             }
         });
 
-        function needsApproval(doc) {
-            if (doc.type === "Phiếu Hoàn Hàng") return false;
-            return PENDING_STATUSES.indexOf(doc.status) !== -1;
+        function closeDetailModal() {
+            detailModalOverlay.classList.remove('active');
+            selectedDoc = null;
         }
 
-        // Approve execution
+        // ─── Status Helpers ───
+        function isDraft(doc) {
+            return doc.status === "Nháp";
+        }
+
+        function isAwaitingBM(doc) {
+            return doc.status === "Chờ duyệt";
+        }
+
+        function isRMAPendingWH(doc) {
+            return doc.type === "Phiếu Hoàn Hàng" && doc.status === "Chờ xác nhận WH";
+        }
+
+        function isViewable(doc) {
+            return true; // Manager can view ALL documents
+        }
+
+        function isRejected(doc) {
+            return doc.status === "Từ chối";
+        }
+
+        // ─── Maker-Checker Flow triggers ───
+        window.confirmApprove = function(docId, docType, event) {
+            if (event) event.stopPropagation();
+            var doc = docs.find(function(d) { return d.id === docId; });
+            if (!doc) return;
+            selectedConfirmDoc = doc;
+            
+            approveDocId.textContent = doc.id;
+            approveDocSubtext.textContent = doc.type + ' — ' + doc.items + ' mặt hàng';
+            approveExplanationText.textContent = 'Sau khi phê duyệt, hệ thống sẽ chính thức cập nhật số lượng tồn kho vật lý và ghi nhận giao dịch vào sổ kho.';
+            
+            approveOverlay.classList.add('active');
+        };
+
+        window.confirmReject = function(docId, docType, event) {
+            if (event) event.stopPropagation();
+            var doc = docs.find(function(d) { return d.id === docId; });
+            if (!doc) return;
+            selectedConfirmDoc = doc;
+            
+            rejectDocId.textContent = doc.id;
+            rejectDocSubtext.textContent = doc.type + ' — ' + doc.items + ' mặt hàng';
+            rejectReasonText.value = '';
+            
+            rejectOverlay.classList.add('active');
+        };
+
         function performApproval() {
             if (!selectedConfirmDoc) return;
             
@@ -364,7 +523,6 @@
             form.submit();
         }
 
-        // Reject execution
         function performRejection() {
             if (!selectedConfirmDoc) return;
             var reason = rejectReasonText.value.trim() || "Thông tin hàng hóa chưa chính xác";
@@ -401,1409 +559,783 @@
             form.submit();
         }
 
-        // Helper to convert number to Vietnamese words
-        function numberToVietnameseWords(num) {
-            if (num === 0) return "Không đồng";
-            var units = ["", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
-            var tens = ["", "mười", "hai mươi", "ba mươi", "bốn mươi", "năm mươi", "sáu mươi", "bảy mươi", "tám mươi", "chín mươi"];
-            var blocks = ["", "nghìn", "triệu", "tỷ"];
+        // Open details modal and build layouts
+        window.viewDocDetails = function(id, event) {
+            if (event) event.stopPropagation();
+            var target = docs.find(function(d) { return d.id === id; });
+            if (!target) return;
 
-            var readThreeDigits = function(n, showZero) {
-                var hundred = Math.floor(n / 100);
-                var ten = Math.floor((n % 100) / 10);
-                var unit = n % 10;
-                var res = "";
-
-                if (hundred > 0 || showZero) {
-                    res += units[hundred] + " trăm ";
-                }
-
-                if (ten > 0) {
-                    if (ten === 1) {
-                        res += "mười ";
-                    } else {
-                        res += tens[ten] + " ";
-                    }
-                } else if (unit > 0 && (hundred > 0 || showZero)) {
-                    res += "lẻ ";
-                }
-
-                if (unit > 0) {
-                    if (unit === 1 && ten > 1) {
-                        res += "mốt ";
-                    } else if (unit === 5 && ten > 0) {
-                        res += "lăm ";
-                    } else {
-                        res += units[unit] + " ";
-                    }
-                }
-                return res;
-            };
-
-            var str = "";
-            var blockIdx = 0;
-            var temp = num;
-
-            while (temp > 0) {
-                var part = temp % 1000;
-                if (part > 0) {
-                    var partStr = readThreeDigits(part, temp > 1000).trim();
-                    str = partStr + " " + blocks[blockIdx] + " " + str;
-                }
-                temp = Math.floor(temp / 1000);
-                blockIdx++;
-            }
-
-            str = str.replace(/\s+/g, " ").trim();
-            if (str) {
-                str = str.charAt(0).toUpperCase() + str.slice(1);
-            }
-            return str + " đồng chẵn";
-        }
-
-        // Open detailed PDF viewer
-        // Open detailed PDF viewer
-        function openDetailModal(doc) {
-            viewDetailDoc = doc;
-            // Show loading placeholder
-            detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Đang tải chi tiết...</h3>';
-            detailModalBody.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 300px; gap: 12px; font-size: 14px; font-weight: 500; color: rgba(16, 55, 92, 0.50);">' +
-                '<span style="display: inline-block; width: 24px; height: 24px; border: 3px solid rgba(16, 55, 92, 0.2); border-top-color: var(--navy); border-radius: 50%; animation: spin 0.8s linear infinite;"></span>' +
-                ' Đang tải dữ liệu chứng từ kho...' +
-                '</div>' +
-                '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>';
-            detailOverlay.classList.add('active');
-
-            fetch('${pageContext.request.contextPath}/business/ledger?ajax=items&docId=' + encodeURIComponent(doc.id) + '&docType=' + encodeURIComponent(doc.type))
-                .then(function(res) { return res.json(); })
-                .then(function(items) {
-                    renderDetailModalWithItems(doc, items);
-                })
-                .catch(function(err) {
-                    console.error('Error fetching document items:', err);
-                    renderDetailModalWithItems(doc, []);
+            selectedDoc = target;
+            detailModalTitle.textContent = "Chi tiết " + selectedDoc.type + " (" + selectedDoc.id + ")";
+            
+            // Build body content
+            detailModalBody.innerHTML = compileDetailTemplate(selectedDoc);
+            
+            // Dynamically populate footer action buttons
+            var detailModalFtr = document.getElementById('detailModalFtr');
+            detailModalFtr.innerHTML = '';
+            
+            if (isAwaitingBM(selectedDoc)) {
+                var approveBtn = document.createElement('button');
+                approveBtn.className = 'btn-action-approve';
+                approveBtn.style.padding = '8px 16px';
+                approveBtn.style.fontSize = '13px';
+                approveBtn.textContent = 'Phê duyệt';
+                approveBtn.addEventListener('click', function(e) {
+                    confirmApprove(selectedDoc.id, selectedDoc.type, e);
                 });
+                
+                var rejectBtn = document.createElement('button');
+                rejectBtn.className = 'btn-action-reject';
+                rejectBtn.style.padding = '8px 16px';
+                rejectBtn.style.fontSize = '13px';
+                rejectBtn.textContent = 'Từ chối';
+                rejectBtn.addEventListener('click', function(e) {
+                    confirmReject(selectedDoc.id, selectedDoc.type, e);
+                });
+                
+                detailModalFtr.appendChild(approveBtn);
+                detailModalFtr.appendChild(rejectBtn);
+            }
+            
+            var closeBtn = document.createElement('button');
+            closeBtn.className = 'btn-modal-cancel';
+            closeBtn.textContent = 'Đóng cửa sổ';
+            closeBtn.addEventListener('click', closeDetailModal);
+            detailModalFtr.appendChild(closeBtn);
+
+            detailModalOverlay.classList.add('active');
+        };
+
+        // ─── Toast Notification Helper ───
+        function showToast(msg, isError) {
+            var toast = document.getElementById("ledgerToast");
+            var msgSpan = document.getElementById("ledgerToastMsg");
+            var iconSpan = document.getElementById("ledgerToastIcon");
+            if (!toast || !msgSpan || !iconSpan) return;
+
+            msgSpan.textContent = msg;
+            iconSpan.textContent = isError ? "✗" : "✓";
+            toast.className = "toast-notification show";
+            if (isError) {
+                toast.classList.add("error");
+            } else {
+                toast.classList.remove("error");
+            }
+            setTimeout(function() {
+                toast.classList.remove("show");
+            }, 4000);
         }
 
-        function renderDetailModalWithItems(doc, items) {
-            items = items || [];
-            viewDetailDoc = doc;
+        // Check for flash messages from Servlet
+        (function() {
+            var errorMsg = "${fn:escapeXml(flashError)}";
+            var successMsg = "${fn:escapeXml(flashSuccess)}";
+            if (errorMsg && errorMsg.trim() !== "" && errorMsg.indexOf('flashError') === -1) {
+                showToast(errorMsg, true);
+            } else if (successMsg && successMsg.trim() !== "" && successMsg.indexOf('flashSuccess') === -1) {
+                showToast(successMsg, false);
+            }
+        })();
 
-            // Parse date details
-            var dateStr = doc.date || "";
-            var day = "28", month = "05", year = "2026", timeStr = "14:30";
-            if (dateStr) {
-                var spaceParts = dateStr.split(" ");
-                if (spaceParts.length > 1) {
-                    timeStr = spaceParts[1];
+        // ─── Detail Modals HTML Compilers ───
+        function compileDetailTemplate(doc) {
+            var items = doc.itemsList || [];
+            
+            // Build date parts
+            var day = "29", month = "05", year = "2026", time = "15:30";
+            if (doc.date) {
+                var dtParts = doc.date.split(" ");
+                if (dtParts[0] && dtParts[0].includes("/")) {
+                    var parts = dtParts[0].split("/");
+                    day = parts[0]; month = parts[1]; year = parts[2];
                 }
-                var datePart = spaceParts[0];
-                if (datePart.indexOf("/") !== -1) {
-                    var parts = datePart.split("/");
-                    if (parts.length === 3) {
-                        day = parts[0];
-                        month = parts[1];
-                        year = parts[2];
-                    }
-                } else if (datePart.indexOf("-") !== -1) {
-                    var parts = datePart.split("-");
-                    if (parts.length === 3) {
-                        year = parts[0];
-                        month = parts[1];
-                        day = parts[2];
-                    }
-                }
+                if (dtParts[1]) time = dtParts[1];
             }
 
             if (doc.type === "Phiếu Nhập Kho") {
-                // Render GRN Title
-                detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Nhập Kho (GRN)</h3>';
-
-                // Using dynamic items passed in
-
-                var totalOrdered = 0;
-                var totalReceived = 0;
-                var totalAccepted = 0;
-                var totalRejected = 0;
-                var totalValue = 0;
-                var rowsHtml = "";
-
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
+                var totalOrdered = 0, totalReceived = 0, totalAccepted = 0, totalRejected = 0, totalVal = 0;
+                var rowMarkup = "";
+                items.forEach(function(it) {
                     totalOrdered += it.ordered || 0;
                     totalReceived += it.received || 0;
                     totalAccepted += it.accepted || 0;
                     totalRejected += it.rejected || 0;
-                    var lineTotal = (it.accepted || 0) * (it.price || 0);
-                    totalValue += lineTotal;
+                    totalVal += (it.accepted || 0) * (it.price || 0);
 
-                    rowsHtml += '<tr style="line-height: 2.0;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.sku + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--navy);">' + it.name + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; text-align: center;">' + it.uom + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: rgba(16, 55, 92, 0.60);">' + (it.ordered || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: right; color: var(--navy);">' + (it.price ? it.price.toLocaleString('vi-VN') : '—') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: #1d4ed8; font-weight: 700; background: rgba(30, 64, 175, 0.04);">' + (it.received || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: #047857; font-weight: 700; background: rgba(4, 120, 87, 0.04);">' + (it.accepted || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: #dc2626; font-weight: 700; background: rgba(220, 38, 38, 0.04);">' + (it.rejected || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 700; color: var(--navy);">' + lineTotal.toLocaleString('vi-VN') + '</td>' +
+                    rowMarkup += '<tr style="line-height: 2.0;">' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.ordered + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 600;">' + it.received + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; background: rgba(16, 185, 129, 0.05); color: #059669;">' + it.accepted + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(239, 68, 68, 0.05); color: ' + (it.rejected > 0 ? '#dc2626' : 'rgba(16, 55, 92, 0.3)') + ';">' + (it.rejected > 0 ? it.rejected : '—') + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
                     '</tr>';
-                }
+                });
 
-                var grnStatusText = (doc.status === "completed" || doc.status === "Đã duyệt" || doc.status === "Hoàn thành") ? "Hoàn tất nhập kho" : doc.status;
-                var supplierText = doc.supplier || "Công ty Cổ phần Văn phòng phẩm Hồng Hà";
+                var supplier = doc.supplier || "Đối tác bán hàng";
 
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div class="pdf-title-block" style="margin-bottom: 24px;">' +
-                            '<h1 class="pdf-title-main" style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">PHIẾU NHẬP KHO</h1>' +
-                            '<div class="pdf-title-sub" style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">GOODS RECEIPT NOTE (GRN)</div>' +
+                return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h1 style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">PHIẾU NHẬP KHO</h1>' +
+                        '<div style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">GOODS RECEIPT NOTE (GRN)</div>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                        '<div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Phiếu Nhập (GRN No.)</label>' +
+                            '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
                         '</div>' +
-
-                        '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Phiếu Nhập (GRN No.)</label>' +
-                                '<span style="font-size: 18px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Nhà Cung Cấp (Supplier)</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(supplier) + '</div>' +
+                                (doc.supplierCode ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Mã NCC: ' + escapeHtml(doc.supplierCode) + '</div>' : '') +
+                                (doc.contactPerson ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Người LH: ' + escapeHtml(doc.contactPerson) + '</div>' : '') +
+                                (doc.supplierPhone ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">SĐT: ' + escapeHtml(doc.supplierPhone) + '</div>' : '') +
+                                (doc.supplierEmail ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Email: ' + escapeHtml(doc.supplierEmail) + '</div>' : '') +
+                                (doc.supplierAddress ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Địa chỉ: ' + escapeHtml(doc.supplierAddress) + '</div>' : '') +
                             '</div>' +
+                            (doc.paymentTerms ? '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Thời Hạn Thanh Toán</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.paymentTerms) + '</div>' +
+                            '</div>' : '') +
                         '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 24px;">' +
-                            '<div style="display: flex; flex-direction: column; gap: 16px;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Nhà Cung Cấp (Supplier)</label>' +
-                                    '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(supplierText) + '</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Đơn Đặt Hàng (PO Ref.) <span style="color: #ef4444;">*</span></label>' +
-                                    '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">PO-2026-05-089</div>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div style="display: flex; flex-direction: column; gap: 16px;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Nhập Kho (GRN Date)</label>' +
-                                    '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + timeStr + '</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người Lập Phiếu / Nhân Viên Kiểm Đếm</label>' +
-                                    '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.createdBy || '—') + '</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
-                                    '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #047857; background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: var(--radius-btn);">' + grnStatusText + '</span>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Chi Tiết Hàng Hóa Nhập Kho (Phân Cấp Chất Lượng)</h2>' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Đặt Hàng</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Đơn Giá</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #eff6ff; color: #1d4ed8;">SL Thực Nhận</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #ecfdf5; color: #047857;">SL Chấp Nhận</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #fef2f2; color: #dc2626;">SL Từ Chối</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Thành Tiền</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">TỔNG CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; color: rgba(16, 55, 92, 0.6);">' + totalOrdered + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 14px; color: rgba(16, 55, 92, 0.6);"></td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; background: #eff6ff; color: #1d4ed8; font-weight: 800;">' + totalReceived + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; background: #ecfdf5; color: #047857; font-weight: 800;">' + totalAccepted + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; background: #fef2f2; color: #dc2626; font-weight: 800;">' + totalRejected + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 14px; font-weight: 800; color: var(--navy);">' + totalValue.toLocaleString('vi-VN') + '</td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-                        '</div>' +
-
-                        '<!-- FOOTER -->' +
-                        '<div style="display: flex; flex-direction: column; gap: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 8px;">Nhận Xét Chất Lượng / Tình Trạng Hàng Hóa</label>' +
-                                '<div style="border: 1px solid #E5EAF3; padding: 16px; min-height: 100px; border-radius: var(--radius-btn);">' +
-                                    '<div style="display: flex; flex-direction: column; gap: 12px;">' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                    '</div>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Nhập Kho (GRN Date)</label>' +
+                                '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + time + '</div>' +
                             '</div>' +
-
-                            '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding-top: 16px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 4px;">Đại Diện Giao Hàng</label>' +
-                                    '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.50); margin-bottom: 8px;">(Supplier/Driver)</div>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 4px;">Nhân Viên QA/QC</label>' +
-                                    '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.50); margin-bottom: 8px;">(Quality Inspector)</div>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 4px;">Quản Đốc Kho</label>' +
-                                    '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.50); margin-bottom: 8px;">(Warehouse Manager)</div>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
+                            (doc.expectedDate ? '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Nhận Dự Kiến</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.expectedDate) + '</div>' +
+                            '</div>' : '') +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
+                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #047857; background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Giá Trị Lô Hàng (Document Value)</label>' +
+                                '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + totalVal.toLocaleString('vi-VN') + ' VNĐ</div>' +
                             '</div>' +
                         '</div>' +
-                    '</div>';
+                    '</div>' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Chi Tiết Hàng Hóa Nhập Kho (Phân Cấp Chất Lượng)</h2>' +
+                        '<table style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
+                            '<thead>' +
+                                '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Đặt Hàng</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Thực Nhận</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 185, 129, 0.05);">SL Chấp Nhận</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(239, 68, 68, 0.05);">SL Từ Chối</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú / Mã Lỗi</th>' +
+                                '</tr>' +
+                            '</thead>' +
+                            '<tbody>' + rowMarkup +
+                                '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.3);">' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalOrdered + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalReceived + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #059669; background: rgba(16, 185, 129, 0.05);">' + totalAccepted + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #dc2626; background: rgba(239, 68, 68, 0.05);">' + totalRejected + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px;"></td>' +
+                                '</tr>' +
+                            '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; text-align: center;">' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Đại Diện Giao Hàng</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Nhân Viên QA/QC</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Thủ Kho Xác Nhận</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }
 
-            } else if (doc.type === "Phiếu Xuất Kho") {
-                // Render GI Title
-                detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Xuất Kho</h3>';
+            if (doc.type === "Phiếu Xuất Kho") {
+                var totalRequested = 0, totalShipped = 0, totalVal = 0;
+                var rowMarkup = "";
+                items.forEach(function(it) {
+                    totalRequested += it.requested || 0;
+                    totalShipped += it.shipped || 0;
+                    totalVal += (it.shipped || 0) * (it.price || 0);
 
-                // Using dynamic items passed in
-
-                var totalQtyRequest = 0;
-                var totalQtyIssued = 0;
-                var totalAmount = 0;
-                var rowsHtml = "";
-
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    totalQtyRequest += it.qtyRequest;
-                    totalQtyIssued += it.qtyIssued;
-                    totalAmount += it.qtyIssued * it.price;
-
-                    rowsHtml += '<tr style="line-height: 1.8;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--navy);">' + it.name + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.sku + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.uom + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; text-align: center; color: rgba(16, 55, 92, 0.70);">' +
-                            '<div style="font-family: monospace;">' + it.lot + '</div>' +
-                            '<div style="color: rgba(16, 55, 92, 0.5);">HSD: ' + it.hsd + '</div>' +
-                        '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: rgba(16, 55, 92, 0.60);">' + it.qtyRequest + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 15px; font-weight: 800; text-align: center; background: rgba(16, 55, 92, 0.05);">' + it.qtyIssued + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: right; color: rgba(16, 55, 92, 0.70);">' + it.price.toLocaleString('vi-VN') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600; text-align: right; color: var(--navy);">' + (it.qtyIssued * it.price).toLocaleString('vi-VN') + '</td>' +
+                    rowMarkup += '<tr style="line-height: 2.0;">' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.requested + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; color: #6d28d9; background: rgba(109, 40, 217, 0.05);">' + it.shipped + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
                     '</tr>';
-                }
-                var totalAmountWords = numberToVietnameseWords(totalAmount);
+                });
 
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 24px;">' +
+                var receiver = doc.receiver || "Khách hàng mua lẻ";
+
+                return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h1 style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">PHIẾU XUẤT KHO</h1>' +
+                        '<div style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">GOODS ISSUE NOTE (GIN)</div>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                        '<div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Phiếu Xuất (GIN No.)</label>' +
+                            '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
+                        '</div>' +
+                        '<div style="border: 1px solid #E5EAF3; border-radius: var(--radius-btn); padding: 8px 16px; background: #fff; display: flex; flex-direction: column; align-items: center;">' +
+                            '<div style="height: 48px; width: 180px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 10px; color: rgba(16, 55, 92, 0.35); margin-top: 4px;">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<div style="font-size: 11px; font-weight: 500; color: var(--navy);">Đơn vị: <span style="font-weight: 700; font-size: 12px;">Hệ thống Bán hàng Đa kênh ABC</span></div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.60);">Bộ phận: Kho Trung Tâm</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người Nhận / Đối Tác (Receiver)</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(receiver) + '</div>' +
+                                (doc.shippingAddress ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Địa chỉ: ' + escapeHtml(doc.shippingAddress) + '</div>' : '') +
+                                (doc.customerPhone ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">SĐT: ' + escapeHtml(doc.customerPhone) + '</div>' : '') +
                             '</div>' +
-                            '<div style="text-align: right;">' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Mẫu số 02-VT</div>' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">(Ban hành theo Thông tư số 200/2014/TT-BTC)</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Đơn Đặt Hàng (Sales Order Ref.)</label>' +
+                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.poReference || "—") + '</div>' +
                             '</div>' +
                         '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 8px;">' +
-                            '<h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--navy); letter-spacing: -0.01em;">PHIẾU XUẤT KHO</h1>' +
-                            '<div style="font-size: 13px; font-weight: 500; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">GOODS ISSUE NOTE</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 24px; font-size: 12px; color: rgba(16, 55, 92, 0.60);">' +
-                            'Ngày <span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + day + '</span> tháng ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + month + '</span> năm ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + year + '</span>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số Phiếu (No.)</label>' +
-                                '<div style="display: flex; align-items: center; gap: 12px;">' +
-                                    '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
-                                    '<div style="border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 4px 8px; background: #fff;">' +
-                                        '<div style="height: 40px; width: 112px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 9px; color: rgba(16, 55, 92, 0.40);">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
-                                    '</div>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Xuất Kho (GIN Date)</label>' +
+                                '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + time + '</div>' +
                             '</div>' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Nợ (Debit)</label>' +
-                                '<div style="border-bottom: 2px dashed rgba(16, 55, 92, 0.2); padding-bottom: 8px;">' +
-                                    '<span style="font-size: 12px; font-weight: 700; color: var(--navy);">TK 632</span>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
+                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #6d28d9; background: #F5F3FF; border: 1px solid #DDD6FE; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
                             '</div>' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Có (Credit)</label>' +
-                                '<div style="border-bottom: 2px dashed rgba(16, 55, 92, 0.2); padding-bottom: 8px;">' +
-                                    '<span style="font-size: 12px; font-weight: 700; color: var(--navy);">TK 156</span>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Giá Trị Lô Hàng (Document Value)</label>' +
+                                '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + totalVal.toLocaleString('vi-VN') + ' VNĐ</div>' +
                             '</div>' +
                         '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Họ Tên Người Nhận Hàng</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 14px; font-weight: 500; color: var(--navy);">' + escapeHtml(doc.createdBy) + '</span>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Địa Chỉ / Đơn Vị Người Nhận</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 13px; color: var(--navy);" class="truncate block">Hệ thống B2C</span>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Lý Do Xuất Kho</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 14px; font-weight: 500; color: var(--navy);">Xuất bán hàng theo đơn hàng SO-2026-05-11024</span>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Xuất Tại Kho</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 14px; color: var(--navy);">' + escapeHtml(doc.warehouse) + '</span>' +
-                                '</div>' +
-                            '</div>' +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Chi Tiết Hàng Hóa Xuất Kho</h2>' +
+                        '<table style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
+                            '<thead>' +
+                                '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Yêu Cầu</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(109, 40, 217, 0.05); color: #6d28d9;">SL Thực Xuất</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú</th>' +
+                                '</tr>' +
+                            '</thead>' +
+                            '<tbody>' + rowMarkup +
+                                '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.3);">' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalRequested + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #6d28d9; background: rgba(109, 40, 217, 0.05);">' + totalShipped + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px;"></td>' +
+                                '</tr>' +
+                            '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; text-align: center;">' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Người Lập Phiếu</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
                         '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 40px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên/Quy Cách Vật Tư</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã Số (SKU)</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Số Lô / HSD</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Yêu Cầu</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 55, 92, 0.05);">SL Thực Xuất</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Đơn Giá</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Thành Tiền</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="5" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; color: rgba(16, 55, 92, 0.6);">' + totalQtyRequest + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; background: rgba(16, 55, 92, 0.05); color: var(--navy);">' + totalQtyIssued + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px;"></td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 14px; color: var(--navy);">' + totalAmount.toLocaleString('vi-VN') + '</td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-
-                            '<div style="margin-top: 16px; border: 1px solid rgba(16, 55, 92, 0.2); padding: 12px 16px; border-radius: var(--radius-btn);">' +
-                                '<span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em;">Tổng Số Tiền (Viết bằng chữ): </span>' +
-                                '<span style="font-size: 13px; font-weight: 700; color: var(--navy);">' + totalAmountWords + '</span>' +
-                            '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Thủ Kho Xuất</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
                         '</div>' +
-
-                        '<!-- FOOTER -->' +
-                        '<div style="display: flex; flex-direction: column; gap: 24px;">' +
-                            '<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; padding-top: 16px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Người Lập Phiếu</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 32px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Người Nhận Hàng</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 32px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Thủ Kho</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 32px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Kế Toán Trưởng</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 32px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Giám Đốc</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 32px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                            '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Đại Diện Nhận Hàng</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
                         '</div>' +
-                    '</div>';
+                    '</div>' +
+                '</div>';
+            }
 
-            } else if (doc.type === "Phiếu Kiểm Kê") {
-                // Render KK Title
-                detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Kiểm Kê</h3>';
+            if (doc.type === "Phiếu Kiểm Kê") {
+                var totalSystem = 0, totalPhysical = 0, totalDiff = 0;
+                var rowMarkup = "";
+                items.forEach(function(it) {
+                    totalSystem += it.systemQty || 0;
+                    totalPhysical += it.physicalQty || 0;
+                    var diff = (it.physicalQty || 0) - (it.systemQty || 0);
+                    totalDiff += diff;
 
-                // Using dynamic items passed in
+                    var diffColor = diff === 0 ? "rgba(16,55,92,0.4)" : (diff > 0 ? "#059669" : "#dc2626");
+                    var diffText = diff === 0 ? "—" : (diff > 0 ? "+" + diff : diff);
 
-                var totalBook = 0;
-                var totalActual = 0;
-                var totalDiff = 0;
-                
-                var rowsHtml = "";
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    totalBook += it.book;
-                    totalActual += it.actual;
-                    totalDiff += it.diff;
-
-                    var diffText = "±0";
-                    var diffColor = "#059669";
-                    var diffWeight = "700";
-                    if (it.diff > 0) {
-                        diffText = "+" + it.diff;
-                        diffColor = "#059669";
-                        diffWeight = "800";
-                    } else if (it.diff < 0) {
-                        diffText = it.diff;
-                        diffColor = "#ef4444";
-                        diffWeight = "800";
-                    }
-
-                    rowsHtml += '<tr style="line-height: 2.0;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.sku + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; color: var(--navy);">' + it.name + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; text-align: center;">' + it.uom + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: 600; text-align: center; background: #eff6ff; color: #1d4ed8;">' + it.book.toLocaleString('vi-VN') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 16px; font-weight: 800; text-align: center; background: rgba(235, 131, 23, 0.05); color: var(--navy);">' + it.actual.toLocaleString('vi-VN') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: ' + diffWeight + '; text-align: center; color: ' + diffColor + ';">' + diffText + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; color: rgba(16, 55, 92, 0.70);">' + 
-                            (it.remark ? it.remark : '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.2); padding-bottom: 4px;"></div>') + 
-                        '</td>' +
+                    rowMarkup += '<tr style="line-height: 2.0;">' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.systemQty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 700; color: var(--navy);">' + it.physicalQty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; color: ' + diffColor + '; background: ' + (diff !== 0 ? 'rgba(16, 55, 92, 0.02)' : 'none') + ';">' + diffText + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
                     '</tr>';
-                }
+                });
 
-                var totalDiffText = "±0";
-                var totalDiffColor = "#059669";
-                if (totalDiff > 0) {
-                    totalDiffText = "+" + totalDiff;
-                    totalDiffColor = "#059669";
-                } else if (totalDiff < 0) {
-                    totalDiffText = totalDiff;
-                    totalDiffColor = "#ef4444";
-                }
-
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 16px;">' +
-                            '<div>' +
-                                '<div style="font-size: 11px; font-weight: 500; color: var(--navy);">Đơn vị: <span style="font-weight: 700; font-size: 12px;">Công ty TNHH Thương Mại ABC</span></div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.60);">Bộ phận: Kho Trung Tâm</div>' +
-                            '</div>' +
-                            '<div style="text-align: right;">' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Mẫu số 08-VT</div>' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">(Ban hành theo Thông tư số 200/2014/TT-BTC)</div>' +
-                            '</div>' +
+                return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h1 style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">BIÊN BẢN KIỂM KÊ KHO</h1>' +
+                        '<div style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">PHYSICAL INVENTORY AUDIT (PIA)</div>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                        '<div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Biên Bản (Audit PIA No.)</label>' +
+                            '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
                         '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 8px;">' +
-                            '<h1 style="margin: 0; font-size: 22px; font-weight: 700; color: var(--navy); letter-spacing: -0.01em;">PHIẾU KIỂM KÊ KHO</h1>' +
-                            '<div style="font-size: 13px; font-weight: 500; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">PHYSICAL INVENTORY COUNT SHEET</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 24px; font-size: 12px; color: rgba(16, 55, 92, 0.60);">' +
-                            'Ngày <span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + day + '</span> tháng ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + month + '</span> năm ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + year + '</span>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số Phiếu Kiểm Kê</label>' +
-                                '<div style="display: flex; align-items: center; gap: 12px;">' +
-                                    '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
-                                    '<div style="border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 4px 8px; background: #fff;">' +
-                                        '<div style="height: 40px; width: 112px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 9px; color: rgba(16, 55, 92, 0.40);">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Khu Vực Kiểm Kê</label>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Địa điểm kiểm kê (Warehouse Location)</label>' +
                                 '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.warehouse) + '</div>' +
                             '</div>' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Trạng Thái</label>' +
-                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trưởng Ban Kiểm Kê / Người Lập</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.createdBy || '—') + '</div>' +
                             '</div>' +
                         '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Người Phụ Trách Kiểm Kê</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 14px; color: var(--navy);">' + escapeHtml(doc.createdBy) + '</span>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Thời Điểm Kiểm Kê (Audit Date & Time)</label>' +
+                                '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + time + '</div>' +
                             '</div>' +
                             '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Phương Pháp Kiểm Kê</label>' +
-                                '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                    '<span style="font-size: 14px; font-weight: 600; color: var(--navy);">Kiểm kê định kỳ toàn bộ</span>' +
-                                '</div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
+                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
                             '</div>' +
                         '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Bảng Kiểm Kê Hàng Hóa (Phân Tích Chênh Lệch)</h2>' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #eff6ff; color: #1d4ed8;">SL Sổ Sách</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(235, 131, 23, 0.05);">SL Thực Tế</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Chênh Lệch</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú / Nguyên Nhân</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">TỔNG CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: #eff6ff; color: #1d4ed8;">' + totalBook.toLocaleString('vi-VN') + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: rgba(235, 131, 23, 0.05); color: var(--navy);">' + totalActual.toLocaleString('vi-VN') + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; color: ' + totalDiffColor + ';">' + totalDiffText + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px;"></td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-                        '</div>' +
-
-                        '<!-- FOOTER -->' +
-                        '<div style="display: flex; flex-direction: column; gap: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 8px;">Kết Luận Sau Kiểm Kê / Đề Xuất Xử Lý</label>' +
-                                '<div style="border: 1px solid #E5EAF3; padding: 16px; min-height: 80px; border-radius: var(--radius-btn);">' +
-                                    '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-
-                            '<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-top: 16px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Người Kiểm Kê</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Thủ Kho</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Kế Toán Kho</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Quản Lý Kho</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-
-            } else if (doc.type === "Phiếu Chuyển Kho") {
-                // Render TR Title
-                detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Chuyển Kho</h3>';
-
-                // Using dynamic items passed in
-
-                var totalRequested = 0;
-                var totalTransferred = 0;
-                var rowsHtml = "";
-
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    totalRequested += it.requested;
-                    totalTransferred += it.transferred;
-
-                    rowsHtml += '<tr style="line-height: 2.0;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.sku + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; color: var(--navy);">' + it.name + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; text-align: center;">' + it.uom + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; text-align: center; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.lot + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: 600; text-align: center; background: #eff6ff; color: #1d4ed8;">' + it.requested + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 16px; font-weight: 800; text-align: center; background: #ecfdf5; color: #047857;">' + it.transferred + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16, 55, 92, 0.70);">' + (it.remark ? it.remark : '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.2); padding-bottom: 4px;"></div>') + '</td>' +
-                    '</tr>';
-                }
-
-                var fromWh = "Kho HCM - Quận 1";
-                var fromWhCode = "WH-HCM-01";
-                var toWh = "Kho HCM - Quận 7";
-                var toWhCode = "WH-HCM-07";
-
-                var whText = doc.warehouse || "";
-                if (whText.indexOf(" → ") !== -1) {
-                    var whParts = whText.split(" → ");
-                    var srcPart = whParts[0];
-                    var dstPart = whParts[1];
-
-                    if (srcPart.indexOf("HN") !== -1) {
-                        fromWh = "Kho Hà Nội";
-                        fromWhCode = "WH-HN-01";
-                    } else if (srcPart.indexOf("HCM-01") !== -1) {
-                        fromWh = "Kho HCM - Quận 1";
-                        fromWhCode = "WH-HCM-01";
-                    } else {
-                        fromWh = srcPart;
-                        fromWhCode = "WH-SRC";
-                    }
-
-                    if (dstPart.indexOf("HCM-07") !== -1) {
-                        toWh = "Kho HCM - Quận 7";
-                        toWhCode = "WH-HCM-07";
-                    } else if (dstPart.indexOf("HCM-01") !== -1) {
-                        toWh = "Kho HCM - Quận 1";
-                        toWhCode = "WH-HCM-01";
-                    } else {
-                        toWh = dstPart;
-                        toWhCode = "WH-DST";
-                    }
-                }
-
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 16px;">' +
-                            '<div>' +
-                                '<div style="font-size: 11px; font-weight: 500; color: var(--navy);">Đơn vị: <span style="font-weight: 700; font-size: 12px;">Hệ thống Bán hàng ABC</span></div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.60);">Bộ phận: Vận Hành Kho</div>' +
-                            '</div>' +
-                            '<div style="text-align: right;">' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Mẫu số TR-WMS</div>' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Internal Transfer Note</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 8px;">' +
-                            '<h1 style="margin: 0; font-size: 22px; font-weight: 700; color: var(--navy); letter-spacing: -0.01em;">PHIẾU CHUYỂN KHO</h1>' +
-                            '<div style="font-size: 13px; font-weight: 500; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">INTERNAL STOCK TRANSFER NOTE (STN)</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 24px; font-size: 12px; color: rgba(16, 55, 92, 0.60);">' +
-                            'Ngày <span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + day + '</span> tháng ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + month + '</span> năm ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + year + '</span>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số Phiếu Chuyển Kho</label>' +
-                                '<div style="display: flex; align-items: center; gap: 12px;">' +
-                                    '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
-                                    '<div style="border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 4px 8px; background: #fff;">' +
-                                        '<div style="height: 40px; width: 112px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 9px; color: rgba(16, 55, 92, 0.40);">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Trạng Thái</label>' +
-                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: var(--orange); background: rgba(235, 131, 23, 0.08); border: 1px solid rgba(235, 131, 23, 0.20); border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Ngày Yêu Cầu Hoàn Thành</label>' +
-                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">25/05/2026</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- Kho nguồn & kho đích - highlight đặc biệt -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">' +
-                            '<div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; border-radius: var(--radius-btn);">' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #1d4ed8; letter-spacing: 0.05em; margin-bottom: 8px;">🏭 KHO NGUỒN (From)</label>' +
-                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(fromWh) + '</div>' +
-                                '<div style="font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">' + escapeHtml(fromWhCode) + '</div>' +
-                                '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.50); margin-top: 4px;">Khu A - Hàng Thường</div>' +
-                            '</div>' +
-                            '<div style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 16px; border-radius: var(--radius-btn);">' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #047857; letter-spacing: 0.05em; margin-bottom: 8px;">🎯 KHO ĐÍCH (To)</label>' +
-                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(toWh) + '</div>' +
-                                '<div style="font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">' + escapeHtml(toWhCode) + '</div>' +
-                                '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.50); margin-top: 4px;">Khu A - Hàng Thường</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<div style="margin-bottom: 24px;">' +
-                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Lý Do / Ghi Chú Điều Chuyển</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16, 55, 92, 0.2); padding-bottom: 4px;">' +
-                                '<span style="font-size: 14px; font-weight: 500; color: var(--navy);">Cân bằng tồn kho giữa các chi nhánh — Bổ sung hàng thiếu tại ' + escapeHtml(toWh) + '</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Danh Sách Hàng Hóa Điều Chuyển</h2>' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Số Lô</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #eff6ff; color: #1d4ed8;">SL Yêu Cầu</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #ecfdf5; color: #047857;">SL Thực Chuyển</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="5" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">TỔNG CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: #eff6ff; color: #1d4ed8;">' + totalRequested + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: #ecfdf5; color: #047857;">' + totalTransferred + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px;"></td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-                        '</div>' +
-
-                        '<!-- FOOTER -->' +
-                        '<div style="display: flex; flex-direction: column; gap: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 8px;">Phương Tiện Vận Chuyển / Đơn Vị Vận Chuyển</label>' +
-                                '<div style="border: 1px solid #E5EAF3; padding: 16px; min-height: 60px; border-radius: var(--radius-btn);">' +
-                                    '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-
-                            '<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-top: 16px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Người Lập Phiếu</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Thủ Kho Xuất</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Thủ Kho Nhận</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Quản Lý Duyệt</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-
-            } else if (doc.type === "Phiếu Hoàn Hàng") {
-                // Render RMA Title with QC Needed badge
-                detailModalTitleArea.innerHTML = 
-                    '<div style="display: flex; align-items: center; gap: 12px;">' +
-                        '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Nhận Hàng Hoàn / RMA</h3>' +
-                        '<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 text-red-600 font-semibold" style="border-radius: var(--radius-btn); font-size: 11px;">' +
-                            '<svg style="width:12px;height:12px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>' +
-                            'Cần xử lý QC' +
-                        '</span>' +
-                    '</div>';
-
-                // Using dynamic items passed in
-
-                var totalReturned = 0;
-                var totalReuse = 0;
-                var totalDestroy = 0;
-                var totalValue = 0;
-                var rowsHtml = "";
-
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    totalReturned += it.returned;
-                    totalReuse += it.reuse;
-                    totalDestroy += it.destroy;
-                    var itemVal = it.returned * it.price;
-                    totalValue += itemVal;
-
-                    rowsHtml += '<tr style="line-height: 2.0;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + it.sku + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; color: var(--navy); font-weight: 600;">' + it.name + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; text-align: center;">' + it.uom + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: 800; text-align: center; color: var(--navy);">' + it.returned + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: 800; text-align: center; background: #ecfdf5; color: #047857;">' + it.reuse + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 14px; font-weight: 800; text-align: center; background: #fef2f2; color: #dc2626;">' + 
-                            (it.destroy > 0 ? it.destroy : '<span style="color: rgba(16, 55, 92, 0.3);">—</span>') + 
-                        '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600; text-align: right; color: var(--navy);">' + itemVal.toLocaleString("vi-VN") + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; color: rgba(16, 55, 92, 0.70);">' + it.remark + '</td>' +
-                    '</tr>';
-                }
-
-                var totalValueWords = numberToVietnameseWords(totalValue);
-
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 16px;">' +
-                            '<div>' +
-                                '<div style="font-size: 11px; font-weight: 500; color: var(--navy);">Đơn vị: <span style="font-weight: 700; font-size: 12px;">Công ty TNHH Thương Mại ABC</span></div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.60);">Bộ phận: Kho / Dịch Vụ Khách Hàng</div>' +
-                            '</div>' +
-                            '<div style="text-align: right;">' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Mẫu số RMA-VN</div>' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Return Merchandise Authorization</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 8px;">' +
-                            '<h1 style="margin: 0; font-size: 22px; font-weight: 700; color: var(--navy); letter-spacing: -0.01em;">PHIẾU NHẬN HÀNG HOÀN / YÊU CẦU RMA</h1>' +
-                            '<div style="font-size: 13px; font-weight: 500; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">RETURN MERCHANDISE AUTHORIZATION (RMA)</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 24px; font-size: 12px; color: rgba(16, 55, 92, 0.60);">' +
-                            'Ngày <span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + day + '</span> tháng ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + month + '</span> năm ' +
-                            '<span style="border-bottom: 1px dashed rgba(16, 55, 92, 0.3); padding: 0 8px;">' + year + '</span>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số Phiếu RMA</label>' +
-                                '<div style="display: flex; align-items: center; gap: 12px;">' +
-                                    '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
-                                    '<div style="border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 4px 8px; background: #fff;">' +
-                                        '<div style="height: 40px; width: 112px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 9px; color: rgba(16, 55, 92, 0.40);">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Mã Đơn Hàng Gốc (SO Ref.)</label>' +
-                                '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">SO-2026-001234</span>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Trạng Thái</label>' +
-                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: var(--orange); background: rgba(235, 131, 23, 0.08); border: 1px solid rgba(235, 131, 23, 0.20); border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- Thông tin khách hàng -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">' +
-                            '<div style="background: #fef2f2; border: 1px solid #fca5a5; padding: 16px; border-radius: var(--radius-btn);">' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #b91c1c; letter-spacing: 0.05em; margin-bottom: 8px;">👤 KHÁCH HÀNG HOÀN TRẢ</label>' +
-                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">Nguyễn Văn An</div>' +
-                                '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">SĐT: 0901 234 567</div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.50); margin-top: 2px;">Email: an.nguyen@email.com</div>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Lý Do Hoàn Trả (Return Reason)</label>' +
-                                '<div style="font-size: 14px; font-weight: 500; color: var(--navy);">Sản phẩm bị lỗi — nứt vỡ vỏ nhựa, mối nối lỏng</div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-top: 12px; margin-bottom: 6px;">Hướng Xử Lý</label>' +
-                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: var(--orange); background: rgba(235, 131, 23, 0.08); border: 1px solid rgba(235, 131, 23, 0.20); border-radius: var(--radius-btn);">Hoàn tiền + Tiêu hủy hàng lỗi</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Danh Sách Hàng Hóa Hoàn Trả (Phân Cấp QC)</h2>' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Hoàn</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #ecfdf5; color: #047857;">SL Dùng Lại</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #fef2f2; color: #dc2626;">SL Tiêu Hủy</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Giá Trị Hoàn</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Lý Do / Mã Lỗi</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">TỔNG CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; color: var(--navy);">' + totalReturned + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: #ecfdf5; color: #047857;">' + totalReuse + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 15px; background: #fef2f2; color: #dc2626;">' + totalDestroy + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 14px; color: var(--navy);">' + totalValue.toLocaleString("vi-VN") + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px;"></td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-
-                            '<div style="margin-top: 16px; border: 1px solid rgba(16, 55, 92, 0.2); padding: 12px 16px; border-radius: var(--radius-btn);">' +
-                                '<span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em;">Tổng Giá Trị Hoàn Trả (Viết bằng chữ): </span>' +
-                                '<span style="font-size: 13px; font-weight: 700; color: var(--navy);">' + totalValueWords + '</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- FOOTER -->' +
-                        '<div style="display: flex; flex-direction: column; gap: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 8px;">Nhận Xét Tình Trạng Hàng / Hướng Xử Lý Chi Tiết</label>' +
-                                '<div style="border: 1px solid #E5EAF3; padding: 16px; min-height: 80px; border-radius: var(--radius-btn);">' +
-                                    '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                        '<div style="border-bottom: 1px dashed rgba(16, 55, 92, 0.1); padding-bottom: 4px;"></div>' +
-                                    '</div>' +
-                                '</div>' +
-                            '</div>' +
-
-                            '<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-top: 16px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Khách Hàng Ký Nhận</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Nhân Viên Tiếp Nhận</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">QC Kiểm Duyệt</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Kế Toán Xác Nhận</label>' +
-                                    '<div style="border-bottom: 2px solid rgba(16, 55, 92, 0.1); padding-bottom: 40px; margin-bottom: 8px;"></div>' +
-                                    '<span style="font-size: 10px; color: rgba(16, 55, 92, 0.40); font-style: italic;">(Ký, họ tên)</span>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-            } else if (doc.type === "Phiếu Trả Hàng NCC") {
-                detailModalTitleArea.innerHTML = '<h3 class="modal-title" style="font-size: 16px; font-weight: 700; color: var(--navy);">Chi tiết Phiếu Trả Hàng Nhà Cung Cấp (RTV)</h3>';
-
-                var totalReceived = 0;
-                var totalReturned = 0;
-                var totalValue = 0;
-                var rowsHtml = "";
-
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    totalReceived += it.received || 0;
-                    totalReturned += it.returned || 0;
-                    var lineTotal = (it.returned || 0) * (it.price || 0);
-                    totalValue += lineTotal;
-
-                    rowsHtml += '<tr style="line-height: 2.0;">' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center;">' + it.stt + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; font-family: monospace; color: rgba(16, 55, 92, 0.70);">' + escapeHtml(it.sku || '') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--navy);">' + escapeHtml(it.name || '') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; text-align: center;">' + escapeHtml(it.uom || '') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: rgba(16, 55, 92, 0.60);">' + (it.received || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: center; color: #dc2626; font-weight: 700; background: rgba(220, 38, 38, 0.04);">' + (it.returned || 0) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: right; color: var(--navy);">' + (it.price ? it.price.toLocaleString('vi-VN') : '—') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 700; color: var(--navy);">' + lineTotal.toLocaleString('vi-VN') + '</td>' +
-                    '</tr>';
-                }
-
-                var totalValueWords = numberToVietnameseWords(totalValue);
-                var proposalText = doc.proposal || "";
-                if (proposalText === "EXCHANGE") {
-                    proposalText = "Đổi hàng mới";
-                } else if (proposalText === "DEBT_DEDUCTION") {
-                    proposalText = "Giảm trừ công nợ";
-                } else if (proposalText === "REFUND") {
-                    proposalText = "Hoàn tiền";
-                }
-
-                var rtvStatusText = doc.status || "Chờ duyệt";
-                var isApproved = (doc.status === "Đã duyệt" || doc.status === "Hoàn thành");
-
-                detailModalBody.innerHTML = 
-                    '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
-                        '<!-- HEADER SECTION -->' +
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 24px;">' +
-                            '<div>' +
-                                '<div style="font-size: 11px; font-weight: 500; color: var(--navy);">Đơn vị: <span style="font-weight: 700; font-size: 12px;">CÔNG TY TNHH ABC</span></div>' +
-                                '<div style="font-size: 11px; color: rgba(16, 55, 92, 0.60);">Bộ phận: Quản lý Kho vận (Logistics)</div>' +
-                            '</div>' +
-                            '<div style="text-align: right;">' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Mẫu số RTV-WMS</div>' +
-                                '<div style="font-size: 10px; color: rgba(16, 55, 92, 0.60);">Return to Vendor Note</div>' +
-                            '</div>' +
-                        '</div>' +
- 
-                        '<div style="text-align: center; margin-bottom: 8px;">' +
-                            '<h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--navy); letter-spacing: -0.01em;">PHIẾU XUẤT TRẢ HÀNG NHÀ CUNG CẤP</h1>' +
-                            '<div style="font-size: 13px; font-weight: 500; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">RETURN TO VENDOR (RTV)</div>' +
-                        '</div>' +
-
-                        '<div style="text-align: center; margin-bottom: 24px; font-size: 12px; color: rgba(16, 55, 92, 0.60);">' +
-                            'Ngày lập: <span style="font-weight: 600; color: var(--navy);">' + escapeHtml(doc.date) + '</span>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số Phiếu Trả (RTV No.)</label>' +
-                                '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.id) + '</span>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Số phiếu nhập kho gốc</label>' +
-                                '<span style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.inboundCode || '—') + '</span>' +
-                            '</div>' +
-                            '<div>' +
-                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 6px;">Trạng Thái</label>' +
-                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: ' + doc.statusColor + '; background: color-mix(in srgb, ' + doc.statusColor + ' 12%, transparent); border: 1px solid ' + doc.statusColor + '; border-radius: var(--radius-btn);">' + escapeHtml(rtvStatusText) + '</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 24px;">' +
-                            '<div style="display: flex; flex-direction: column; gap: 12px;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Nhà Cung Cấp (Supplier)</label>' +
-                                    '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.supplier) + ' (Mã: ' + escapeHtml(doc.supplierCode || '—') + ')</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người liên hệ nhà cung cấp</label>' +
-                                    '<div style="font-size: 14px; color: var(--navy);">' + escapeHtml(doc.contactPerson || '—') + '</div>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div style="display: flex; flex-direction: column; gap: 12px;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Căn cứ đơn hàng (PO Number)</label>' +
-                                    '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.poCode || '—') + '</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người lập (Warehouse Staff)</label>' +
-                                    '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.createdBy) + '</div>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- LINE ITEMS -->' +
-                        '<div style="margin-bottom: 24px;">' +
-                            '<h2 style="font-size: 14.5px; font-weight: 700; color: var(--navy); margin-bottom: 12px;">I. Chi tiết hàng hóa xuất trả:</h2>' +
-                            '<table class="pdf-table" style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
-                                '<thead>' +
-                                    '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Nhập Gốc</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: #fef2f2; color: #dc2626;">SL Xuất Trả</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Đơn Giá</th>' +
-                                        '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Thành Tiền</th>' +
-                                    '</tr>' +
-                                '</thead>' +
-                                '<tbody>' +
-                                    rowsHtml +
-                                    '<tr style="background: rgba(240, 244, 250, 0.35); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.30);">' +
-                                        '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 13px; color: var(--navy);">CỘNG:</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; color: rgba(16, 55, 92, 0.6);">' + totalReceived + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 14px; background: #fef2f2; color: #dc2626; font-weight: 800;">' + totalReturned + '</td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px;"></td>' +
-                                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right; font-size: 14px; font-weight: 800; color: var(--navy);">' + totalValue.toLocaleString('vi-VN') + '</td>' +
-                                    '</tr>' +
-                                '</tbody>' +
-                            '</table>' +
-                            '<div style="margin-top: 16px; border: 1px solid rgba(16, 55, 92, 0.2); padding: 12px 16px; border-radius: var(--radius-btn);">' +
-                                '<span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em;">Bằng chữ: </span>' +
-                                '<span style="font-size: 13px; font-weight: 700; color: var(--navy);">' + totalValueWords + '</span>' +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- lý do & đề xuất -->' +
-                        '<div style="margin-bottom: 32px;">' +
-                            '<h2 style="font-size: 14.5px; font-weight: 700; color: var(--navy); margin-bottom: 12px;">II. Lý do & Đề xuất xử lý:</h2>' +
-                            '<div style="display: flex; flex-direction: column; gap: 12px; border: 1px solid #E5EAF3; padding: 16px; border-radius: var(--radius-btn);">' +
-                                '<div>' +
-                                    '<span style="font-weight: 700; font-size: 12px; color: var(--navy);">Lý do trả hàng: </span>' +
-                                    '<span style="font-size: 13px; color: rgba(16, 55, 92, 0.80);">' + escapeHtml(doc.remarks || '') + '</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<span style="font-weight: 700; font-size: 12px; color: var(--navy);">Phương án giải quyết đề xuất: </span>' +
-                                    '<span style="font-size: 13px; font-weight: 600; color: #b91c1c;">' + escapeHtml(proposalText) + '</span>' +
-                                '</div>' +
-                                (doc.note ? '<div>' +
-                                    '<span style="font-weight: 700; font-size: 12px; color: var(--navy);">Ghi chú thêm: </span>' +
-                                    '<span style="font-size: 13px; color: rgba(16, 55, 92, 0.80);">' + escapeHtml(doc.note) + '</span>' +
-                                '</div>' : '') +
-                            '</div>' +
-                        '</div>' +
-
-                        '<!-- ký duyệt -->' +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Kết Quả Kiểm Kê Sản Phẩm Chi Tiết</h2>' +
+                        '<table style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
+                            '<thead>' +
+                                '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Hệ Thống</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 55, 92, 0.03);">SL Thực Tế</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Chênh Lệch</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Nguyên Nhân & Xử Lý</th>' +
+                                '</tr>' +
+                            '</thead>' +
+                            '<tbody>' + rowMarkup +
+                                '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.3);">' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalSystem + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalPhysical + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: ' + (totalDiff === 0 ? 'inherit' : (totalDiff > 0 ? '#059669' : '#dc2626')) + ';">' + (totalDiff > 0 ? "+" + totalDiff : totalDiff) + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px;"></td>' +
+                                '</tr>' +
+                            '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; text-align: center;">' +
                         '<div>' +
-                            '<h2 style="font-size: 14.5px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">III. Quy trình ký duyệt:</h2>' +
-                            '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 48px; text-align: center;">' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Người lập phiếu (Kho)</label>' +
-                                    '<div style="padding-bottom: 40px; margin-bottom: 8px;">' +
-                                        '<span style="font-size: 14px; font-weight: 700; color: #047857; font-family: \'Playpen Sans\', cursive; transform: rotate(-5deg); display: inline-block;">' + escapeHtml(doc.createdBy) + ' (Đã ký)</span>' +
-                                    '</div>' +
-                                    '<span style="font-size: 11px; color: rgba(16, 55, 92, 0.40); font-style: italic;">Nhân viên Kho</span>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<label style="display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.60); letter-spacing: 0.05em; margin-bottom: 12px;">Phê duyệt (Business Manager)</label>' +
-                                    '<div style="padding-bottom: 40px; margin-bottom: 8px;">' +
-                                        (isApproved ? 
-                                            '<span style="font-size: 14px; font-weight: 700; color: #047857; font-family: \'Playpen Sans\', cursive; transform: rotate(-3deg); display: inline-block;">Đã phê duyệt (Đã ký)</span>' :
-                                            '<span style="font-size: 13px; color: rgba(16, 55, 92, 0.40); font-style: italic;">[Chờ duyệt / Ký tên]</span>'
-                                        ) +
-                                    '</div>' +
-                                    '<span style="font-size: 11px; color: rgba(16, 55, 92, 0.40); font-style: italic;">Ban Quản Lý WMS</span>' +
-                                '</div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Thành Viên Ban Kiểm Kê</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Đại Diện Kiểm Toán/Kế Toán</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Giám Đốc Chi Nhánh / Thủ Kho</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }
+
+            if (doc.type === "Phiếu Chuyển Kho") {
+                var totalQty = 0;
+                var rowMarkup = "";
+                items.forEach(function(it) {
+                    totalQty += it.qty || 0;
+
+                    rowMarkup += '<tr style="line-height: 2.0;">' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 700; color: #ea580c; background: rgba(234, 88, 12, 0.05);">' + it.qty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
+                    '</tr>';
+                });
+
+                var fromWh = doc.warehouse || "Kho gửi";
+                var toWh = doc.toWarehouse || "Kho nhận";
+
+                return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h1 style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">PHIẾU CHUYỂN KHO NỘI BỘ</h1>' +
+                        '<div style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">STOCK TRANSFER NOTE (STN)</div>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                        '<div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Phiếu Chuyển (STN No.)</label>' +
+                            '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Kho Xuất Phát (Source WH)</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(fromWh) + '</div>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Kho Đích Đến (Destination WH)</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(toWh) + '</div>' +
                             '</div>' +
                         '</div>' +
-                    '</div>';
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Chuyển (STN Date)</label>' +
+                                '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + time + '</div>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
+                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #c2410c; background: #fff7ed; border: 1px solid #ffedd5; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người Lập Lệnh Chuyển</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.createdBy || '—') + '</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Danh Mục Sản Phẩm Chuyển Kho</h2>' +
+                        '<table style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
+                            '<thead>' +
+                                '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(234, 88, 12, 0.05); color: #ea580c;">SL Chuyển</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú</th>' +
+                                '</tr>' +
+                            '</thead>' +
+                            '<tbody>' + rowMarkup +
+                                '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.3);">' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #ea580c; background: rgba(234, 88, 12, 0.05);">' + totalQty + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px;"></td>' +
+                                '</tr>' +
+                            '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; text-align: center;">' +
+                        '<div>' +
+                            '<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.60); margin-bottom: 30px;">Người Lập Lệnh</div>' +
+                            '<div style="border-bottom: 1.5px solid rgba(16,55,92,0.15); width: 85%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 9px; color: rgba(16,55,92,0.40);">(Ký, họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.60); margin-bottom: 30px;">Thủ Kho Xuất</div>' +
+                            '<div style="border-bottom: 1.5px solid rgba(16,55,92,0.15); width: 85%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 9px; color: rgba(16,55,92,0.40);">(Ký, họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.60); margin-bottom: 30px;">Người Vận Chuyển</div>' +
+                            '<div style="border-bottom: 1.5px solid rgba(16,55,92,0.15); width: 85%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 9px; color: rgba(16,55,92,0.40);">(Ký, họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.60); margin-bottom: 30px;">Thủ Kho Nhận</div>' +
+                            '<div style="border-bottom: 1.5px solid rgba(16,55,92,0.15); width: 85%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 9px; color: rgba(16,55,92,0.40);">(Ký, họ tên)</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
             }
 
-            detailOverlay.classList.add('active');
+            if (doc.type === "Phiếu Hoàn Hàng") {
+                var totalReturned = 0, totalReuse = 0, totalDestroy = 0, totalVal = 0;
+                var rowMarkup = "";
+                items.forEach(function(it) {
+                    totalReturned += it.returnedQty || 0;
+                    totalReuse += it.reuseQty || 0;
+                    totalDestroy += it.destroyQty || 0;
+                    totalVal += (it.returnedQty || 0) * (it.price || 0);
+
+                    rowMarkup += '<tr style="line-height: 2.0;">' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.returnedQty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; color: #059669; background: rgba(16, 185, 129, 0.05);">' + it.reuseQty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; color: #dc2626; background: rgba(239, 68, 68, 0.05);">' + it.destroyQty + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 12px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
+                    '</tr>';
+                });
+
+                var customer = doc.customer || "Khách hàng gửi trả";
+
+                return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h1 style="margin: 0 0 2px; font-size: 24px; font-weight: 850; color: var(--navy); letter-spacing: -0.02em;">PHIẾU TIẾP NHẬN HÀNG HOÀN (RMA)</h1>' +
+                        '<div style="font-size: 13.5px; font-weight: 500; color: rgba(16, 55, 92, 0.50); text-transform: uppercase; letter-spacing: 0.05em;">RETURN MERCHANDISE AUTHORIZATION (RMA)</div>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">' +
+                        '<div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã RMA (RMA Ref No.)</label>' +
+                            '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Khách Hàng Trả Lại (Customer)</label>' +
+                                '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(customer) + '</div>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Hóa Đơn Tham Chiếu (Order Reference)</label>' +
+                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.poReference || "—") + '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="display: flex; flex-direction: column; gap: 16px;">' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Tiếp Nhận (Returned Date)</label>' +
+                                '<div style="font-size: 14px; color: var(--navy);">' + day + '/' + month + '/' + year + ' - ' + time + '</div>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái (Status)</label>' +
+                                '<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; border-radius: var(--radius-btn);">' + escapeHtml(doc.status) + '</span>' +
+                            '</div>' +
+                            '<div>' +
+                                '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trị Giá Đổi Trả Ước Tính</label>' +
+                                '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + totalVal.toLocaleString('vi-VN') + ' VNĐ</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px;">' +
+                        '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 16px;">Chi Tiết Phân Phối Hàng Trả Về (Phân Loại Chất Lượng)</h2>' +
+                        '<table style="width: 100%; border-collapse: collapse; border: 2px solid rgba(16, 55, 92, 0.15); margin-bottom: 24px;">' +
+                            '<thead>' +
+                                '<tr style="background: var(--alice); border-bottom: 2px solid rgba(16, 55, 92, 0.15);">' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; width: 35px;">STT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Nhận Trả</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669;">Tái Sử Dụng (A)</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(239, 68, 68, 0.05); color: #dc2626;">Hủy Bỏ (C)</th>' +
+                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Nguyên Nhân Trả Hàng</th>' +
+                                '</tr>' +
+                            '</thead>' +
+                            '<tbody>' + rowMarkup +
+                                '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-top: 2px solid rgba(16, 55, 92, 0.3);">' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalReturned + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #059669; background: rgba(16, 185, 129, 0.05);">' + totalReuse + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #dc2626; background: rgba(239, 68, 68, 0.05);">' + totalDestroy + '</td>' +
+                                    '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px;"></td>' +
+                                '</tr>' +
+                            '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; text-align: center;">' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Khách Hàng Đồng Ý Trả</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Kiểm Đếm Viên (QC)</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                        '<div>' +
+                            '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); margin-bottom: 40px;">Quản Trị Kho Nhận</div>' +
+                            '<div style="border-bottom: 2px solid rgba(16,55,92,0.15); width: 80%; margin: 0 auto 4px;"></div>' +
+                            '<span style="font-size: 10px; color: rgba(16,55,92,0.40); font-style: italic;">(Ký, ghi rõ họ tên)</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }
+
+            return "";
         }
 
-        // Render Table and Badges
-        function renderLedger() {
-            var list = window.WMS_LEDGER_DATA;
+        // Render documents table
+        function renderDocs() {
+            var html = "";
 
-            // 1. Filter
-            var filtered = list.filter(function(doc) {
-                var matchTab = activeTab === "all" || doc.type === activeTab;
-                var matchSearch = searchQuery.trim() === "" || 
-                                  doc.id.toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1 ||
-                                  doc.type.toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1 ||
-                                  doc.createdBy.toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1;
-                return matchTab && matchSearch;
+            // ─── Filter Logic ───
+            var filtered = docs.filter(function(d) {
+                var matchesSearch = d.id.toLowerCase().indexOf(searchQuery) !== -1 ||
+                                    d.type.toLowerCase().indexOf(searchQuery) !== -1 ||
+                                    d.createdBy.toLowerCase().indexOf(searchQuery) !== -1;
+                var matchesTab = activeTab === "all" || d.type === activeTab;
+                var matchesWarehouse = selectedWh === "all" || d.warehouse === selectedWh;
+                return matchesSearch && matchesTab && matchesWarehouse;
             });
 
-            // 2. Count metrics
-            var pendingCount = list.filter(function(d) { return needsApproval(d); }).length;
-            
-            // Tab badges counts
-            badgeAll.textContent = list.length;
-            badgeGrn.textContent = list.filter(function(d) { return d.type === "Phiếu Nhập Kho"; }).length;
-            badgeGi.textContent = list.filter(function(d) { return d.type === "Phiếu Xuất Kho"; }).length;
-            badgeKk.textContent = list.filter(function(d) { return d.type === "Phiếu Kiểm Kê"; }).length;
-            badgeTr.textContent = list.filter(function(d) { return d.type === "Phiếu Chuyển Kho"; }).length;
-            badgeRma.textContent = list.filter(function(d) { return d.type === "Phiếu Hoàn Hàng"; }).length;
-            if (badgeRtv) badgeRtv.textContent = list.filter(function(d) { return d.type === "Phiếu Trả Hàng NCC"; }).length;
-
-            // Inactive tabs pending counters
-            tabBtns.forEach(function(btn) {
-                var tabId = btn.getAttribute('data-tab');
-                var isBtnActive = btn.classList.contains('active');
-                
-                // Remove existing dot
-                var existingDot = btn.querySelector('.tab-pending-dot');
-                if (existingDot) existingDot.remove();
-
-                if (!isBtnActive) {
-                    var tabPendingCount = 0;
-                    if (tabId === "all") {
-                        tabPendingCount = pendingCount;
-                    } else {
-                        tabPendingCount = list.filter(function(d) { return d.type === tabId && needsApproval(d); }).length;
-                    }
-
-                    if (tabPendingCount > 0) {
-                        var dot = document.createElement('span');
-                        dot.className = "tab-pending-dot";
-                        dot.textContent = tabPendingCount;
-                        btn.appendChild(dot);
-                    }
+            // Count tab badges
+            var totalAll = 0, totalGrn = 0, totalGi = 0, totalKk = 0, totalTr = 0, totalRma = 0;
+            docs.forEach(function(d) {
+                var matchesWarehouse = selectedWh === "all" || d.warehouse === selectedWh;
+                if (matchesWarehouse) {
+                    totalAll++;
+                    if (d.type === "Phiếu Nhập Kho") totalGrn++;
+                    else if (d.type === "Phiếu Xuất Kho") totalGi++;
+                    else if (d.type === "Phiếu Kiểm Kê") totalKk++;
+                    else if (d.type === "Phiếu Chuyển Kho") totalTr++;
+                    else if (d.type === "Phiếu Hoàn Hàng") totalRma++;
                 }
             });
+            countAll.textContent = totalAll;
+            countGrn.textContent = totalGrn;
+            countGi.textContent = totalGi;
+            countKk.textContent = totalKk;
+            countTr.textContent = totalTr;
+            countRma.textContent = totalRma;
 
-            // Pending banner toggle
-            if (pendingCount > 0) {
-                bannerCountText.textContent = pendingCount + " phiếu";
-                pendingAlertBanner.style.display = "flex";
+            // Summary text
+            docCountSummary.textContent = filtered.length + " / " + totalAll + " phiếu";
+            docTableFooter.textContent = "Hiển thị " + filtered.length + " / " + totalAll + " chứng từ";
+
+            // Count pending approval alerts
+            var actionablePending = 0;
+            docs.forEach(function(d) {
+                var matchesWarehouse = selectedWh === "all" || d.warehouse === selectedWh;
+                if (matchesWarehouse && isAwaitingBM(d)) {
+                    actionablePending++;
+                }
+            });
+            if (actionablePending > 0) {
+                docAlertBannerText.textContent = "Bạn đang có " + actionablePending + " phiếu đang chờ phê duyệt.";
+                docAlertBanner.style.display = 'flex';
             } else {
-                pendingAlertBanner.style.display = "none";
+                docAlertBanner.style.display = 'none';
             }
 
-            showingCountEl.innerHTML = 'Hiển thị <strong class="text-navy">' + filtered.length + '</strong> / ' + list.length + ' chứng từ';
-
-            // Clear table
-            ledgerTableBody.innerHTML = "";
-
+            // Table rows generation
             if (filtered.length === 0) {
-                var tr = document.createElement('tr');
-                var td = document.createElement('td');
-                td.colSpan = 8;
-                td.style.padding = "0";
+                html = '<tr>' +
+                    '<td colspan="8" style="padding: 48px 0; text-align: center;">' +
+                        '<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: rgba(16, 55, 92, 0.2);">' +
+                            '<svg style="width: 48px; height: 48px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">' +
+                                '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' +
+                            '</svg>' +
+                            '<div style="font-size: 14px; color: rgba(16, 55, 92, 0.40);">' +
+                                (searchQuery ? "Không tìm thấy phiếu nào phù hợp" : "Chưa có phiếu nào") +
+                            '</div>' +
+                        '</div>' +
+                    '</td>' +
+                '</tr>';
+            } else {
+                filtered.forEach(function(d) {
+                    var cfg = DOC_TYPE_CONFIG[d.type] || { bg: "grn", icon: "", shortName: d.type };
+                    var draft = isDraft(d);
+                    var awaitingBM = isAwaitingBM(d);
+                    var rmaPending = isRMAPendingWH(d);
+                    var viewable = isViewable(d);
+                    var rejected = isRejected(d);
 
-                 var empty = document.createElement('div');
-                empty.className = "empty-wrapper";
-                empty.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>' +
-                                  '<div class="empty-wrapper-title">' + (searchQuery ? 'Không tìm thấy phiếu phù hợp' : 'Chưa có phiếu nào') + '</div>' +
-                                  '<div class="empty-wrapper-desc">Chưa có chứng từ kho nào trong hệ thống.</div>';
-                
-                td.appendChild(empty);
-                tr.appendChild(td);
-                ledgerTableBody.appendChild(tr);
-                return;
+                    var rowClass = "row-normal";
+                    if (viewable) rowClass = "row-viewable";
+                    else if (draft) rowClass = "row-draft";
+                    else if (awaitingBM) rowClass = "row-pending";
+                    else if (rejected) rowClass = "row-rejected";
+
+                    var rowOnClickAttr = viewable ? 'onclick="viewDocDetails(\'' + d.id + '\')"' : '';
+
+                    // Build operations markup
+                    var actionHtml = "";
+                    if (awaitingBM) {
+                        actionHtml = '<div style="display:flex; justify-content:center; gap:8px;">' +
+                            '<button class="btn-action-approve" onclick="confirmApprove(\'' + d.id + '\', \'' + d.type + '\', event)">Duyệt</button>' +
+                            '<button class="btn-action-reject" onclick="confirmReject(\'' + d.id + '\', \'' + d.type + '\', event)">Từ chối</button>' +
+                            '</div>';
+                    } else if (viewable || rejected || draft || rmaPending) {
+                        actionHtml = '<div class="btn-action-view-eye" title="Xem chứng từ chi tiết" onclick="viewDocDetails(\'' + d.id + '\', event)" style="cursor:pointer;">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' +
+                                '<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>' +
+                                '<path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>' +
+                            '</svg>' +
+                            '</div>';
+                    } else {
+                        actionHtml = '<span style="color: rgba(16, 55, 92, 0.20);">—</span>';
+                    }
+
+                    html += '<tr class="' + rowClass + '" ' + rowOnClickAttr + '>' +
+                        '<td style="padding-left: 20px;">' +
+                            '<div style="display: flex; align-items: center; gap: 10px;">' +
+                                '<div class="doc-type-icon-wrapper ' + cfg.bg + '">' + cfg.icon + '</div>' +
+                                '<span class="doc-id-text">' + escapeHtml(d.id) + '</span>' +
+                            '</div>' +
+                        '</td>' +
+                        '<td>' +
+                            '<span class="doc-type-badge ' + cfg.bg + '">' + cfg.shortName + '</span>' +
+                        '</td>' +
+                        '<td>' +
+                            '<div style="display: flex; align-items: center; gap: 6px; color: rgba(16,55,92,0.70); max-width: 220px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">' +
+                                '<svg style="width: 14px; height: 14px; flex-shrink: 0;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' +
+                                    '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>' +
+                                '</svg>' +
+                                '<span title="' + escapeHtml(d.warehouse) + '">' + escapeHtml(d.warehouse) + '</span>' +
+                            '</div>' +
+                        '</td>' +
+                        '<td>' + escapeHtml(d.createdBy) + '</td>' +
+                        '<td>' +
+                            '<div style="display: flex; align-items: center; gap: 6px; color: rgba(16,55,92,0.70);">' +
+                                '<svg style="width: 14px; height: 14px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' +
+                                    '<path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' +
+                                '</svg>' +
+                                '<span>' + escapeHtml(d.date) + '</span>' +
+                            '</div>' +
+                        '</td>' +
+                        '<td class="text-right" style="font-weight: 700;">' + d.items + '</td>' +
+                        '<td class="text-center">' +
+                            '<span class="doc-status-badge" style="background: color-mix(in srgb, ' + d.statusColor + ' 12%, transparent); color: ' + d.statusColor + ';">' +
+                                '<div class="doc-status-dot" style="background: ' + d.statusColor + ';"></div>' +
+                                escapeHtml(d.status) +
+                            '</span>' +
+                        '</td>' +
+                        '<td class="text-center" style="padding-right: 20px;" onclick="event.stopPropagation()">' + actionHtml + '</td>' +
+                    '</tr>';
+                });
             }
 
-            // Populate rows
-            filtered.forEach(function(doc) {
-                var tr = document.createElement('tr');
-                
-                var isPend = needsApproval(doc);
-                var isRej = (doc.status === "Từ chối");
-                if (isPend) tr.className = "row-pending";
-                if (isRej) tr.className = "row-rejected";
-
-                tr.addEventListener('click', function() {
-                    openDetailModal(doc);
-                });
-
-                var cfg = TYPE_CONFIGS[doc.type] || { colorClass: "theme-grn", badgeClass: "type-badge-grn", shortName: doc.type, icon: "" };
-
-                // Col 1: Mã Phiếu
-                var tdCode = document.createElement('td');
-                tdCode.style.paddingLeft = "20px";
-                tdCode.innerHTML = '<div class="code-cell">' +
-                                     '<div class="type-icon-wrapper ' + cfg.colorClass + '">' + cfg.icon + '</div>' +
-                                     '<span class="doc-id">' + escapeHtml(doc.id) + '</span>' +
-                                   '</div>';
-                tr.appendChild(tdCode);
-
-                // Col 2: Loại chứng từ
-                var tdType = document.createElement('td');
-                tdType.innerHTML = '<span class="type-badge ' + cfg.badgeClass + '">' + escapeHtml(cfg.shortName) + '</span>';
-                tr.appendChild(tdType);
-
-                // Col 3: Khu vực / Kho
-                var tdWarehouse = document.createElement('td');
-                tdWarehouse.innerHTML = '<div class="area-cell">' +
-                                           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4H4.6A2.6 2.6 0 0 1 2 9.4V4.6A2.6 2.6 0 0 1 4.6 2h14.8A2.6 2.6 0 0 1 22 4.6Z"/><path d="M2 8V20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8"/><path d="M12 11h4"/></svg>' +
-                                           '<span class="area-text" title="' + escapeHtml(doc.warehouse) + '">' + escapeHtml(doc.warehouse) + '</span>' +
-                                         '</div>';
-                tr.appendChild(tdWarehouse);
-
-                // Col 4: Người tạo
-                var tdCreator = document.createElement('td');
-                tdCreator.textContent = doc.createdBy;
-                tr.appendChild(tdCreator);
-
-                // Col 5: Ngày tạo
-                var tdDate = document.createElement('td');
-                tdDate.innerHTML = '<div class="date-cell">' +
-                                      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>' +
-                                      '<span>' + doc.date + '</span>' +
-                                    '</div>';
-                tr.appendChild(tdDate);
-
-                // Col 6: Số mặt hàng
-                var tdItems = document.createElement('td');
-                tdItems.style.textAlign = "right";
-                tdItems.innerHTML = '<span class="items-count">' + doc.items + '</span>';
-                tr.appendChild(tdItems);
-
-                // Col 7: Trạng thái
-                var tdStatus = document.createElement('td');
-                tdStatus.style.textAlign = "center";
-                tdStatus.innerHTML = '<span class="status-badge" style="background: color-mix(in srgb, ' + doc.statusColor + ' 12%, transparent); color: ' + doc.statusColor + ';">' +
-                                       '<div class="status-badge-dot" style="background: ' + doc.statusColor + ';"></div>' +
-                                       escapeHtml(doc.status) +
-                                     '</span>';
-                tr.appendChild(tdStatus);
-
-                // Col 8: Thao tác
-                var tdAction = document.createElement('td');
-                tdAction.style.textAlign = "center";
-                tdAction.style.paddingRight = "20px";
-                tdAction.addEventListener('click', function(e) {
-                    e.stopPropagation(); // prevent row click opening details
-                });
-
-                var actionsDiv = document.createElement('div');
-                actionsDiv.className = "actions-wrap";
-
-                // Eye/View details button always present
-                var viewBtn = document.createElement('button');
-                viewBtn.className = "btn-action-icon btn-action-eye";
-                viewBtn.title = "Xem chứng từ chi tiết";
-                viewBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z"/><circle cx="12" cy="12" r="3"/></svg>';
-                viewBtn.addEventListener('click', function() {
-                    openDetailModal(doc);
-                });
-                actionsDiv.appendChild(viewBtn);
-
-                if (isPend && window.WMS_USER.role === 'MANAGER') {
-                    // Approve check button
-                    var approveBtn = document.createElement('button');
-                    approveBtn.className = "btn-action-icon btn-action-approve";
-                    approveBtn.title = "Phê duyệt phiếu";
-                    approveBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                    approveBtn.addEventListener('click', function() {
-                        selectedConfirmDoc = doc;
-                        approveDocId.textContent = doc.id;
-                        approveDocSubtext.textContent = doc.type + " — " + doc.items + " mặt hàng";
-                        
-                        var explanation = "Sau khi phê duyệt, hệ thống sẽ chính thức ";
-                        if (doc.type === "Phiếu Nhập Kho") {
-                            explanation += "cộng số lượng tồn kho vật lý.";
-                        } else if (doc.type === "Phiếu Xuất Kho") {
-                            explanation += "trừ số lượng tồn kho vật lý.";
-                        } else if (doc.type === "Phiếu Kiểm Kê") {
-                            explanation += "sinh phiếu bù/hủy để cân bằng tồn kho.";
-                        } else if (doc.type === "Phiếu Trả Hàng NCC") {
-                            explanation += "duyệt trả hàng lại nhà cung cấp.";
-                        } else {
-                            explanation += "cập nhật vị trí tồn kho vật lý.";
-                        }
-                        approveExplanationText.textContent = explanation;
-
-                        approveOverlay.classList.add('active');
-                    });
-                    actionsDiv.appendChild(approveBtn);
-
-                    // Reject cross button
-                    var rejectBtn = document.createElement('button');
-                    rejectBtn.className = "btn-action-icon btn-action-reject";
-                    rejectBtn.title = "Từ chối phiếu";
-                    rejectBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-                    rejectBtn.addEventListener('click', function() {
-                        selectedConfirmDoc = doc;
-                        rejectDocId.textContent = doc.id;
-                        rejectDocSubtext.textContent = doc.type + " — " + doc.items + " mặt hàng";
-                        rejectReasonText.value = "";
-                        rejectOverlay.classList.add('active');
-                    });
-                    actionsDiv.appendChild(rejectBtn);
-                } else if (isRej) {
-                    var statusIcon = document.createElement('span');
-                    statusIcon.style.color = "#dc2626";
-                    statusIcon.title = "Đã từ chối";
-                    statusIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
-                    actionsDiv.appendChild(statusIcon);
-                }
-
-                tdAction.appendChild(actionsDiv);
-                tr.appendChild(tdAction);
-                ledgerTableBody.appendChild(tr);
-            });
-        }
-
-        function padZero(num) {
-            return (num < 10 ? '0' : '') + num;
+            docTableBody.innerHTML = html;
         }
 
         function escapeHtml(text) {
@@ -1816,7 +1348,8 @@
                 .replace(/'/g, "&#039;");
         }
 
-        // Init table render
-        renderLedger();
+        // Initial render
+        renderDocs();
+
     })();
 </script>

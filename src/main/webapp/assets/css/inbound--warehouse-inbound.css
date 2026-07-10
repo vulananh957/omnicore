@@ -49,6 +49,8 @@
     .status-pill__dot { width: 5px; height: 5px; border-radius: 50%; }
     .status-pill.pending   { background: #eff6ff; color: #1d4ed8; }
     .status-pill.pending .status-pill__dot { background: #3b82f6; }
+    .status-pill.purchased { background: #EDE9FE; color: #6d28d9; }
+    .status-pill.purchased .status-pill__dot { background: #8b5cf6; }
     .status-pill.confirmed { background: rgba(245,200,66,0.15); color: #d97706; }
     .status-pill.confirmed .status-pill__dot { background: #f5c842; }
     .status-pill.received  { background: #ecfdf5; color: #047857; }
@@ -401,6 +403,9 @@
     .pill-badge.pending_bm { background: #FEF3C7; color: #b45309; }
     .pill-badge.pending_bm .pill-badge__dot { background: #f59e0b; }
 
+    .pill-badge.purchased { background: #EDE9FE; color: #6d28d9; }
+    .pill-badge.purchased .pill-badge__dot { background: #8b5cf6; }
+
     .pill-badge.pending { background: #eff6ff; color: #1d4ed8; }
     .pill-badge.pending .pill-badge__dot { background: #3b82f6; }
 
@@ -479,7 +484,7 @@
 
     .btn-action-grn {
         padding: 8px 16px;
-        background: var(--orange);
+        background: var(--orange); /* orange — default for "Nhập thêm" / "Tạo phiếu mua hàng" */
         color: #fff;
         font-size: 12px;
         font-weight: 700;
@@ -491,7 +496,29 @@
     .btn-action-grn:hover {
         background: #ea580c;
     }
-    
+
+    /* Toolbar button variants */
+    .btn-create--emerald {
+        background: #059669;
+    }
+    .btn-create--emerald:hover {
+        background: #047857;
+    }
+
+    /* Row action button variants */
+    .btn-action-grn.btn-action-blue {
+        background: #2563eb;
+    }
+    .btn-action-grn.btn-action-blue:hover {
+        background: #1d4ed8;
+    }
+    .btn-action-grn.btn-action-emerald {
+        background: #059669;
+    }
+    .btn-action-grn.btn-action-emerald:hover {
+        background: #047857;
+    }
+
     .grn-chevron {
         width: 16px;
         height: 16px;
@@ -508,16 +535,14 @@
         display: inline-block;
     }
     .dropdown-menu {
+        /* position & coords set by JS (fixed) to escape overflow:hidden parents */
         position: absolute;
-        right: 0;
-        top: 100%;
-        margin-top: 8px;
         width: 180px;
         background: #fff;
         border: 1px solid var(--border);
         border-radius: var(--radius-btn);
-        box-shadow: 0 10px 15px -3px rgba(16, 55, 92, 0.1);
-        z-index: 50;
+        box-shadow: 0 10px 40px -4px rgba(16, 55, 92, 0.18), 0 2px 8px rgba(16,55,92,0.08);
+        z-index: 9999;
         display: none;
         overflow: hidden;
     }
@@ -1007,4 +1032,17 @@
         font-size: 13px;
         color: var(--navy);
         outline: none;
+    }
+
+    .btn-create--blue {
+        background: #2563eb;
+    }
+    .btn-create--blue:hover {
+        background: #1d4ed8;
+    }
+    .modal-btn-blue {
+        background: #2563eb;
+    }
+    .modal-btn-blue:hover {
+        background: #1d4ed8;
     }

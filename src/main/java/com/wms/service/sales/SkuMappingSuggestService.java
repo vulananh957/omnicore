@@ -1,18 +1,13 @@
 package com.wms.service.sales;
 
-import com.wms.dao.ProductDAO;
 import com.wms.dao.SkuMappingDAO;
 import com.wms.model.Product;
-import com.wms.model.SkuMapping;
-import com.wms.util.AppConstants;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * SkuMappingSuggestService — Heuristic auto-suggestion for SKU mapping
@@ -34,10 +29,8 @@ import java.util.logging.Logger;
  */
 public class SkuMappingSuggestService {
 
-    private static final Logger LOGGER = Logger.getLogger(SkuMappingSuggestService.class.getName());
 
     private final SkuMappingDAO skuMappingDAO = new SkuMappingDAO();
-    private final ProductDAO    productDAO    = new ProductDAO();
 
     /**
      * Generates suggestions for every unmapped seller_sku on this channel.

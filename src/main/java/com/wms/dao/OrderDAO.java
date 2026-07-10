@@ -30,12 +30,14 @@ public class OrderDAO extends BaseDAO {
      */
     public List<Order> getAllOrders() {        List<Order> list = new ArrayList<>();
         String sqlOrders = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, o.updated_at, "
-                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, "
-                           + "sd.recipient_name, sd.shipping_address, u.phone AS customer_phone, u.full_name AS customer_name "
+                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, o.shipment_provider, "
+                           + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
+                           + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                            + "FROM orders o "
                            + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                            + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
                            + "LEFT JOIN users u ON o.customer_id = u.user_id "
+                           + "LEFT JOIN lazada_orders lo ON o.channel_order_id = lo.lazada_order_id_str "
                            + "ORDER BY o.created_at DESC LIMIT 100";
         String sqlItems = "SELECT p.product_id, p.sku_code, p.product_name, oi.qty, oi.unit_price " +
                           "FROM order_items oi " +
@@ -83,6 +85,7 @@ public class OrderDAO extends BaseDAO {
 
                     // Custom WMS fields
                     order.setTrackingNo(rsOrders.getString("tracking_no"));
+                    order.setShipmentProvider(rsOrders.getString("shipment_provider"));
                     order.setReviewNote(rsOrders.getString("review_note"));
                     order.setRmaReason(rsOrders.getString("rma_reason"));
                     order.setRmaPhysicalStatus(rsOrders.getString("rma_physical_status"));
@@ -90,19 +93,30 @@ public class OrderDAO extends BaseDAO {
                     order.setDisputeEvidenceVideo(rsOrders.getString("dispute_evidence_video"));
                     order.setDisputeNote(rsOrders.getString("dispute_note"));
 
-                    // Customer & recipient details
+                    // Customer & recipient details — prefer order_shipping_details first, fall back to lazada_orders, then users table
                     String recipientName = rsOrders.getString("recipient_name");
                     String userFullName = rsOrders.getString("customer_name");
+                    String lazadaName = rsOrders.getString("lazada_customer_name");
                     String finalCustomerName = (recipientName != null && !recipientName.trim().isEmpty())
                             ? recipientName
-                            : ((userFullName != null && !userFullName.trim().isEmpty()) ? userFullName : "Khách hàng #" + (order.getCustomerId() != null ? order.getCustomerId() : "N/A"));
+                            : ((lazadaName != null && !lazadaName.trim().isEmpty()) ? lazadaName
+                              : ((userFullName != null && !userFullName.trim().isEmpty()) ? userFullName
+                                : "Khách hàng #" + (order.getCustomerId() != null ? order.getCustomerId() : "N/A")));
                     order.setCustomerName(finalCustomerName);
 
+                    String shippingPhone = rsOrders.getString("shipping_recipient_phone");
                     String customerPhone = rsOrders.getString("customer_phone");
-                    order.setCustomerPhone(customerPhone != null ? customerPhone : "Chưa có SĐT");
+                    String lazadaPhone = rsOrders.getString("lazada_customer_phone");
+                    order.setCustomerPhone(
+                        (shippingPhone != null && !shippingPhone.trim().isEmpty()) ? shippingPhone
+                        : ((customerPhone != null && !customerPhone.trim().isEmpty()) ? customerPhone
+                        : ((lazadaPhone != null && !lazadaPhone.trim().isEmpty()) ? lazadaPhone : "Chưa có SĐT")));
 
                     String shippingAddress = rsOrders.getString("shipping_address");
-                    order.setCustomerAddress(shippingAddress != null ? shippingAddress : "Chưa có địa chỉ");
+                    String lazadaAddress = rsOrders.getString("lazada_shipping_address");
+                    order.setCustomerAddress(
+                        (shippingAddress != null && !shippingAddress.trim().isEmpty()) ? shippingAddress
+                        : ((lazadaAddress != null && !lazadaAddress.trim().isEmpty()) ? lazadaAddress : "Chưa có địa chỉ"));
 
                     // Query and set items
                     psItems.setInt(1, orderId);
@@ -201,6 +215,17 @@ public class OrderDAO extends BaseDAO {
     }
 
     /**
+     * Updates the shipment_provider field on the orders table.
+     * Called after a successful Pack API call to persist the canonical carrier name
+     * returned by Lazada (or selected by Sales Staff before packing).
+     */
+    public boolean updateShipmentProvider(String orderCode, String shipmentProvider) {
+        return update(LOGGER,
+            "UPDATE orders SET shipment_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE order_code = ?",
+            shipmentProvider, orderCode) > 0;
+    }
+
+    /**
      * Returns true if a tracking number already exists in the orders table.
      * Used by OrderService to avoid duplicate tracking numbers during server-side generation.
      */
@@ -234,6 +259,16 @@ public class OrderDAO extends BaseDAO {
             packageId,
             packRequested ? 1 : 0,
             rtsPushed ? 1 : 0,
+            orderCode) > 0;
+    }
+
+    /**
+     * Mark that the Lazada AWB shipping label has been printed.
+     * Called by LazadaLabelServlet after successfully streaming the PDF.
+     */
+    public boolean markLabelPrinted(String orderCode) {
+        return update(LOGGER,
+            "UPDATE orders SET is_label_printed = 1, updated_at = CURRENT_TIMESTAMP WHERE order_code = ?",
             orderCode) > 0;
     }
 
@@ -291,12 +326,14 @@ public class OrderDAO extends BaseDAO {
         String sql = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, "
                    + "o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, "
                    + "o.tracking_no, o.review_note, o.channel_id, o.lazada_package_id, "
-                   + "o.is_pack_requested, o.is_rts_pushed, "
-                   + "sd.recipient_name, sd.shipping_address, u.phone AS customer_phone, u.full_name AS customer_name "
+                   + "o.is_pack_requested, o.is_rts_pushed, o.is_label_printed, o.shipment_provider, "
+                   + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
+                   + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                    + "FROM orders o "
                    + "LEFT JOIN warehouses w ON o.warehouse_id = w.warehouse_id "
                    + "LEFT JOIN order_shipping_details sd ON o.order_id = sd.order_id "
                    + "LEFT JOIN users u ON o.customer_id = u.user_id "
+                   + "LEFT JOIN lazada_orders lo ON o.channel_order_id = lo.lazada_order_id_str "
                    + "WHERE o.order_code = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -314,6 +351,7 @@ public class OrderDAO extends BaseDAO {
                     order.setLazadaPackageId(rs.getString("lazada_package_id"));
                     order.setPackRequested(rs.getInt("is_pack_requested") == 1);
                     order.setRtsPushed(rs.getInt("is_rts_pushed") == 1);
+                    order.setLabelPrinted(rs.getInt("is_label_printed") == 1);
                     order.setChannel(detectChannel(rs.getString("channel"), rs.getString("note"), rs.getString("tracking_no")));
                     order.setStatus(rs.getString("status"));
                     order.setTotalAmount(rs.getDouble("total_amount"));
@@ -325,14 +363,25 @@ public class OrderDAO extends BaseDAO {
                     order.setReviewNote(rs.getString("review_note"));
                     String recipientName = rs.getString("recipient_name");
                     String userFullName = rs.getString("customer_name");
+                    String lazadaName = rs.getString("lazada_customer_name");
                     String finalCustomerName = (recipientName != null && !recipientName.trim().isEmpty())
                             ? recipientName
-                            : ((userFullName != null && !userFullName.trim().isEmpty()) ? userFullName : "Khách hàng");
+                            : ((lazadaName != null && !lazadaName.trim().isEmpty()) ? lazadaName
+                              : ((userFullName != null && !userFullName.trim().isEmpty()) ? userFullName : "Khách hàng"));
                     order.setCustomerName(finalCustomerName);
+                    String shippingPhone = rs.getString("shipping_recipient_phone");
                     String customerPhone = rs.getString("customer_phone");
-                    order.setCustomerPhone(customerPhone != null ? customerPhone : "Chưa có SĐT");
+                    String lazadaPhone = rs.getString("lazada_customer_phone");
+                    order.setCustomerPhone(
+                        (shippingPhone != null && !shippingPhone.trim().isEmpty()) ? shippingPhone
+                        : ((customerPhone != null && !customerPhone.trim().isEmpty()) ? customerPhone
+                        : ((lazadaPhone != null && !lazadaPhone.trim().isEmpty()) ? lazadaPhone : "Chưa có SĐT")));
                     String shippingAddress = rs.getString("shipping_address");
-                    order.setCustomerAddress(shippingAddress != null ? shippingAddress : "Chưa có địa chỉ");
+                    String lazadaAddress = rs.getString("lazada_shipping_address");
+                    order.setCustomerAddress(
+                        (shippingAddress != null && !shippingAddress.trim().isEmpty()) ? shippingAddress
+                        : ((lazadaAddress != null && !lazadaAddress.trim().isEmpty()) ? lazadaAddress : "Chưa có địa chỉ"));
+                    order.setShipmentProvider(rs.getString("shipment_provider"));
                     return order;
                 }
             }

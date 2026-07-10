@@ -5,7 +5,6 @@ import com.wms.dao.UserDAO;
 import com.wms.model.User;
 import com.wms.model.Warehouse;
 import com.wms.service.warehouse.WarehouseService;
-import com.wms.util.AppConstants;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

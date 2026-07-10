@@ -1,18 +1,22 @@
 package com.wms.service.sales;
 
+import com.wms.dao.FulfillmentRequestDAO;
 import com.wms.dao.InventoryDAO;
 import com.wms.dao.OrderDAO;
 import com.wms.dao.WarehouseDAO;
+import com.wms.model.FulfillmentRequest;
 import com.wms.model.Order;
 import com.wms.model.OrderItem;
 import com.wms.model.Product;
 import com.wms.model.Warehouse;
 import com.wms.service.lazada.LazadaShipmentService;
 import com.wms.service.warehouse.OutboundService;
-import com.wms.service.NotificationService;
+import com.wms.service.common.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import com.wms.dao.CategoryDAO;
+import com.wms.model.Category;
+import java.util.ArrayList;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.*;
@@ -65,7 +69,7 @@ public class OrderService {
                                       String note, String trackingNo, String video,
                                       String rmaReason, String rmaPhysicalStatus,
                                       String rmaPlatformStatus, String platformStatus,
-                                      String disputeNote) {
+                                      String disputeNote, int userId, String userRole) {
         log.info("Order action: action={} orderCode={}", action, orderCode);
         switch (action) {
             case "approve": {
@@ -106,11 +110,7 @@ public class OrderService {
                         + " SKU hết hàng chờ nhập. Chi tiết:" + insufficientSkus;
                     boolean ok = orderDAO.updateOrderStatusAndWarehouse(orderCode, "PICKING", warehouseId, partialNote);
                     if (ok) {
-                        try {
-                            outboundService.autoCreateFromOrder(orderCode, warehouseId, 1);
-                        } catch (Exception ex) {
-                            log.warn("Failed to auto-create outbound for order {}: {}", orderCode, ex.getMessage());
-                        }
+                        autoCreateFulfillmentRequest(orderCode, warehouseId);
                         return ActionResult.success(
                             "Đã duyệt phần có hàng. " + insufficientCount
                             + " SKU hết hàng, chờ nhập thêm (xem ghi chú đơn).");
@@ -124,11 +124,8 @@ public class OrderService {
                 boolean ok = orderDAO.updateOrderStatusAndWarehouse(orderCode, "PICKING", warehouseId, defaultNote);
                 if (ok) {
                     log.info("Order approved: orderCode={} warehouseId={}", orderCode, warehouseId);
-                    try {
-                        outboundService.autoCreateFromOrder(orderCode, warehouseId, 1);
-                    } catch (Exception ex) {
-                        log.warn("Failed to auto-create outbound for order {}: {}", orderCode, ex.getMessage());
-                    }
+                    // Tự động tạo FulfillmentRequest để kho thấy lệnh xuất ngay
+                    autoCreateFulfillmentRequest(orderCode, warehouseId);
                     // Notify sales staff who owns the order
                     if (order != null && order.getCreatedBy() != null) {
                         notificationService.notifyOrderStatus(order.getCreatedBy(),
@@ -158,6 +155,8 @@ public class OrderService {
                 boolean ok = orderDAO.updateOrderStatusAndWarehouse(orderCode, "CANCELLED", 0, trimmedNote);
                 if (ok) {
                     log.info("Order rejected: orderCode={} reason={}", orderCode, trimmedNote);
+                    // Hủy fulfillment + outbound để warehouse staff không còn thấy phiếu.
+                    cascadeCancelOrder(orderCode);
                     return ActionResult.success("Từ chối đơn hàng thành công.");
                 } else {
                     log.error("Order reject DAO failed: orderCode={}", orderCode);
@@ -185,6 +184,12 @@ public class OrderService {
                         return ActionResult.failure(
                                 "Lazada cấp vận đơn thất bại: " + r.errorMessage);
                     }
+                    // Auto-create outbound order upon successful Lazada tracking generation
+                    try {
+                        outboundService.autoCreateFromOrder(orderCode, current.getWarehouseId(), userId, userRole);
+                    } catch (Exception ex) {
+                        log.error("Failed to auto-create outbound for Lazada order " + orderCode, ex);
+                    }
                     Map<String, Object> data = new HashMap<>();
                     data.put("trackingNo", r.trackingNo);
                     data.put("packageId", r.packageId);
@@ -204,6 +209,12 @@ public class OrderService {
                 boolean ok = orderDAO.updateOrderTrackingNo(orderCode, finalTracking);
                 if (ok) {
                     log.info("Tracking generated: orderCode={} trackingNo={}", orderCode, finalTracking);
+                    // Auto-create outbound order upon successful non-Lazada tracking generation
+                    try {
+                        outboundService.autoCreateFromOrder(orderCode, current.getWarehouseId(), userId, userRole);
+                    } catch (Exception ex) {
+                        log.error("Failed to auto-create outbound for order " + orderCode, ex);
+                    }
                     Map<String, Object> data = new HashMap<>();
                     data.put("trackingNo", finalTracking);
                     return ActionResult.success("Cập nhật tracking thành công.", data);
@@ -223,10 +234,27 @@ public class OrderService {
                 }
             }
             case "rts": {
-                // TODO: tích hợp LazadaRTSService.submitRTS(orderCode)
-                // Hiện tại chưa gọi API thật — chỉ log để trace
-                log.info("RTS request received for orderCode={} — Lazada RTS API integration pending", orderCode);
-                return ActionResult.failure("Tính năng tạo vận đơn (RTS) đang chờ tích hợp API Lazada.");
+                Order current = orderDAO.findByOrderCode(orderCode);
+                if (current == null) {
+                    log.warn("RTS failed: order not found orderCode={}", orderCode);
+                    return ActionResult.failure("Không tìm thấy đơn hàng: " + orderCode);
+                }
+                if (!"LAZADA".equalsIgnoreCase(current.getChannel())) {
+                    return ActionResult.failure("RTS chỉ hỗ trợ đơn Lazada.");
+                }
+                LazadaShipmentService.ShipmentResult r =
+                        new LazadaShipmentService().readyToShip(current);
+                if (!r.success) {
+                    log.error("Lazada RTS failed: orderCode={} err={}", orderCode, r.errorMessage);
+                    return ActionResult.failure("Lazada RTS thất bại: " + r.errorMessage);
+                }
+                log.info("Lazada RTS success: orderCode={} trackingNo={} packageId={}",
+                        orderCode, r.trackingNo, r.packageId);
+                Map<String, Object> data = new HashMap<>();
+                data.put("trackingNo", r.trackingNo);
+                data.put("packageId", r.packageId);
+                return ActionResult.success(
+                        "Lazada đã xác nhận giao hàng cho đơn vị vận chuyển (RTS) cho vận đơn " + r.trackingNo, data);
             }
             case "webhook": {
                 String status = determineWebhookStatus(platformStatus);
@@ -356,6 +384,9 @@ public class OrderService {
                 released, items.size(), orderCode);
         }
 
+        // Hủy luôn fulfillment + outbound để warehouse staff không còn thấy phiếu.
+        cascadeCancelOrder(orderCode);
+
         log.info("Order cancelled by buyer via webhook: orderCode={}", orderCode);
         // Notify sales staff: order cancelled by buyer
         if (order.getCreatedBy() != null) {
@@ -363,6 +394,57 @@ public class OrderService {
                     order.getOrderId(), orderCode, order.getStatus(), "CANCELLED");
         }
         return ActionResult.success("Đã hủy đơn theo yêu cầu khách hàng, tồn kho đã được trả lại.");
+    }
+
+    /**
+     * Hàm chung: hủy mọi thứ liên quan đến đơn hàng (fulfillment + outbound).
+     * Gọi từ reject(), handleBuyerCancellation(), và các luồng Lazada/webhook.
+     */
+    private void cascadeCancelOrder(String orderCode) {
+        com.wms.dao.FulfillmentRequestDAO frDAO = new com.wms.dao.FulfillmentRequestDAO();
+        frDAO.cancelByOrderId(orderCode);
+        com.wms.dao.OutboundDAO outboundDAO = new com.wms.dao.OutboundDAO();
+        outboundDAO.cancelByOrderId(orderCode);
+    }
+
+    /**
+     * Tạo FulfillmentRequest tự động khi Sales duyệt đơn,
+     * sau đó ngay lập tức convert thành OutboundOrder để kho thấy trong tabs.
+     * Idempotent: nếu đã có OutboundOrder active thì bỏ qua.
+     */
+    private void autoCreateFulfillmentRequest(String orderCode, int warehouseId) {
+        try {
+            FulfillmentRequestDAO frDAO = new FulfillmentRequestDAO();
+
+            // Tạo FulfillmentRequest (ghi log lịch sử), idempotent
+            if (!frDAO.existsPendingForOrder(orderCode)) {
+                String requestId = "FR-" + System.currentTimeMillis() + "-" + orderCode;
+                FulfillmentRequest fr = new FulfillmentRequest();
+                fr.setRequestId(requestId);
+                fr.setOrderId(orderCode);
+                fr.setWarehouseId(warehouseId);
+                fr.setStatus(FulfillmentRequest.STATUS_PENDING);
+                fr.setAutoCreated(true);
+                boolean created = frDAO.insert(fr);
+                if (created) {
+                    log.info("FulfillmentRequest created: requestId={} orderCode={} warehouseId={}", requestId, orderCode, warehouseId);
+                    // Ngay lập tức convert → tạo OutboundOrder để kho thấy trong tabs
+                    frDAO.updateStatus(requestId, FulfillmentRequest.STATUS_CONVERTED);
+                } else {
+                    log.warn("Failed to create FulfillmentRequest for orderCode={}", orderCode);
+                    return;
+                }
+            } else {
+                log.info("FulfillmentRequest already exists for orderCode={}", orderCode);
+            }
+
+            // Tạo OutboundOrder (idempotent — OutboundService tự guard trùng lặp)
+            new OutboundService().autoCreateFromOrder(orderCode, warehouseId, 1, "SALES_STAFF");
+            log.info("OutboundOrder auto-created for orderCode={} warehouseId={}", orderCode, warehouseId);
+
+        } catch (Exception e) {
+            log.error("autoCreateFulfillmentRequest failed for orderCode={}", orderCode, e);
+        }
     }
 
     /**
@@ -394,7 +476,7 @@ public class OrderService {
     public BigDecimal getTotalRevenue(String period) {
         LocalDateRange range = parsePeriod(period);
         if (range == null) return BigDecimal.ZERO;
-        String sql = "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE created_at >= ? AND created_at < ?";
+        String sql = "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setTimestamp(1, Timestamp.valueOf(range.start));
@@ -411,7 +493,7 @@ public class OrderService {
     public int getTotalOrders(String period) {
         LocalDateRange range = parsePeriod(period);
         if (range == null) return 0;
-        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ?";
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setTimestamp(1, Timestamp.valueOf(range.start));
@@ -435,8 +517,8 @@ public class OrderService {
     public BigDecimal getReturnRate(String period) {
         LocalDateRange range = parsePeriod(period);
         if (range == null) return BigDecimal.ZERO;
-        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status IN ('RETURNED','RMA')";
-        String totalSql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ?";
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status IN ('RETURNED','RMA') AND status != 'CANCELLED'";
+        String totalSql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection()) {
             int returned = 0, total = 0;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -458,25 +540,119 @@ public class OrderService {
         return BigDecimal.ZERO;
     }
 
-    public BigDecimal getRevenueGrowth() {
-        LocalDate today = LocalDate.now();
-        LocalDate weekAgo = today.minusDays(7);
-        LocalDate twoWeeksAgo = today.minusDays(14);
-        BigDecimal thisWeek = getTotalRevenueForRange(weekAgo, today);
-        BigDecimal lastWeek = getTotalRevenueForRange(twoWeeksAgo, weekAgo);
-        if (lastWeek.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
-        return thisWeek.subtract(lastWeek)
-                .divide(lastWeek, 4, RoundingMode.HALF_UP)
+    public BigDecimal getRevenueGrowth(String period) {
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return BigDecimal.ZERO;
+        long days = java.time.temporal.ChronoUnit.DAYS.between(range.start.toLocalDate(), range.end.toLocalDate());
+        LocalDateTime prevStart = range.start.minusDays(days);
+        LocalDateTime prevEnd = range.start;
+
+        BigDecimal thisRev = getTotalRevenueForRange(range.start, range.end);
+        BigDecimal prevRev = getTotalRevenueForRange(prevStart, prevEnd);
+
+        if (prevRev.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+        return thisRev.subtract(prevRev)
+                .divide(prevRev, 4, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100))
                 .setScale(2, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal getTotalRevenueForRange(LocalDate start, LocalDate end) {
-        String sql = "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE created_at >= ? AND created_at < ?";
+    public BigDecimal getOrdersGrowth(String period) {
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return BigDecimal.ZERO;
+        long days = java.time.temporal.ChronoUnit.DAYS.between(range.start.toLocalDate(), range.end.toLocalDate());
+        LocalDateTime prevStart = range.start.minusDays(days);
+        LocalDateTime prevEnd = range.start;
+
+        int thisCount = getOrdersCountForRange(range.start, range.end);
+        int prevCount = getOrdersCountForRange(prevStart, prevEnd);
+
+        if (prevCount == 0) return BigDecimal.ZERO;
+        return BigDecimal.valueOf(thisCount - prevCount)
+                .divide(BigDecimal.valueOf(prevCount), 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    public BigDecimal getAvgOrderGrowth(String period) {
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return BigDecimal.ZERO;
+        long days = java.time.temporal.ChronoUnit.DAYS.between(range.start.toLocalDate(), range.end.toLocalDate());
+        LocalDateTime prevStart = range.start.minusDays(days);
+        LocalDateTime prevEnd = range.start;
+
+        BigDecimal thisRev = getTotalRevenueForRange(range.start, range.end);
+        int thisCount = getOrdersCountForRange(range.start, range.end);
+        BigDecimal thisAvg = thisCount == 0 ? BigDecimal.ZERO : thisRev.divide(BigDecimal.valueOf(thisCount), 4, RoundingMode.HALF_UP);
+
+        BigDecimal prevRev = getTotalRevenueForRange(prevStart, prevEnd);
+        int prevCount = getOrdersCountForRange(prevStart, prevEnd);
+        BigDecimal prevAvg = prevCount == 0 ? BigDecimal.ZERO : prevRev.divide(BigDecimal.valueOf(prevCount), 4, RoundingMode.HALF_UP);
+
+        if (prevAvg.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+        return thisAvg.subtract(prevAvg)
+                .divide(prevAvg, 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    public BigDecimal getReturnRateGrowth(String period) {
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return BigDecimal.ZERO;
+        long days = java.time.temporal.ChronoUnit.DAYS.between(range.start.toLocalDate(), range.end.toLocalDate());
+        LocalDateTime prevStart = range.start.minusDays(days);
+        LocalDateTime prevEnd = range.start;
+
+        BigDecimal thisRate = getReturnRate(period);
+
+        int prevReturned = getReturnedCountForRange(prevStart, prevEnd);
+        int prevTotal = getOrdersCountForRange(prevStart, prevEnd);
+        BigDecimal prevRate = prevTotal == 0 ? BigDecimal.ZERO : BigDecimal.valueOf(prevReturned).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(prevTotal), 4, RoundingMode.HALF_UP);
+
+        if (prevRate.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+        return thisRate.subtract(prevRate)
+                .divide(prevRate, 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private int getOrdersCountForRange(LocalDateTime start, LocalDateTime end) {
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setTimestamp(1, Timestamp.valueOf(start.atStartOfDay()));
-            ps.setTimestamp(2, Timestamp.valueOf(end.atStartOfDay()));
+            ps.setTimestamp(1, Timestamp.valueOf(start));
+            ps.setTimestamp(2, Timestamp.valueOf(end));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            log.warn("getOrdersCountForRange failed", e);
+        }
+        return 0;
+    }
+
+    private int getReturnedCountForRange(LocalDateTime start, LocalDateTime end) {
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status IN ('RETURNED','RMA') AND status != 'CANCELLED'";
+        try (Connection conn = com.wms.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(start));
+            ps.setTimestamp(2, Timestamp.valueOf(end));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            log.warn("getReturnedCountForRange failed", e);
+        }
+        return 0;
+    }
+
+    private BigDecimal getTotalRevenueForRange(LocalDateTime start, LocalDateTime end) {
+        String sql = "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
+        try (Connection conn = com.wms.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(start));
+            ps.setTimestamp(2, Timestamp.valueOf(end));
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getBigDecimal(1);
             }
@@ -486,45 +662,106 @@ public class OrderService {
         return BigDecimal.ZERO;
     }
 
-    public Map<String, BigDecimal> getDailyRevenueData(String period) {
-        Map<String, BigDecimal> data = new LinkedHashMap<>();
+    public List<Map<String, Object>> getDailyRevenueData(String period) {
+        List<Map<String, Object>> list = new ArrayList<>();
         LocalDateRange range = parsePeriod(period);
-        if (range == null) return data;
-        String sql = "SELECT DATE(created_at) AS day, SUM(total_amount) AS revenue "
-                   + "FROM orders WHERE created_at >= ? AND created_at < ? GROUP BY DATE(created_at) ORDER BY day";
+        if (range == null) return list;
+
+        // 1. Fetch active channel names
+        List<String> activeChannels = new ArrayList<>();
+        String channelSql = "SELECT channel_name FROM channels WHERE is_active = 1";
+        try (Connection conn = com.wms.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(channelSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String name = rs.getString("channel_name");
+                if (name != null && !activeChannels.contains(name)) {
+                    activeChannels.add(name);
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("Failed to fetch active channels for daily revenue alignment", e);
+        }
+        
+        // Add fallback default channels if none are found in DB
+        if (activeChannels.isEmpty()) {
+            activeChannels.add("ONLINE");
+            activeChannels.add("STORE");
+            activeChannels.add("B2B");
+        }
+        if (!activeChannels.contains("Khác")) {
+            activeChannels.add("Khác");
+        }
+
+        // 2. Query the date-channel grouped data
+        String sql = "SELECT DATE(o.created_at) AS day, COALESCE(c.channel_name, o.channel, 'Khác') AS channel_name, SUM(o.total_amount) AS revenue "
+                   + "FROM orders o "
+                   + "LEFT JOIN channels c ON o.channel_id = c.channel_id "
+                   + "WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'CANCELLED' "
+                   + "GROUP BY DATE(o.created_at), COALESCE(c.channel_name, o.channel, 'Khác') "
+                   + "ORDER BY day";
+
+        Map<String, Map<String, BigDecimal>> dayChannelMap = new LinkedHashMap<>();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM");
+
+        // Populate all dates in range with empty maps to ensure continuous timeline on chart
+        LocalDate startLocalDate = range.start.toLocalDate();
+        LocalDate endLocalDate = range.end.toLocalDate();
+        for (LocalDate date = startLocalDate; date.isBefore(endLocalDate); date = date.plusDays(1)) {
+            dayChannelMap.put(date.format(fmt), new HashMap<>());
+        }
+
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setTimestamp(1, Timestamp.valueOf(range.start));
             ps.setTimestamp(2, Timestamp.valueOf(range.end));
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM");
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     Date d = rs.getDate("day");
                     if (d != null) {
-                        data.put(d.toLocalDate().format(fmt), rs.getBigDecimal("revenue"));
+                        String dateStr = d.toLocalDate().format(fmt);
+                        String chName = rs.getString("channel_name");
+                        BigDecimal rev = rs.getBigDecimal("revenue");
+                        if (rev == null) rev = BigDecimal.ZERO;
+
+                        Map<String, BigDecimal> chMap = dayChannelMap.computeIfAbsent(dateStr, k -> new HashMap<>());
+                        chMap.put(chName, rev);
                     }
                 }
             }
         } catch (SQLException e) {
             log.warn("getDailyRevenueData failed for period={}", period, e);
         }
-        return data;
+
+        for (Map.Entry<String, Map<String, BigDecimal>> entry : dayChannelMap.entrySet()) {
+            Map<String, Object> dayRow = new LinkedHashMap<>();
+            dayRow.put("date", entry.getKey());
+            Map<String, BigDecimal> chMap = entry.getValue();
+            for (String ch : activeChannels) {
+                dayRow.put(ch, chMap.getOrDefault(ch, BigDecimal.ZERO));
+            }
+            list.add(dayRow);
+        }
+        return list;
     }
 
     public Map<String, BigDecimal> getChannelRevenueData(String period) {
         Map<String, BigDecimal> data = new LinkedHashMap<>();
         LocalDateRange range = parsePeriod(period);
         if (range == null) return data;
-        String sql = "SELECT COALESCE(o.channel, 'Khác') AS channel, SUM(o.total_amount) AS revenue "
+        String sql = "SELECT COALESCE(c.channel_name, o.channel, 'Khác') AS channel_name, SUM(o.total_amount) AS revenue "
                    + "FROM orders o "
-                   + "WHERE o.created_at >= ? AND o.created_at < ? GROUP BY o.channel ORDER BY revenue DESC";
+                   + "LEFT JOIN channels c ON o.channel_id = c.channel_id "
+                   + "WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'CANCELLED' "
+                   + "GROUP BY COALESCE(c.channel_name, o.channel, 'Khác') "
+                   + "ORDER BY revenue DESC";
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setTimestamp(1, Timestamp.valueOf(range.start));
             ps.setTimestamp(2, Timestamp.valueOf(range.end));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    data.put(rs.getString("channel"), rs.getBigDecimal("revenue"));
+                    data.put(rs.getString("channel_name"), rs.getBigDecimal("revenue"));
                 }
             }
         } catch (SQLException e) {
@@ -533,34 +770,242 @@ public class OrderService {
         return data;
     }
 
-    public Map<String, Integer> getOrderStatusCounts() {
-        Map<String, Integer> data = new LinkedHashMap<>();
-        String sql = "SELECT status, COUNT(*) AS cnt FROM orders GROUP BY status ORDER BY cnt DESC";
+    public Map<String, BigDecimal> getCategoryRevenueData(String period) {
+        Map<String, BigDecimal> result = new LinkedHashMap<>();
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return result;
+
+        Map<Integer, Category> categoryMap = new HashMap<>();
+        try {
+            CategoryDAO categoryDAO = new CategoryDAO();
+            List<Category> allCategories = categoryDAO.findAll();
+            for (Category c : allCategories) {
+                categoryMap.put(c.getCategoryId(), c);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load categories for root category resolution", e);
+        }
+
+        String sql = "SELECT p.category_id, SUM(oi.qty * oi.unit_price) AS revenue "
+                   + "FROM order_items oi "
+                   + "JOIN products p ON oi.product_id = p.product_id "
+                   + "JOIN orders o ON oi.order_id = o.order_id "
+                   + "WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'CANCELLED' "
+                   + "GROUP BY p.category_id";
+
+        Map<String, BigDecimal> aggregatedRevenue = new HashMap<>();
+        for (Category c : categoryMap.values()) {
+            if (c.getParentId() == null && c.getCategoryName() != null) {
+                aggregatedRevenue.put(c.getCategoryName(), BigDecimal.ZERO);
+            }
+        }
+
         try (Connection conn = com.wms.util.DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                data.put(rs.getString("status"), rs.getInt("cnt"));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(range.start));
+            ps.setTimestamp(2, Timestamp.valueOf(range.end));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Integer catId = rs.getObject("category_id") != null ? rs.getInt("category_id") : null;
+                    BigDecimal rev = rs.getBigDecimal("revenue");
+                    if (rev == null) rev = BigDecimal.ZERO;
+
+                    String rootName = getRootCategoryName(catId, categoryMap);
+                    BigDecimal existing = aggregatedRevenue.getOrDefault(rootName, BigDecimal.ZERO);
+                    aggregatedRevenue.put(rootName, existing.add(rev));
+                }
             }
         } catch (SQLException e) {
-            log.warn("getOrderStatusCounts failed", e);
+            log.warn("getCategoryRevenueData failed for period={}", period, e);
+        }
+
+        List<Map.Entry<String, BigDecimal>> entryList = new ArrayList<>(aggregatedRevenue.entrySet());
+        entryList.sort((e1, e2) -> e2.getValue().compareTo(e1.getValue()));
+        for (Map.Entry<String, BigDecimal> entry : entryList) {
+            result.put(entry.getKey(), entry.getValue());
+        }
+
+        return result;
+    }
+
+    private String getRootCategoryName(Integer categoryId, Map<Integer, Category> categoryMap) {
+        if (categoryId == null) {
+            return "Khác";
+        }
+        Category current = categoryMap.get(categoryId);
+        if (current == null) {
+            return "Khác";
+        }
+        int safety = 0;
+        while (current.getParentId() != null && safety < 100) {
+            Category parent = categoryMap.get(current.getParentId());
+            if (parent == null) {
+                break;
+            }
+            current = parent;
+            safety++;
+        }
+        return current.getCategoryName() != null ? current.getCategoryName() : "Khác";
+    }
+
+    public Map<String, Integer> getOrderStatusCounts(String period) {
+        Map<String, Integer> data = new LinkedHashMap<>();
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return data;
+        String sql = "SELECT status, COUNT(*) AS cnt FROM orders WHERE created_at >= ? AND created_at < ? GROUP BY status ORDER BY cnt DESC";
+        try (Connection conn = com.wms.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(range.start));
+            ps.setTimestamp(2, Timestamp.valueOf(range.end));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    data.put(rs.getString("status"), rs.getInt("cnt"));
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("getOrderStatusCounts failed for period={}", period, e);
         }
         return data;
+    }
+
+    public List<Map<String, Object>> getOrderStatusBreakdown(String period) {
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+        Map<String, Integer> counts = getOrderStatusCounts(period);
+        int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+
+        int delivered = counts.getOrDefault("COMPLETED", 0) + counts.getOrDefault("DELIVERED", 0);
+        int shipping = counts.getOrDefault("SHIPPED", 0) + counts.getOrDefault("PICKING", 0) + counts.getOrDefault("PACKED", 0);
+        int pending = counts.getOrDefault("PENDING", 0);
+        int cancelled = counts.getOrDefault("CANCELLED", 0);
+        int returned = counts.getOrDefault("RETURNED", 0);
+
+        breakdown.add(createStatusMap("Đã giao", total > 0 ? (double) delivered * 100 / total : 0, delivered, "#10b981"));
+        breakdown.add(createStatusMap("Đang giao", total > 0 ? (double) shipping * 100 / total : 0, shipping, "#EB8317"));
+        breakdown.add(createStatusMap("Chờ xử lý", total > 0 ? (double) pending * 100 / total : 0, pending, "#F3C623"));
+        breakdown.add(createStatusMap("Đã huỷ", total > 0 ? (double) cancelled * 100 / total : 0, cancelled, "#ef4444"));
+        breakdown.add(createStatusMap("Hoàn hàng", total > 0 ? (double) returned * 100 / total : 0, returned, "#8b5cf6"));
+        return breakdown;
+    }
+
+    private Map<String, Object> createStatusMap(String name, double val, int count, String color) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", name);
+        m.put("value", Math.round(val * 10.0) / 10.0);
+        m.put("count", count);
+        m.put("color", color);
+        return m;
     }
 
     public List<Product> getTopProducts(int limit) {
         return orderDAO.getTopProducts(limit);
     }
 
+    public List<Map<String, Object>> getTopProductsDetailed(String period, int limit) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        LocalDateRange range = parsePeriod(period);
+        if (range == null) return list;
+
+        String sql = "SELECT p.product_id, p.sku_code AS sku, p.product_name AS name, "
+                   + "SUM(oi.qty) AS totalQuantity, "
+                   + "SUM(oi.qty * oi.unit_price) AS totalRevenue, "
+                   + "GROUP_CONCAT(DISTINCT COALESCE(c.channel_name, o.channel)) AS channels "
+                   + "FROM order_items oi "
+                   + "JOIN products p ON oi.product_id = p.product_id "
+                   + "JOIN orders o ON oi.order_id = o.order_id "
+                   + "LEFT JOIN channels c ON o.channel_id = c.channel_id "
+                   + "WHERE o.status NOT IN ('CANCELLED') "
+                   + "AND o.created_at >= ? AND o.created_at < ? "
+                   + "GROUP BY p.product_id, p.sku_code, p.product_name "
+                   + "ORDER BY totalRevenue DESC "
+                   + "LIMIT ?";
+
+        long days = java.time.temporal.ChronoUnit.DAYS.between(range.start.toLocalDate(), range.end.toLocalDate());
+        LocalDateTime prevStart = range.start.minusDays(days);
+        LocalDateTime prevEnd = range.start;
+
+        try (Connection conn = com.wms.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(range.start));
+            ps.setTimestamp(2, Timestamp.valueOf(range.end));
+            ps.setInt(3, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int productId = rs.getInt("product_id");
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("sku", rs.getString("sku"));
+                    map.put("name", rs.getString("name"));
+                    map.put("totalQuantity", rs.getBigDecimal("totalQuantity"));
+                    BigDecimal thisRev = rs.getBigDecimal("totalRevenue");
+                    map.put("totalRevenue", thisRev);
+
+                    String chStr = rs.getString("channels");
+                    List<String> chList = new ArrayList<>();
+                    if (chStr != null) {
+                        for (String s : chStr.split(",")) {
+                            if (!s.trim().isEmpty()) chList.add(s.trim());
+                        }
+                    }
+                    if (chList.isEmpty()) {
+                        chList.add("ONLINE");
+                    }
+                    map.put("channels", chList);
+
+                    // Compute growth for this product
+                    BigDecimal prevRev = getProductRevenueForRange(conn, productId, prevStart, prevEnd);
+                    double growth = 0.0;
+                    if (prevRev.compareTo(BigDecimal.ZERO) > 0) {
+                        growth = thisRev.subtract(prevRev)
+                                .divide(prevRev, 4, RoundingMode.HALF_UP)
+                                .multiply(BigDecimal.valueOf(100))
+                                .doubleValue();
+                    } else if (thisRev.compareTo(BigDecimal.ZERO) > 0) {
+                        growth = 100.0;
+                    }
+                    map.put("growth", Math.round(growth * 10.0) / 10.0);
+
+                    list.add(map);
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("getTopProductsDetailed failed for period=" + period, e);
+        }
+        return list;
+    }
+
+    private BigDecimal getProductRevenueForRange(Connection conn, int productId, LocalDateTime start, LocalDateTime end) {
+        String sql = "SELECT COALESCE(SUM(oi.qty * oi.unit_price), 0) "
+                   + "FROM order_items oi "
+                   + "JOIN orders o ON oi.order_id = o.order_id "
+                   + "WHERE o.status NOT IN ('CANCELLED') "
+                   + "AND o.created_at >= ? AND o.created_at < ? "
+                   + "AND oi.product_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(start));
+            ps.setTimestamp(2, Timestamp.valueOf(end));
+            ps.setInt(3, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getBigDecimal(1);
+            }
+        } catch (SQLException e) {
+            log.warn("getProductRevenueForRange failed for productId=" + productId, e);
+        }
+        return BigDecimal.ZERO;
+    }
+
     private LocalDateRange parsePeriod(String period) {
-        if (period == null) period = "week";
+        if (period == null) period = "30ngay";
         LocalDate today = LocalDate.now();
         switch (period) {
             case "today":   return new LocalDateRange(today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+            case "7ngay":
             case "week":    return new LocalDateRange(today.minusDays(7).atStartOfDay(), today.plusDays(1).atStartOfDay());
+            case "30ngay":
             case "month":   return new LocalDateRange(today.minusDays(30).atStartOfDay(), today.plusDays(1).atStartOfDay());
+            case "3thang":
             case "quarter": return new LocalDateRange(today.minusDays(90).atStartOfDay(), today.plusDays(1).atStartOfDay());
-            default:        return new LocalDateRange(today.minusDays(7).atStartOfDay(), today.plusDays(1).atStartOfDay());
+            case "6thang":  return new LocalDateRange(today.minusDays(180).atStartOfDay(), today.plusDays(1).atStartOfDay());
+            case "1nam":    return new LocalDateRange(today.minusDays(365).atStartOfDay(), today.plusDays(1).atStartOfDay());
+            default:        return new LocalDateRange(today.minusDays(30).atStartOfDay(), today.plusDays(1).atStartOfDay());
         }
     }
 

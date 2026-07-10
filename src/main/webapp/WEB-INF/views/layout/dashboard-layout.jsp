@@ -8,6 +8,12 @@
     <title>${pageTitle != null ? pageTitle : 'Dashboard'} — OmniCore</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/dashboard.css"/>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/notification.css"/>
+    <c:if test="${currentPage == 'product-performance'}">
+        <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/business--product-performance.css?v=2"/>
+    </c:if>
+    <c:if test="${currentPage == 'suppliers'}">
+        <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/business--suppliers.css?v=2"/>
+    </c:if>
 </head>
 <body>
 <div class="app-shell">
@@ -49,9 +55,10 @@
 
         <!-- Nav -->
         <nav class="sidebar__nav">
-            <!-- TỔNG QUAN -->
+
+            <!-- ═══ NHÓM 1: TỔNG QUAN & BÁO CÁO ═══ -->
             <div class="nav-group">
-                <div class="nav-group__label">Tổng quan</div>
+                <div class="nav-group__label">Tổng quan & Báo cáo</div>
                 <a href="${pageContext.request.contextPath}/business/dashboard"
                    class="nav-item ${currentPage == 'dashboard' ? 'active' : ''}">
                     <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -67,9 +74,24 @@
                         </svg>
                     </c:if>
                 </a>
+                <a href="${pageContext.request.contextPath}/business/performance"
+                   class="nav-item ${currentPage == 'product-performance' ? 'active' : ''}">
+                    <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                    <span>Hiệu suất sản phẩm</span>
+                    <c:if test="${currentPage == 'product-performance'}">
+                        <svg class="nav-item__chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m9 18 6-6-6-6"/>
+                        </svg>
+                    </c:if>
+                </a>
             </div>
 
-            <!-- QUẢN LÝ KHO -->
+            <!-- ═══ NHÓM 2: QUẢN LÝ KHO ═══ -->
             <div class="nav-group">
                 <div class="nav-group__label">Quản lý kho</div>
                 <a href="${pageContext.request.contextPath}/business/warehouses"
@@ -95,16 +117,37 @@
                    class="nav-item ${currentPage == 'ledger' ? 'active' : ''}">
                     <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
-                        <path d="M12 7v5l4 2"/>
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
                     </svg>
                     <span>Sổ kho</span>
                 </a>
             </div>
 
-            <!-- QUẢN TRỊ NỘI BỘ -->
+            <!-- ═══ NHÓM 3: ĐỐI TÁC THƯƠNG MẠI ═══ -->
             <div class="nav-group">
-                <div class="nav-group__label">Quản trị nội bộ</div>
+                <div class="nav-group__label">Đối tác thương mại</div>
+                <a href="${pageContext.request.contextPath}/business/suppliers"
+                   class="nav-item ${currentPage == 'suppliers' ? 'active' : ''}">
+                    <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/>
+                        <path d="M3 6h18"/>
+                        <path d="M16 10a4 4 0 0 1-8 0"/>
+                    </svg>
+                    <span>Nhà cung cấp</span>
+                    <c:if test="${currentPage == 'suppliers'}">
+                        <svg class="nav-item__chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m9 18 6-6-6-6"/>
+                        </svg>
+                    </c:if>
+                </a>
+            </div>
+
+            <!-- ═══ NHÓM 4: CẤU HÌNH & HỆ THỐNG ═══ -->
+            <div class="nav-group">
+                <div class="nav-group__label">Cấu hình & Hệ thống</div>
                 <a href="${pageContext.request.contextPath}/business/staff"
                    class="nav-item ${currentPage == 'staff' ? 'active' : ''}">
                     <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -115,11 +158,6 @@
                     </svg>
                     <span>Quản lý nhân sự</span>
                 </a>
-            </div>
-
-            <!-- CÀI ĐẶT -->
-            <div class="sidebar__settings-divider">
-                <div class="nav-group__label sidebar__settings-label">Cài đặt</div>
                 <a href="${pageContext.request.contextPath}/business/profile"
                    class="nav-item ${currentPage == 'profile' ? 'active' : ''}">
                     <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -306,10 +344,9 @@
                 var id = item.getAttribute('data-id');
                 if (id && !item.classList.contains('unread')) return;
                 fetch('/api/notifications/' + id + '/read', { method: 'POST', headers: { 'Accept': 'application/json' } })
-                .then(function(r) { return r.json(); }).then(function() {
+                .then(function(r) { return r.json(); }).then(function(data) {
                     item.classList.remove('unread');
-                    var count = parseInt(notifBadge.textContent || '0') - 1;
-                    updateBadge(Math.max(0, count));
+                    updateBadge(data.unreadCount || 0);
                 }).catch(function() {});
             });
         });

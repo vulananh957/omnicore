@@ -25,8 +25,11 @@ public class ChannelProductDAO {
         "SELECT cp.id, cp.channel_id, cp.product_id, cp.channel_sku_code, "
         + "cp.channel_price, cp.channel_stock, cp.status, cp.listed_at, cp.updated_at, "
         + "cp.channel_item_id, cp.lazada_sku_id, cp.last_push_qty, cp.last_push_at, "
-        + "cp.last_error_code, cp.last_error_message, cp.lazada_category_id, "
-        + "c.channel_name, c.platform, p.sku_code, p.product_name "
+        + "cp.last_error_code, cp.last_error_message, cp.lazada_category_id, cp.brand_id, "
+        + "cp.dimensions AS cp_dimensions, cp.weight_kg AS cp_weight_kg, "
+        + "cp.seller_sku, cp.short_description, cp.brand, cp.description, "
+        + "c.channel_name, c.platform, "
+        + "p.sku_code, p.product_name, p.dimensions AS product_dimensions, p.weight_kg AS product_weight_kg "
         + "FROM channel_products cp "
         + "LEFT JOIN channels c ON cp.channel_id = c.channel_id "
         + "LEFT JOIN products p ON cp.product_id = p.product_id";
@@ -138,18 +141,27 @@ public class ChannelProductDAO {
      */
     public boolean insert(ChannelProduct cp) {
         String sql = "INSERT INTO channel_products (channel_id, product_id, channel_sku_code, "
-                   + "channel_price, channel_stock, status, listed_at) "
-                   + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+                   + "channel_price, channel_stock, status, listed_at, lazada_category_id, brand_id, "
+                   + "dimensions, weight_kg, seller_sku, short_description, brand, description) "
+                   + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, cp.getChannelId());
             ps.setInt(2, cp.getProductId());
             ps.setString(3, cp.getChannelSkuCode());
-            ps.setBigDecimal(4, cp.getChannelPrice());
-            ps.setBigDecimal(5, cp.getChannelStock());
+            ps.setBigDecimal(4, cp.getChannelPrice() != null ? cp.getChannelPrice() : BigDecimal.ZERO);
+            ps.setBigDecimal(5, cp.getChannelStock() != null ? cp.getChannelStock() : BigDecimal.ZERO);
             ps.setString(6, cp.getStatus() != null ? cp.getStatus() : "ACTIVE");
             ps.setTimestamp(7, cp.getListedAt() != null ? Timestamp.valueOf(cp.getListedAt()) : null);
+            ps.setObject(8, cp.getLazadaCategoryId());
+            ps.setObject(9, cp.getBrandId());
+            ps.setString(10, cp.getDimensions());
+            ps.setObject(11, cp.getWeightKg());
+            ps.setString(12, cp.getSellerSku());
+            ps.setString(13, cp.getShortDescription());
+            ps.setString(14, cp.getBrand());
+            ps.setString(15, cp.getDescription());
 
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -164,7 +176,9 @@ public class ChannelProductDAO {
     public boolean update(ChannelProduct cp) {
         String sql = "UPDATE channel_products SET "
                    + "channel_id = ?, product_id = ?, channel_sku_code = ?, "
-                   + "channel_price = ?, channel_stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP "
+                   + "channel_price = ?, channel_stock = ?, status = ?, updated_at = CURRENT_TIMESTAMP, "
+                   + "lazada_category_id = ?, brand_id = ?, dimensions = ?, weight_kg = ?, "
+                   + "seller_sku = ?, short_description = ?, brand = ?, description = ? "
                    + "WHERE id = ?";
 
         try (Connection conn = DBConnection.getConnection();
@@ -172,10 +186,18 @@ public class ChannelProductDAO {
             ps.setInt(1, cp.getChannelId());
             ps.setInt(2, cp.getProductId());
             ps.setString(3, cp.getChannelSkuCode());
-            ps.setBigDecimal(4, cp.getChannelPrice());
-            ps.setBigDecimal(5, cp.getChannelStock());
+            ps.setBigDecimal(4, cp.getChannelPrice() != null ? cp.getChannelPrice() : BigDecimal.ZERO);
+            ps.setBigDecimal(5, cp.getChannelStock() != null ? cp.getChannelStock() : BigDecimal.ZERO);
             ps.setString(6, cp.getStatus());
-            ps.setInt(7, cp.getId());
+            ps.setObject(7, cp.getLazadaCategoryId());
+            ps.setObject(8, cp.getBrandId());
+            ps.setString(9, cp.getDimensions());
+            ps.setObject(10, cp.getWeightKg());
+            ps.setString(11, cp.getSellerSku());
+            ps.setString(12, cp.getShortDescription());
+            ps.setString(13, cp.getBrand());
+            ps.setString(14, cp.getDescription());
+            ps.setInt(15, cp.getId());
 
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -347,6 +369,24 @@ public class ChannelProductDAO {
             cp.setLastErrorMessage(rs.getString("last_error_message"));
             long lzCat = rs.getLong("lazada_category_id");
             cp.setLazadaCategoryId(rs.wasNull() ? null : lzCat);
+            long bid = rs.getLong("brand_id");
+            cp.setBrandId(rs.wasNull() ? null : bid);
+            // Prefer channel-level overrides; fall back to product master data
+            cp.setDimensions(rs.getString("cp_dimensions"));
+            if (cp.getDimensions() == null || cp.getDimensions().isBlank()) {
+                cp.setDimensions(rs.getString("product_dimensions"));
+            }
+            double w = rs.getDouble("cp_weight_kg");
+            if (!rs.wasNull()) {
+                cp.setWeightKg(w);
+            } else {
+                double pw = rs.getDouble("product_weight_kg");
+                if (!rs.wasNull()) cp.setWeightKg(pw);
+            }
+            cp.setSellerSku(rs.getString("seller_sku"));
+            cp.setShortDescription(rs.getString("short_description"));
+            cp.setBrand(rs.getString("brand"));
+            cp.setDescription(rs.getString("description"));
         } catch (SQLException e) {
             // Columns may not exist on very old DB before migration; tolerate silently.
             LOGGER.log(Level.FINE, "ChannelProductDAO.mapRow: Lazada push columns not yet migrated", e);
@@ -416,6 +456,38 @@ public class ChannelProductDAO {
             LOGGER.log(Level.WARNING,
                 "ChannelProductDAO.updateLazadaCategoryId failed product=" + productId
                 + " channel=" + channelId, e);
+            return false;
+        }
+    }
+
+    public boolean updateBrandId(int productId, int channelId, long brandId) {
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                "UPDATE channel_products SET brand_id = ? "
+                + "WHERE product_id = ? AND channel_id = ?")) {
+            ps.setLong(1, brandId);
+            ps.setInt(2, productId);
+            ps.setInt(3, channelId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING,
+                "ChannelProductDAO.updateBrandId failed product=" + productId
+                + " channel=" + channelId, e);
+            return false;
+        }
+    }
+
+    /**
+     * Deletes a channel product record by its primary key.
+     */
+    public boolean delete(int id) {
+        String sql = "DELETE FROM channel_products WHERE id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelProductDAO: Failed to delete channel product by ID " + id, e);
             return false;
         }
     }

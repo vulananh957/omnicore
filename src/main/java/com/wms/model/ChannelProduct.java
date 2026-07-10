@@ -34,7 +34,8 @@ public class ChannelProduct {
     private Double weightKg;            // Lazada package_weight (kg, <=40)
     private String dimensions;          // Lazada "LxWxH" cm (sum <=300)
     private Long lazadaCategoryId;      // Lazada leaf category (mirrored from /category/tree/get)
-    private String brand;               // Lazada brand override
+    private Long brandId;               // Lazada brand_id (from /brand/get — mandatory for create/update)
+    private String brand;               // Lazada brand text name override
     private String description;         // Lazada description override
 
     // Enriched fields (populated by DAO joins)
@@ -270,6 +271,14 @@ public class ChannelProduct {
 
     public void setLazadaCategoryId(Long lazadaCategoryId) {
         this.lazadaCategoryId = lazadaCategoryId;
+    }
+
+    public Long getBrandId() {
+        return brandId;
+    }
+
+    public void setBrandId(Long brandId) {
+        this.brandId = brandId;
     }
 
     public String getBrand() {

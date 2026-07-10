@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -132,7 +131,8 @@ public class LazadaImageMigrator {
             com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
             com.fasterxml.jackson.databind.JsonNode n = m.readTree(response);
             if (!"0".equals(n.path("code").asText())) return null;
-            return n.path("data").path("image").path("url").asText(null);
+            String url = n.path("data").path("image").path("url").asText();
+            return url.isEmpty() ? null : url;
         } catch (Exception e) { return null; }
     }
 
@@ -140,27 +140,12 @@ public class LazadaImageMigrator {
         try {
             com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
             com.fasterxml.jackson.databind.JsonNode n = m.readTree(response);
-            return n.path("data").path("image").path("hash_code").asText(null);
+            String hash = n.path("data").path("image").path("hash_code").asText();
+            return hash.isEmpty() ? null : hash;
         } catch (Exception e) { return null; }
     }
 
     private static String truncate(String s, int n) {
         return s == null || s.length() <= n ? s : s.substring(0, n) + "...";
     }
-
-    private com.wms.service.channel.ChannelGateway gateway() {
-        com.wms.service.channel.ChannelGateway g = GATEWAY;
-        if (g == null) {
-            synchronized (this) {
-                g = GATEWAY;
-                if (g == null) {
-                    g = com.wms.service.channel.ChannelRegistry.get("Lazada");
-                    GATEWAY = g;
-                }
-            }
-        }
-        return g;
-    }
-
-    private static volatile com.wms.service.channel.ChannelGateway GATEWAY;
 }

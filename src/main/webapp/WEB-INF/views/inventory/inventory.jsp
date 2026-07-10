@@ -3,58 +3,6 @@
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/inventory--inventory.css"/>
 
-<!-- ═══ Stats Grid ═══ -->
-<div class="stats-grid-3">
-    <!-- Critical -->
-    <div class="stat-card theme-red">
-        <div class="stat-card__inner">
-            <div class="stat-card__icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                    <line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>
-                </svg>
-            </div>
-            <div>
-                <div class="stat-card__val" id="criticalCountEl">0</div>
-                <div class="stat-card__lbl">Cảnh báo nghiêm trọng</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Warning -->
-    <div class="stat-card theme-yellow">
-        <div class="stat-card__inner">
-            <div class="stat-card__icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                    <line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>
-                </svg>
-            </div>
-            <div>
-                <div class="stat-card__val" id="warningCountEl">0</div>
-                <div class="stat-card__lbl">Cảnh báo sắp hết</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Total -->
-    <div class="stat-card theme-navy">
-        <div class="stat-card__inner">
-            <div class="stat-card__icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m7.5 4.27 9 5.15"/>
-                    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-                    <path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>
-                </svg>
-            </div>
-            <div>
-                <div class="stat-card__val" id="totalCountEl">0</div>
-                <div class="stat-card__lbl">Tổng dòng tồn kho</div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- ═══ Filters ═══ -->
 <div class="filter-bar">
     <div class="search-input-wrap">
@@ -111,8 +59,9 @@
                     <th style="text-align: right;" title="Đã phân bổ cho đơn đang xử lý">Tạm giữ</th>
                     <th style="text-align: right; font-weight:700;" title="On-Hand − Reserved — con số thực sự được bán">Khả dụng</th>
                     <th style="text-align: right;" title="Hàng đang về (PO đã duyệt, chờ nhận)">Nhập về</th>
+                    <th style="text-align: right;" title="Giá nhập bình quân (Moving Average Cost)">Giá vốn</th>
+                    <th style="text-align: center;">Định mức</th>
                     <th style="text-align: center;" title="Available + Inbound — đủ hay thiếu so với ROP">ATP</th>
-                    <th style="text-align: center;">Hành động</th>
                 </tr>
             </thead>
             <tbody id="inventoryTableBody">
@@ -167,9 +116,9 @@
         inventoryList = [];
     }
 
-    var criticalCountEl = document.getElementById('criticalCountEl');
-    var warningCountEl  = document.getElementById('warningCountEl');
-    var totalCountEl    = document.getElementById('totalCountEl');
+    var criticalCountEl = null;
+    var warningCountEl  = null;
+    var totalCountEl    = null;
     var inventorySearch = document.getElementById('inventorySearch');
     var whFilter       = document.getElementById('whFilter');
     var statusFilter   = document.getElementById('statusFilter');
@@ -181,7 +130,6 @@
     var searchText = '';
     var selectedWarehouse = 'Tất cả';
     var selectedStatus = 'Tất cả';
-    var notified = [];
 
     inventorySearch.addEventListener('input', function(e) {
         searchText = e.target.value;
@@ -220,11 +168,6 @@
             return sortAsc ? a.qtyOnHand - b.qtyOnHand : b.qtyOnHand - a.qtyOnHand;
         });
 
-        var shortageCount  = inventoryList.filter(function(i) { return (i.atpStatus || 'enough') === 'shortage'; }).length;
-        var runningLowCount = inventoryList.filter(function(i) { return (i.atpStatus || 'enough') === 'running_low'; }).length;
-        criticalCountEl.textContent = shortageCount;
-        warningCountEl.textContent  = runningLowCount;
-        totalCountEl.textContent   = inventoryList.length;
         showingCountEl.textContent = 'Hiển thị ' + filtered.length + ' / ' + inventoryList.length + ' dòng tồn kho';
 
         tableBody.innerHTML = '';
@@ -232,7 +175,7 @@
         if (filtered.length === 0) {
             var tr = document.createElement('tr');
             var td = document.createElement('td');
-            td.colSpan = 10;
+            td.colSpan = 11;
             td.style.cssText = 'padding:40px 24px;text-align:center;color:rgba(16,55,92,.4);font-size:13px';
             td.textContent = 'Không tìm thấy dòng tồn kho nào phù hợp';
             tr.appendChild(td);
@@ -304,6 +247,26 @@
             td8.innerHTML = '<span style="color:' + (inbound > 0 ? '#059669' : 'rgba(16,55,92,.35)') + ';font-weight:600;">' + inbound.toLocaleString() + '</span>';
             tr.appendChild(td8);
 
+            // ── Giá vốn (MAC) ──
+            var tdMac = document.createElement('td');
+            tdMac.style.textAlign = 'right';
+            var macPrice = Number(item.macPrice) || 0;
+            tdMac.innerHTML = '<span style="font-size:12px; color:' + (macPrice > 0 ? 'rgba(16,55,92,.75)' : 'rgba(16,55,92,.35)') + '; font-weight:600;">' +
+                (macPrice > 0 ? macPrice.toLocaleString('vi-VN') + ' đ' : '—') +
+                '</span>';
+            tr.appendChild(tdMac);
+
+            // ── Định mức (Min / Max) ──
+            var tdMinMax = document.createElement('td');
+            tdMinMax.style.textAlign = 'center';
+            tdMinMax.style.fontSize = '12px';
+            var minS = Number(item.minStock) || 0;
+            var maxS = Number(item.maxStock) || 0;
+            tdMinMax.innerHTML = (minS > 0 || maxS > 0)
+                ? (minS.toLocaleString() + ' / ' + maxS.toLocaleString())
+                : '<span style="color:#9ca3af">—</span>';
+            tr.appendChild(tdMinMax);
+
             // ── ATP Chip ──
             var td9 = document.createElement('td');
             td9.style.textAlign = 'center';
@@ -317,35 +280,9 @@
             var chip = atpLabelMap[atpStatus] || atpLabelMap.enough;
             td9.innerHTML = '<span class="atp-chip ' + chip.cls + '">' + chip.text + '</span>'
                 + '<div style="font-size:10px;color:rgba(16,55,92,.4);margin-top:2px;">'
-                + atp.toLocaleString() + ' / ROP ' + (ropVal > 0 ? ropVal.toLocaleString() : '—')
+                + atp.toLocaleString() + ' / ROP ' + (ropVal != null && !isNaN(ropVal) ? ropVal.toLocaleString() : '—')
                 + '</div>';
             tr.appendChild(td9);
-
-            // ── Action ──
-            var td10 = document.createElement('td');
-            td10.style.textAlign = 'center';
-            var invId = item.inventoryId || item.id;
-            if (isAlert) {
-                if (notified.indexOf(invId) !== -1) {
-                    td10.innerHTML = '<span class="btn-da-bao">' +
-                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Đã báo</span>';
-                } else {
-                    var btnColor = level === 'critical' ? 'bg-red' : 'bg-navy';
-                    var btn = document.createElement('button');
-                    btn.className = 'btn-bao-kho ' + btnColor;
-                    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Báo kho';
-                    btn.addEventListener('click', (function(id) {
-                        return function() {
-                            notified.push(id);
-                            render();
-                        };
-                    })(invId));
-                    td10.appendChild(btn);
-                }
-            } else {
-                td10.innerHTML = '<span style="color:rgba(16,55,92,.3);font-size:11px;">—</span>';
-            }
-            tr.appendChild(td10);
 
             tableBody.appendChild(tr);
         });

@@ -286,3 +286,7 @@
         font-size: 12px; font-weight: 600;
         border: 1px solid #fde68a; border-radius: calc(var(--radius-btn) - 2px);
     }
+
+    .wt-modal.wt-modal--wide {
+        max-width: 800px;
+    }

@@ -1,12 +1,16 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
-<c:if test="${not empty documents}">
+<c:if test="${not empty documentsJson}">
 <script type="application/json" id="ledger-docs-data">${documentsJson}</script>
 </c:if>
 <script>
 window.__CURRENT_ROLE__ = '<c:out value="${currentRole}" default="STAFF"/>';
 window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
+window.__COMPANY_NAME__ = '<c:out value="${companyName}" default="Công ty TNHH OmniCore"/>';
+window.__COMPANY_ADDRESS__ = '<c:out value="${companyAddress}" default=""/>';
+window.__COMPANY_PHONE__ = '<c:out value="${companyPhone}" default=""/>';
+window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
 </script>
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/warehouse--warehouse-documents.css"/>
@@ -289,9 +293,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
         <div class="doc-detail-body" id="detailModalBody">
             <!-- Dynamically populated detail template -->
         </div>
-        <div class="modal-ftr" style="background: rgba(240, 244, 250, 0.30); border-top: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: flex-end;">
-            <button class="btn-modal-cancel" id="btnDetailCloseFooter">Đóng cửa sổ</button>
-        </div>
     </div>
 </div>
 
@@ -310,7 +311,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
         }
         var rawDocs = document.getElementById('ledger-docs-data');
         var savedDocs = rawDocs ? safeJsonParse(rawDocs.textContent, null) : null;
-        var docs = (savedDocs !== null) ? savedDocs : (localStorage.getItem('wms_ledger_docs') ? JSON.parse(localStorage.getItem('wms_ledger_docs')) : []);
+        var docs = (savedDocs !== null && savedDocs.length > 0) ? savedDocs : (localStorage.getItem('wms_ledger_docs_v2') ? JSON.parse(localStorage.getItem('wms_ledger_docs_v2')) : []);
 
         var savedSKUs = localStorage.getItem('wms_skus');
         var PRODUCTS = savedSKUs ? JSON.parse(savedSKUs) : [];
@@ -344,7 +345,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 shortName: "Xuất kho"
             },
             "Phiếu Kiểm Kê": {
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>',
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>',
                 color: "text-amber-700",
                 bg: "kk",
                 shortName: "Kiểm kê"
@@ -402,7 +403,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
         var btnDetailPrint = document.getElementById('btnDetailPrint');
         var btnDetailExcel = document.getElementById('btnDetailExcel');
         var btnDetailClose = document.getElementById('btnDetailClose');
-        var btnDetailCloseFooter = document.getElementById('btnDetailCloseFooter');
 
         // ─── Event Listeners ───
         
@@ -467,7 +467,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
 
         // Details Closures
         btnDetailClose.addEventListener('click', closeDetails);
-        btnDetailCloseFooter.addEventListener('click', closeDetails);
         detailModalOverlay.addEventListener('click', function(e) {
             if (e.target === detailModalOverlay) closeDetails();
         });
@@ -494,7 +493,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
         }
 
         function isViewable(doc) {
-            return ["Hoàn thành", "Đã duyệt", "Đã xuất", "Đã xử lý", "WH đã xác nhận"].indexOf(doc.status) !== -1;
+            return ["Hoàn thành", "Đã duyệt", "Đã xuất", "Đã xử lý", "WH đã xác nhận", "Đã huỷ"].indexOf(doc.status) !== -1;
         }
 
         function isRejected(doc) {
@@ -511,7 +510,8 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 }
                 return d;
             });
-            localStorage.setItem('wms_ledger_docs', JSON.stringify(docs));
+            localStorage.removeItem('wms_ledger_docs');
+            localStorage.setItem('wms_ledger_docs_v2', JSON.stringify(docs));
             renderDocs();
         };
 
@@ -546,7 +546,8 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 return d;
             });
             
-            localStorage.setItem('wms_ledger_docs', JSON.stringify(docs));
+            localStorage.removeItem('wms_ledger_docs');
+            localStorage.setItem('wms_ledger_docs_v2', JSON.stringify(docs));
             rmaScanOverlay.classList.remove('active');
             rmaDoc = null;
             renderDocs();
@@ -601,10 +602,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center;">' +
-                            '<div style="font-family: monospace; font-size: 11px;">' + escapeHtml(it.lot) + '</div>' +
-                            '<div style="font-size: 10.5px; color: rgba(16,55,92,0.4);">HSD: ' + escapeHtml(it.hsd) + '</div>' +
-                        '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.ordered + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 600;">' + it.received + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; background: rgba(16, 185, 129, 0.05); color: #059669;">' + it.accepted + '</td>' +
@@ -625,21 +622,18 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Phiếu Nhập (GRN No.)</label>' +
                             '<span style="font-size: 18px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</span>' +
                         '</div>' +
-                        '<div style="border: 1px solid #E5EAF3; border-radius: var(--radius-btn); padding: 8px 16px; background: #fff; display: flex; flex-direction: column; align-items: center;">' +
-                            '<div style="height: 48px; width: 180px; background: rgba(16, 55, 92, 0.05); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 10px; color: rgba(16, 55, 92, 0.35); margin-top: 4px;">||||| ' + escapeHtml(doc.id) + ' |||||</div>' +
-                        '</div>' +
                     '</div>' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid #E5EAF3; padding-bottom: 24px;">' +
                         '<div style="display: flex; flex-direction: column; gap: 16px;">' +
                             '<div>' +
                                 '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Nhà Cung Cấp (Supplier)</label>' +
                                 '<div style="font-size: 14px; font-weight: 600; color: var(--navy);">' + escapeHtml(supplier) + '</div>' +
-                                '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Địa chỉ: Khu công nghiệp VSIP, Bình Dương</div>' +
-                                '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">SĐT: 028 3823 4567</div>' +
+                                (doc.supplierAddress ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">Địa chỉ: ' + escapeHtml(doc.supplierAddress) + '</div>' : '') +
+                                (doc.supplierPhone ? '<div style="font-size: 12px; color: rgba(16, 55, 92, 0.60); margin-top: 2px;">SĐT: ' + escapeHtml(doc.supplierPhone) + '</div>' : '') +
                             '</div>' +
                             '<div>' +
                                 '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Đơn Đặt Hàng (PO Ref.) <span style="color: #ef4444;">*</span></label>' +
-                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">PO-2026-05-' + Math.floor(100+Math.random()*900) + '</div>' +
+                                '<div style="font-size: 16px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.poReference || "—") + '</div>' +
                             '</div>' +
                         '</div>' +
                         '<div style="display: flex; flex-direction: column; gap: 16px;">' +
@@ -666,7 +660,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Số Lô / HSD</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Đặt Hàng</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Thực Nhận</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 185, 129, 0.05);">SL Chấp Nhận</th>' +
@@ -676,7 +669,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             '</thead>' +
                             '<tbody>' + rowMarkup +
                                 '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-t: 2px solid rgba(16, 55, 92, 0.3);">' +
-                                    '<td colspan="5" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: right;">TỔNG CỘNG:</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalOrdered + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center;">' + totalReceived + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 12px; text-align: center; color: #059669; background: rgba(16, 185, 129, 0.05);">' + totalAccepted + '</td>' +
@@ -714,32 +707,33 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 var totalQty = 0, totalVal = 0;
                 var rowMarkup = "";
                 items.forEach(function(it) {
-                    totalQty += it.received || it.qtyIssued || 0;
-                    totalVal += (it.received || it.qtyIssued || 0) * (it.price || 0);
+                    var ordered = (it.lazadaQty != null) ? it.lazadaQty : ((it.ordered != null) ? it.ordered : 0);
+                    var received = (it.received != null) ? it.received : ordered;
+                    var price = (it.price != null) ? it.price : 0;
+                    totalQty += received;
+                    totalVal += received * price;
 
                     rowMarkup += '<tr style="line-height: 1.8;">' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; font-weight: 600; font-size: 13px;">' + escapeHtml(it.name) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; font-size: 12.5px;">' + escapeHtml(it.uom) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center;">' +
-                            '<div style="font-family: monospace; font-size: 11px;">' + escapeHtml(it.lot) + '</div>' +
-                            '<div style="font-size: 10.5px; color: rgba(16,55,92,0.4);">HSD: ' + escapeHtml(it.hsd) + '</div>' +
-                        '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + it.ordered + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; font-weight: 800; background: rgba(16, 55, 92, 0.05);">' + (it.received || it.qtyIssued) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: right;">' + it.price.toLocaleString('vi-VN') + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: right; font-weight: 600;">' + ((it.received || it.qtyIssued) * it.price).toLocaleString('vi-VN') + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; color: rgba(16,55,92,0.6);">' + ordered + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: center; font-weight: 800; background: rgba(16, 55, 92, 0.05);">' + received + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: right;">' + price.toLocaleString('vi-VN') + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px 12px; text-align: right; font-weight: 600;">' + (received * price).toLocaleString('vi-VN') + '</td>' +
                     '</tr>';
                 });
 
-                var customer = doc.customer || "Khách hàng mua lẻ";
+                var buyerName = doc.buyerName || doc.customer || "Khách hàng";
+                var buyerAddress = doc.buyerAddress || doc.warehouseAddress || "";
+                var orderNoLabel = doc.lazadaOrderNumber || doc.orderCode || doc.id;
 
                 return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px;">' +
                         '<div>' +
-                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">Hệ thống Bán hàng Đa kênh ABC</span></div>' +
-                            '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Kho Trung Tâm</div>' +
+                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">' + escapeHtml(companyName) + '</span></div>' +
+                            '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Kho ' + escapeHtml(doc.warehouse || "—") + '</div>' +
                         '</div>' +
                         '<div style="text-align: right;">' +
                             '<div style="font-size: 10.5px; color: rgba(16,55,92,0.60);">Mẫu số 02-VT</div>' +
@@ -774,19 +768,19 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Họ Tên Người Nhận Hàng</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 600; font-size: 13.5px;">' + escapeHtml(customer) + '</div>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 600; font-size: 13.5px;">' + escapeHtml(buyerName) + '</div>' +
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Địa Chỉ / Đơn Vị Người Nhận</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13px;">Hệ thống bán lẻ đa kênh ABC</div>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13px;">' + escapeHtml(buyerAddress) + '</div>' +
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Lý Do Xuất Kho</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 550; font-size: 13px;">Xuất kho phục vụ bán hàng theo vận đơn ' + escapeHtml(doc.id) + '</div>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 550; font-size: 13px;">Xuất kho phục vụ đơn hàng ' + escapeHtml(orderNoLabel) + '</div>' +
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Xuất Tại Kho</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13.5px;">' + escapeHtml(doc.warehouse) + '</div>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13.5px;">' + escapeHtml(doc.warehouse) + (doc.warehouseCode ? ' (' + escapeHtml(doc.warehouseCode) + ')' : '') + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="margin-bottom: 24px;">' +
@@ -797,7 +791,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên/Quy Cách Vật Tư</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã Số (SKU)</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Số Lô / HSD</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">SL Yêu Cầu</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16,55,92,0.05);">SL Thực Xuất</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: right;">Đơn Giá</th>' +
@@ -806,7 +799,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             '</thead>' +
                             '<tbody>' + rowMarkup +
                                 '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-t: 2px solid rgba(16, 55, 92, 0.3);">' +
-                                    '<td colspan="5" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: right;">CỘNG:</td>' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: right;">CỘNG:</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: center;">' + totalQty + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: center; background: rgba(16,55,92,0.05);">' + totalQty + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px;"></td>' +
@@ -853,10 +846,10 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 var bookTotal = 0, actualTotal = 0, deltaTotal = 0;
                 var rowMarkup = "";
                 items.forEach(function(it) {
-                    var bookVal = it.ordered || 100;
-                    var actualVal = it.received || 100;
+                    var bookVal = (it.ordered != null) ? it.ordered : 0;
+                    var actualVal = (it.received != null) ? it.received : 0;
                     var diffVal = actualVal - bookVal;
-                    
+
                     bookTotal += bookVal;
                     actualTotal += actualVal;
                     deltaTotal += diffVal;
@@ -872,15 +865,16 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(59, 130, 246, 0.05); color: #1d4ed8; font-weight: 600;">' + bookVal + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(249, 115, 22, 0.05); font-weight: 800; font-size: 15px;">' + actualVal + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 800; color: ' + diffColor + ';">' + diffText + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11.5px; color: rgba(16,55,92,0.6);">' + (diffVal !== 0 ? 'Sai lệch kiểm đếm thực tế' : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11.5px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
                     '</tr>';
                 });
 
+                var companyName = (window.__COMPANY_NAME__) || "Công ty TNHH Thương Mại ABC";
                 return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px;">' +
                         '<div>' +
-                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">Công ty TNHH Thương Mại ABC</span></div>' +
-                            '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Kho Trung Tâm</div>' +
+                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">' + escapeHtml(companyName) + '</span></div>' +
+                            '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Kho ' + escapeHtml(doc.warehouse || "—") + '</div>' +
                         '</div>' +
                         '<div style="text-align: right;">' +
                             '<div style="font-size: 10.5px; color: rgba(16,55,92,0.60);">Mẫu số 08-VT</div>' +
@@ -892,9 +886,9 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '<div style="font-size: 13px; font-weight: 500; color: rgba(16,55,92,0.50); text-transform: uppercase;">PHYSICAL INVENTORY COUNT SHEET</div>' +
                     '</div>' +
                     '<div style="text-align: center; font-size: 12px; color: rgba(16,55,92,0.60); margin-bottom: 24px;">' +
-                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">24</span> ' +
-                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">05</span> ' +
-                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">2026</span>' +
+                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + day + '</span> ' +
+                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + month + '</span> ' +
+                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + year + '</span>' +
                     '</div>' +
                     '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px;">' +
                         '<div>' +
@@ -902,8 +896,8 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             '<div style="font-size: 16px; font-weight: 700; color: var(--navy); font-family: monospace;">' + escapeHtml(doc.id) + '</div>' +
                         '</div>' +
                         '<div>' +
-                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Khu Vực Kiểm Kê</label>' +
-                            '<div style="font-size: 13.5px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.warehouse) + '</div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Kho</label>' +
+                            '<div style="font-family: monospace; font-size: 13px; font-weight: 600; color: var(--navy);">' + escapeHtml(doc.warehouseCode || "—") + '</div>' +
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Thái</label>' +
@@ -913,11 +907,11 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Người Phụ Trách Kiểm Kê</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px;">' + escapeHtml(doc.createdBy) + '</div>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px;">' + escapeHtml(doc.createdBy || "—") + '</div>' +
                         '</div>' +
                         '<div>' +
-                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Phương Pháp Kiểm Kê</label>' +
-                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 550;">Kiểm kê định kỳ toàn bộ</div>' +
+                            '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ghi Chú / Phương Pháp</label>' +
+                            '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-weight: 550;">' + escapeHtml(doc.remarks || "Kiểm kê toàn bộ theo quy trình") + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="margin-bottom: 24px;">' +
@@ -975,17 +969,18 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 var reqTotal = 0, transTotal = 0;
                 var rowMarkup = "";
                 items.forEach(function(it) {
-                    reqTotal += it.ordered || 100;
-                    transTotal += it.received || 100;
+                    var ordered = (it.ordered != null) ? it.ordered : 0;
+                    var received = (it.received != null) ? it.received : 0;
+                    reqTotal += ordered;
+                    transTotal += received;
 
                     rowMarkup += '<tr style="line-height: 2.0;">' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600;">' + escapeHtml(it.name) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12px;">' + escapeHtml(it.uom) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-family: monospace; font-size: 10px;">' + escapeHtml(it.lot) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(59, 130, 246, 0.05); color: #1d4ed8; font-weight: 600;">' + it.ordered + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669; font-weight: 800; font-size: 15px;">' + it.received + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(59, 130, 246, 0.05); color: #1d4ed8; font-weight: 600;">' + ordered + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669; font-weight: 800; font-size: 15px;">' + received + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11.5px; color: rgba(16,55,92,0.6);">' + (it.remarks ? escapeHtml(it.remarks) : '<div style="border-bottom: 1px dashed rgba(16,55,92,0.15); height: 10px;"></div>') + '</td>' +
                     '</tr>';
                 });
@@ -993,7 +988,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px;">' +
                         '<div>' +
-                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">Công ty TNHH Thương Mại ABC</span></div>' +
+                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">' + escapeHtml(companyName) + '</span></div>' +
                             '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Vận Hành Kho</div>' +
                         '</div>' +
                         '<div style="text-align: right;">' +
@@ -1006,9 +1001,9 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '<div style="font-size: 13px; font-weight: 500; color: rgba(16,55,92,0.50); text-transform: uppercase;">INTERNAL STOCK TRANSFER NOTE (STN)</div>' +
                     '</div>' +
                     '<div style="text-align: center; font-size: 12px; color: rgba(16,55,92,0.60); margin-bottom: 24px;">' +
-                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">24</span> ' +
-                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">05</span> ' +
-                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">2026</span>' +
+                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + day + '</span> ' +
+                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + month + '</span> ' +
+                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + year + '</span>' +
                     '</div>' +
                     '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px;">' +
                         '<div>' +
@@ -1021,26 +1016,26 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Ngày Yêu Cầu Hoàn Thành</label>' +
-                            '<div style="font-size: 13.5px; font-weight: 600;">25/05/2026</div>' +
+                            '<div style="font-size: 13.5px; font-weight: 600;">' + escapeHtml(doc.completedDate || day + '/' + month + '/' + year) + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">' +
                         '<div style="background: #f0f7ff; border: 1px solid #c2e0ff; padding: 14px; border-radius: var(--radius-btn);">' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #1d4ed8; letter-spacing: 0.05em; margin-bottom: 6px;">🏭 KHO NGUỒN (From)</label>' +
-                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">Kho HCM - Quận 1</div>' +
-                            '<div style="font-family: monospace; font-size: 11px; color: rgba(16,55,92,0.6); margin-top: 2px;">WH-HCM-01</div>' +
-                            '<div style="font-size: 12px; color: rgba(16,55,92,0.5); margin-top: 4px;">Khu A - Hàng Thường</div>' +
+                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.fromWarehouse || "—") + '</div>' +
+                            '<div style="font-family: monospace; font-size: 11px; color: rgba(16,55,92,0.6); margin-top: 2px;">' + escapeHtml(doc.fromWarehouseCode || "") + '</div>' +
+                            '<div style="font-size: 12px; color: rgba(16,55,92,0.5); margin-top: 4px;">' + escapeHtml(doc.fromAddress || "—") + '</div>' +
                         '</div>' +
                         '<div style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 14px; border-radius: var(--radius-btn);">' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #047857; letter-spacing: 0.05em; margin-bottom: 6px;">🎯 KHO ĐÍCH (To)</label>' +
-                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.warehouse) + '</div>' +
-                            '<div style="font-family: monospace; font-size: 11px; color: rgba(16,55,92,0.6); margin-top: 2px;">WH-HCM-07</div>' +
-                            '<div style="font-size: 12px; color: rgba(16,55,92,0.5); margin-top: 4px;">Khu B - Hàng Thường</div>' +
+                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.toWarehouse || "—") + '</div>' +
+                            '<div style="font-family: monospace; font-size: 11px; color: rgba(16,55,92,0.6); margin-top: 2px;">' + escapeHtml(doc.toWarehouseCode || "") + '</div>' +
+                            '<div style="font-size: 12px; color: rgba(16,55,92,0.5); margin-top: 4px;">' + escapeHtml(doc.toAddress || "—") + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="margin-bottom: 24px;">' +
                         '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Lý Do / Ghi Chú Điều Chuyển</label>' +
-                        '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13.5px; font-weight: 550;">Điều chuyển nội bộ cân bằng tồn kho chi nhánh</div>' +
+                        '<div style="border-bottom: 1px solid rgba(16,55,92,0.15); padding-bottom: 3px; font-size: 13.5px; font-weight: 550;">' + escapeHtml(doc.remarks || "—") + '</div>' +
                     '</div>' +
                     '<div style="margin-bottom: 24px;">' +
                         '<h2 style="font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 12px;">Danh Sách Hàng Hóa Điều Chuyển</h2>' +
@@ -1051,7 +1046,6 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Mã SKU</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Tên Sản Phẩm</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">ĐVT</th>' +
-                                    '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center;">Số Lô</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(59, 130, 246, 0.05); color: #1d4ed8;">SL Yêu Cầu</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669;">SL Thực Chuyển</th>' +
                                     '<th style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: rgba(16, 55, 92, 0.50); text-align: left;">Ghi Chú</th>' +
@@ -1059,7 +1053,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             '</thead>' +
                             '<tbody>' + rowMarkup +
                                 '<tr style="background: rgba(240, 244, 250, 0.5); font-weight: 700; border-t: 2px solid rgba(16, 55, 92, 0.3);">' +
-                                    '<td colspan="5" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: right;">TỔNG CỘNG:</td>' +
+                                    '<td colspan="4" style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: right;">TỔNG CỘNG:</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: center; color: #1d4ed8; background: rgba(59, 130, 246, 0.05);">' + reqTotal + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px; text-align: center; color: #059669; background: rgba(16, 185, 129, 0.05);">' + transTotal + '</td>' +
                                     '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px;"></td>' +
@@ -1096,28 +1090,30 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                 var totalRet = 0, totalVal = 0;
                 var rowMarkup = "";
                 items.forEach(function(it) {
-                    totalRet += it.ordered || 5;
-                    totalVal += (it.ordered || 5) * (it.price || 95000);
+                    var ordered = (it.ordered != null) ? it.ordered : 0;
+                    var price = (it.price != null) ? it.price : 0;
+                    totalRet += ordered;
+                    totalVal += ordered * price;
 
                     rowMarkup += '<tr style="line-height: 2.0;">' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 13px;">' + it.stt + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-family: monospace; font-size: 11px;">' + escapeHtml(it.sku) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 13px; font-weight: 600;">' + escapeHtml(it.name) + '</td>' +
                         '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-size: 12px;">' + escapeHtml(it.uom) + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 700; font-size: 14px;">' + it.ordered + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669; font-weight: 700;">' + it.received + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(239, 68, 68, 0.05); color: #dc2626; font-weight: 700;">' + it.rejected + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right;">' + (it.ordered * it.price).toLocaleString("vi-VN") + '</td>' +
-                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; color: rgba(16,55,92,0.60);">' + (doc.remarks ? escapeHtml(doc.remarks) : 'Trả hàng hoàn QC phân cấp') + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; font-weight: 700; font-size: 14px;">' + ordered + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(16, 185, 129, 0.05); color: #059669; font-weight: 700;">' + (it.received != null ? it.received : 0) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: center; background: rgba(239, 68, 68, 0.05); color: #dc2626; font-weight: 700;">' + (it.rejected != null ? it.rejected : 0) + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; text-align: right;">' + (ordered * price).toLocaleString("vi-VN") + '</td>' +
+                        '<td style="border: 1px solid rgba(16, 55, 92, 0.15); padding: 10px 12px; font-size: 11px; color: rgba(16,55,92,0.60);">' + (it.remarks ? escapeHtml(it.remarks) : (doc.remarks ? escapeHtml(doc.remarks) : '—')) + '</td>' +
                     '</tr>';
                 });
 
-                var customer = doc.customer || "Khách hàng mua lẻ";
+                var customer = doc.customer || "Khách hàng";
 
                 return '<div class="pdf-print-area" style="padding: 32px; background: #fff; font-family: \'Inter\', sans-serif;">' +
                     '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px;">' +
                         '<div>' +
-                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">Hệ thống Bán hàng Đa kênh ABC</span></div>' +
+                            '<div style="font-size: 11.5px; font-weight: 550;">Đơn vị: <span style="font-weight: 750;">' + escapeHtml(companyName) + '</span></div>' +
                             '<div style="font-size: 11.5px; color: rgba(16,55,92,0.60);">Bộ phận: Kho / Dịch Vụ Khách Hàng</div>' +
                         '</div>' +
                         '<div style="text-align: right;">' +
@@ -1130,9 +1126,9 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '<div style="font-size: 13px; font-weight: 500; color: rgba(16,55,92,0.50); text-transform: uppercase;">RETURN MERCHANDISE AUTHORIZATION (RMA)</div>' +
                     '</div>' +
                     '<div style="text-align: center; font-size: 12px; color: rgba(16,55,92,0.60); margin-bottom: 24px;">' +
-                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">24</span> ' +
-                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">05</span> ' +
-                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">2026</span>' +
+                        'Ngày <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + day + '</span> ' +
+                        'tháng <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + month + '</span> ' +
+                        'năm <span style="border-bottom: 1px dashed rgba(16,55,92,0.3); padding: 0 8px;">' + year + '</span>' +
                     '</div>' +
                     '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px;">' +
                         '<div>' +
@@ -1141,7 +1137,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Mã Đơn Hàng Gốc (SO Ref.)</label>' +
-                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">SO-2026-' + Math.floor(100000+Math.random()*900000) + '</div>' +
+                            '<div style="font-size: 15px; font-weight: 700; color: var(--navy);">' + escapeHtml(doc.orderCode || "—") + '</div>' +
                         '</div>' +
                         '<div>' +
                             '<label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(16,55,92,0.50); letter-spacing: 0.05em; margin-bottom: 4px;">Trạng Trạng Thái</label>' +
@@ -1341,7 +1337,7 @@ window.__USER_WAREHOUSE_ID__ = <c:out value="${userWarehouseId}" default="0"/>;
                             'Nhập Zone' +
                             '</button>';
                     } else if (viewable) {
-                        actionHtml = '<div class="btn-action-view-eye" title="Xem chứng từ chi tiết">' +
+                        actionHtml = '<div class="btn-action-view-eye" title="Xem chứng từ chi tiết" onclick="viewDocDetails(\'' + d.id + '\', event)" style="cursor:pointer;">' +
                             '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' +
                                 '<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>' +
                                 '<path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>' +

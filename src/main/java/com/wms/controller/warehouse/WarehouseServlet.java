@@ -18,7 +18,6 @@ import java.util.List;
  */
 public class WarehouseServlet extends BaseController {
 
-    private static final String CONTEXT_PATH = "/business/warehouses";
     private final WarehouseService warehouseService = new WarehouseService();
 
     @Override

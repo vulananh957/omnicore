@@ -89,7 +89,7 @@ public class LazadaShipmentService {
                 StringBuilder sb = new StringBuilder("[");
                 for (int i = 0; i < items.size(); i++) {
                     if (i > 0) sb.append(',');
-                    String oiid = items.get(i).path("order_item_id").asText("");
+                    String oiid = items.get(i).path("order_item_id").isMissingNode() ? "" : items.get(i).path("order_item_id").asText();
                     sb.append("\"").append(oiid).append("\"");
                 }
                 sb.append("]");
@@ -116,23 +116,65 @@ public class LazadaShipmentService {
             }
             String body = lazadaGateway.packOrderWithParams(ch, params);
             long dt = System.currentTimeMillis() - t0;
+            LOGGER.info("packAndAllocate raw response: " + body);
             ChannelSyncAudit.logSuccess(ch.getChannelId(), "PACK",
                     order.getOrderCode(), 200, params.toString(), body, dt);
 
             JsonNode root = MAPPER.readTree(body);
-            JsonNode data = root.path("data");
-            String packageId   = data.path("package_id").asText("");
-            String trackingNo  = data.path("tracking_number").asText("");
+            // Pack response can come in two shapes:
+            //   a) {"result": {"data": {...}}, "code": "0"}  ← most common (this app)
+            //   b) {"data": {...}, "code": "0"}             ← flat (some Lazada endpoints)
+            JsonNode data = root.path("result").path("data");
+            if (data.isMissingNode()) {
+                data = root.path("data");
+            }
+            // Pack response: data.pack_order_list[].order_item_list[].package_id / tracking_number
+            String packageId   = "";
+            String trackingNo  = "";
+            JsonNode packOrderList = data.path("pack_order_list");
+            if (packOrderList.isArray() && packOrderList.size() > 0) {
+                JsonNode firstOrder = packOrderList.get(0);
+                JsonNode itemList = firstOrder.path("order_item_list");
+                if (itemList.isArray() && itemList.size() > 0) {
+                    JsonNode firstItem = itemList.get(0);
+                    packageId  = firstItem.path("package_id").asText("");
+                    trackingNo = firstItem.path("tracking_number").asText("");
+                }
+            }
+            // Extract shipment_provider from Pack response — this is the canonical carrier name from Lazada
+            String shipmentProvider = extractShipmentProvider(data);
             if (packageId.isEmpty() || trackingNo.isEmpty()) {
-                String err = root.path("message").asText("No package_id / tracking_number");
+                // Surface more detail: check per-item error codes
+                StringBuilder detail = new StringBuilder();
+                if (packOrderList.isArray()) {
+                    for (JsonNode orderNode : packOrderList) {
+                        JsonNode items = orderNode.path("order_item_list");
+                        if (items.isArray()) {
+                            for (JsonNode item : items) {
+                                String err = item.path("item_err_code").asText("0");
+                                String msg = item.path("msg").asText();
+                                if (!"0".equals(err) && !msg.isEmpty()) {
+                                    if (detail.length() > 0) detail.append("; ");
+                                    detail.append("item=").append(item.path("order_item_id").asText())
+                                          .append(" err=").append(err).append(" ").append(msg);
+                                }
+                            }
+                        }
+                    }
+                }
+                String err = detail.length() > 0 ? detail.toString()
+                    : (root.path("message").isMissingNode() ? "No package_id / tracking_number"
+                                                           : root.path("message").asText());
                 return ShipmentResult.fail(err);
             }
             // Persist into the orders row + shipping details
             orderDAO.updateLazadaPackage(order.getOrderCode(), packageId, true, false);
             orderDAO.updateOrderTrackingNo(order.getOrderCode(), trackingNo);
+            if (shipmentProvider != null && !shipmentProvider.isEmpty()) {
+                orderDAO.updateShipmentProvider(order.getOrderCode(), shipmentProvider);
+            }
             return ShipmentResult.ok(trackingNo, packageId);
         } catch (Exception e) {
-            long dt = System.currentTimeMillis() - t0;
             ChannelSyncAudit.logFailure(ch.getChannelId(), "PACK",
                     order.getOrderCode(), 500, params.toString(), e.getMessage());
             return ShipmentResult.fail(e.getMessage());
@@ -155,19 +197,57 @@ public class LazadaShipmentService {
         try {
             String body = gateway.readyToShip(ch, packageId);
             long dt = System.currentTimeMillis() - t0;
+            // Parse RTS response per Lazada Open Platform spec:
+            //   code "0" + item_err_code "0" = true success
+            //   success="true" in body is NOT sufficient — per-package errors must be checked
+            JsonNode root = MAPPER.readTree(body);
+            JsonNode result = root.path("result");
+            boolean requestOk = "0".equals(root.path("code").asText());
+            boolean resultSuccess = result.path("success").asBoolean(false);
+
+            if (!requestOk && !resultSuccess) {
+                String msg = result.path("error_msg").asText();
+                if (msg.isEmpty()) msg = root.path("message").asText();
+                if (msg.isEmpty()) msg = "Lazada từ chối RTS.";
+                ChannelSyncAudit.log(ch.getChannelId(), "RTS",
+                        order.getOrderCode(), 200, "package_id=" + packageId, null, msg, dt);
+                logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
+                        "FAILED", msg);
+                return ShipmentResult.fail(msg);
+            }
+
+            // Per-package error check
+            JsonNode packages = result.path("data").path("packages");
+            if (packages.isArray()) {
+                for (JsonNode pkg : packages) {
+                    String errCode = pkg.path("item_err_code").asText();
+                    if (errCode.isEmpty()) errCode = "0";
+                    if (!"0".equals(errCode)) {
+                        String pkgId  = pkg.path("package_id").asText();
+                        if (pkgId.isEmpty()) pkgId = packageId;
+                        String pkgMsg = pkg.path("msg").asText();
+                        if (pkgMsg.isEmpty()) pkgMsg = "Lỗi không xác định";
+                        String failMsg = "package_id=" + pkgId + " err=" + errCode + " msg=" + pkgMsg;
+                        ChannelSyncAudit.log(ch.getChannelId(), "RTS",
+                                order.getOrderCode(), 200, failMsg, null, failMsg, dt);
+                        logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(),
+                                packageId, "FAILED", failMsg);
+                        return ShipmentResult.fail("Lazada RTS lỗi cho gói " + pkgId
+                                + ": [" + errCode + "] " + pkgMsg);
+                    }
+                }
+            }
+
+            // RTS confirmed — update flags, deduct stock, set SHIPPED
             ChannelSyncAudit.logSuccess(ch.getChannelId(), "RTS",
                     order.getOrderCode(), 200, "package_id=" + packageId, body, dt);
-            // Persist RTS flag + log
             orderDAO.updateLazadaPackage(order.getOrderCode(), packageId, true, true);
             logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
                     "SUCCESS", body);
-            // BR-04: deduct physical inventory now that the package is leaving the warehouse.
-            // This runs AFTER Lazada confirms RTS, so qty_on_hand must be reduced.
             deductShippedInventoryForOrder(order);
             orderDAO.updateOrderStatus(order.getOrderCode(), "SHIPPED");
             return ShipmentResult.ok(order.getTrackingNo(), packageId);
         } catch (Exception e) {
-            long dt = System.currentTimeMillis() - t0;
             ChannelSyncAudit.logFailure(ch.getChannelId(), "RTS",
                     order.getOrderCode(), 500, "package_id=" + packageId, e.getMessage());
             logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
@@ -189,9 +269,39 @@ public class LazadaShipmentService {
             ChannelSyncAudit.logSuccess(ch.getChannelId(), "LABEL",
                     order.getOrderCode(), 200, "package_id=" + packageId, body, 0L);
             JsonNode root = MAPPER.readTree(body);
-            String fileBase64 = root.path("data").path("file").asText("");
-            if (fileBase64.isEmpty()) return null;
-            return Base64.getDecoder().decode(fileBase64);
+            // Response path: result.data.file per Lazada Open Platform spec
+            JsonNode dataNode = root.path("result").path("data");
+            String fileBase64 = dataNode.path("file").asText();
+            
+            if (!fileBase64.isEmpty()) {
+                byte[] decoded = Base64.getDecoder().decode(fileBase64);
+                String decodedStr = new String(decoded, java.nio.charset.StandardCharsets.UTF_8).trim();
+                if (decodedStr.startsWith("<iframe") || decodedStr.startsWith("<html") || decodedStr.startsWith("<!DOCTYPE")) {
+                    LOGGER.info("Decoded shipping label is HTML/iframe, falling back to pdf_url...");
+                    String pdfUrl = dataNode.path("pdf_url").asText();
+                    if (!pdfUrl.isEmpty()) {
+                        byte[] downloadedPdf = downloadPdf(pdfUrl);
+                        if (downloadedPdf != null && downloadedPdf.length > 0) {
+                            return downloadedPdf;
+                        }
+                    }
+                } else {
+                    return decoded;
+                }
+            }
+            
+            // Fallback: check pdf_url directly if file is empty
+            String pdfUrl = dataNode.path("pdf_url").asText();
+            if (!pdfUrl.isEmpty()) {
+                byte[] downloadedPdf = downloadPdf(pdfUrl);
+                if (downloadedPdf != null && downloadedPdf.length > 0) {
+                    return downloadedPdf;
+                }
+            }
+            
+            LOGGER.warning("Lazada getShippingLabel: no valid PDF/file data found for "
+                    + order.getOrderCode() + " body=" + body);
+            return null;
         } catch (Exception e) {
             ChannelSyncAudit.logFailure(ch.getChannelId(), "LABEL",
                     order.getOrderCode(), 500, "package_id=" + packageId, e.getMessage());
@@ -200,12 +310,66 @@ public class LazadaShipmentService {
         }
     }
 
+    private byte[] downloadPdf(String pdfUrlString) {
+        try {
+            java.net.URL url = new java.net.URL(pdfUrlString);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(15000);
+            conn.setUseCaches(false);
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                try (java.io.InputStream in = conn.getInputStream();
+                     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                    return out.toByteArray();
+                }
+            } else {
+                LOGGER.warning("downloadPdf failed with response code: " + responseCode + " for URL: " + pdfUrlString);
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error downloading PDF from " + pdfUrlString, e);
+        }
+        return null;
+    }
+
     // ── Helpers ────────────────────────────────────────────────
 
     private Channel resolveChannel(Order order) {
         int channelId = order.getChannelId();
         if (channelId <= 0) return null;
         return channelDAO.findById(channelId);
+    }
+
+    /**
+     * Extracts the canonical carrier name from a Pack API response.
+     * Lazada returns shipment_provider per item inside pack_order_list.
+     * Falls back to top-level data.shipment_provider if present.
+     */
+    private String extractShipmentProvider(JsonNode data) {
+        // Try top-level first (sometimes Lazada puts it here)
+        String sp = data.path("shipment_provider").asText();
+        if (!sp.isEmpty()) return sp;
+        // Try inside pack_order_list
+        JsonNode packOrderList = data.path("pack_order_list");
+        if (packOrderList.isArray()) {
+            for (JsonNode orderNode : packOrderList) {
+                JsonNode items = orderNode.path("order_item_list");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        String itemSp = item.path("shipment_provider").asText();
+                        if (!itemSp.isEmpty()) return itemSp;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void logRts(int channelId, int orderId, String orderCode, String packageId,

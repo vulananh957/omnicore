@@ -90,6 +90,8 @@
                     <th style="text-align: right;" title="Đã phân bổ cho đơn đang xử lý">Tạm giữ</th>
                     <th style="text-align: right; font-weight:700;" title="On-Hand − Reserved — con số thực sự được bán">Khả dụng</th>
                     <th style="text-align: right;" title="Hàng đang về (PO đã duyệt, chờ nhận)">Nhập về</th>
+                    <th style="text-align: right;" title="Giá vốn bình quân (Moving Average Cost)">Giá vốn hiện tại (MAC)</th>
+                    <th style="text-align: center;">Min / Max</th>
                     <th style="text-align: center;" title="Available + Inbound — đủ hay thiếu so với ROP">ATP</th>
                 </tr>
             </thead>
@@ -252,6 +254,14 @@
                 '<td class="text-right ' + (inboundQty > 0 ? 'text-blue' : '') + '" style="font-variant-numeric:tabular-nums">' +
                     (inboundQty > 0 ? '+' + fmt(inboundQty) : '—') +
                 '</td>' +
+                '<td class="text-right" style="font-variant-numeric:tabular-nums;font-weight:600">' +
+                    fmt(item.macPrice || 0) +
+                '</td>' +
+                '<td class="text-center" style="font-variant-numeric:tabular-nums;font-size:12px">' +
+                    (item.minStock > 0 || item.maxStock > 0
+                        ? fmt(item.minStock || 0) + ' / ' + fmt(item.maxStock || 0)
+                        : '<span style="color:#9ca3af">—</span>') +
+                '</td>' +
                 '<td class="text-center">' +
                     '<span class="atp-chip ' + atpClass + '">' + atpLabel + '</span>' +
                 '</td>' +
@@ -260,7 +270,7 @@
 
         tableBody.innerHTML = rows.length
             ? rows.join('')
-            : '<tr><td colspan="8" style="text-align:center;padding:32px;color:#9ca3af">Không có dữ liệu tồn kho</td></tr>';
+            : '<tr><td colspan="10" style="text-align:center;padding:32px;color:#9ca3af">Không có dữ liệu tồn kho</td></tr>';
 
         showingCountEl.textContent = 'Hiển thị ' + rows.length + ' / ' + filtered.length + ' dòng tồn kho';
     }

@@ -1,4 +1,4 @@
-package com.wms.service;
+package com.wms.service.common;
 
 import com.wms.dao.NotificationDAO;
 import com.wms.model.Notification;
@@ -49,42 +49,6 @@ public class NotificationService {
                                     String message, String refType, Long refId) {
         notifyWarehouseStaff(warehouseId, type, title, message, refType, refId,
                 Notification.PRIORITY_NORMAL);
-    }
-
-    // ── Broadcast to Manager ─────────────────────────────────────────
-
-    /**
-     * Notifies all managers — use for: pending approvals, revenue alerts.
-     */
-    public void notifyManagers(String title, String message,
-                              String refType, Long refId, String priority) {
-        Notification tmpl = Notification.forRole(
-                AppConstants.ROLE_MANAGER, null,
-                Notification.TYPE_APPROVAL, title, message, refType, refId, priority);
-        int count = dao.broadcastToManagers(tmpl);
-        if (count > 0) {
-            LOGGER.log(Level.INFO, "Notified {0} managers: {1}", new Object[]{count, title});
-        }
-    }
-
-    public void notifyManagers(String title, String message, String refType, Long refId) {
-        notifyManagers(title, message, refType, refId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * Notifies managers of a specific warehouse — use for: GRN pending, GI pending.
-     */
-    public void notifyManagersForWarehouse(Integer warehouseId, String type, String title,
-                                          String message, String refType, Long refId,
-                                          String priority) {
-        Notification tmpl = Notification.forRole(
-                AppConstants.ROLE_MANAGER, warehouseId,
-                type, title, message, refType, refId, priority);
-        int count = dao.broadcastToRole(AppConstants.ROLE_MANAGER, warehouseId, tmpl);
-        if (count > 0) {
-            LOGGER.log(Level.INFO, "Notified {0} managers (warehouse={1}): {2}",
-                    new Object[]{count, warehouseId, title});
-        }
     }
 
     // ── Broadcast to Sales Staff ──────────────────────────────────────
@@ -177,8 +141,22 @@ public class NotificationService {
 
     // ── Mark as read ─────────────────────────────────────────────────
 
-    public boolean markAsRead(long notificationId) {
-        return dao.markAsRead(notificationId);
+    public boolean markAsRead(long notificationId, HttpSession session) {
+        User user = (User) session.getAttribute(AppConstants.SESSION_USER);
+        if (user == null) return false;
+
+        String role = user.getRole();
+        Integer warehouseId = null;
+        if (AppConstants.ROLE_WAREHOUSE_STAFF.equals(role)) {
+            Object whObj = session.getAttribute(AppConstants.SESSION_WAREHOUSE);
+            if (whObj instanceof Integer) {
+                warehouseId = (Integer) whObj;
+            }
+        }
+        // Use claimAndMarkRead so broadcast notifications (recipient_user_id=0) are
+        // correctly per-user: we insert a personal copy with is_read=1 for this
+        // user so other sessions see the original as still unread.
+        return dao.claimAndMarkRead(notificationId, user.getUserId(), role);
     }
 
     public int markAllAsReadForSession(HttpSession session) {
@@ -243,88 +221,6 @@ public class NotificationService {
                 " mặt hàng từ phiếu chuyển " + transferCode + ".";
         notifyWarehouseStaff(warehouseId, Notification.TYPE_TRANSFER,
                 title, msg, "TRANSFER", transferId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * GRN pending approval — sent to managers.
-     */
-    public void notifyGrnPending(int warehouseId, String warehouseName,
-                                 long inboundId, String inboundCode) {
-        String title = "Phiếu nhập kho chờ duyệt";
-        String msg = "Kho " + warehouseName + " trình phiếu nhập " +
-                inboundCode + " cần phê duyệt.";
-        notifyManagersForWarehouse(warehouseId, Notification.TYPE_INBOUND,
-                title, msg, "GRN", inboundId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * GRN approved — sent to the WH staff who created it.
-     */
-    public void notifyGrnApproved(int userId, long inboundId, String inboundCode) {
-        String title = "Phiếu nhập kho đã được duyệt";
-        String msg = "Phiếu nhập kho " + inboundCode + " đã được duyệt, tồn kho đã cập nhật.";
-        notifyUser(userId, AppConstants.ROLE_WAREHOUSE_STAFF, null,
-                Notification.TYPE_INBOUND, title, msg, "GRN", inboundId,
-                Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * GI (outbound) pending approval — sent to managers.
-     */
-    public void notifyGiPending(int warehouseId, String warehouseName,
-                                long outboundId, String outboundCode) {
-        String title = "Phiếu xuất kho chờ duyệt";
-        String msg = "Kho " + warehouseName + " trình phiếu xuất " +
-                outboundCode + " cần phê duyệt.";
-        notifyManagersForWarehouse(warehouseId, Notification.TYPE_OUTBOUND,
-                title, msg, "GI", outboundId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * GI approved — sent to the WH staff who created it.
-     */
-    public void notifyGiApproved(int userId, long outboundId, String outboundCode) {
-        String title = "Phiếu xuất kho đã được duyệt";
-        String msg = "Phiếu xuất kho " + outboundCode + " đã được duyệt, hàng đã sẵn sàng giao.";
-        notifyUser(userId, AppConstants.ROLE_WAREHOUSE_STAFF, null,
-                Notification.TYPE_OUTBOUND, title, msg, "GI", outboundId,
-                Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * Inventory check submitted — sent to managers.
-     */
-    public void notifyInventoryCheckPending(int warehouseId, String warehouseName,
-                                            long checkId, String checkCode) {
-        String title = "Phiếu kiểm kê chờ duyệt";
-        String msg = "Kho " + warehouseName + " gửi phiếu kiểm kê " +
-                checkCode + " cần phê duyệt điều chỉnh tồn kho.";
-        notifyManagersForWarehouse(warehouseId, Notification.TYPE_INVENTORY,
-                title, msg, "KK", checkId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * Return/RMA pending approval — sent to managers.
-     */
-    public void notifyReturnPending(int warehouseId, String warehouseName,
-                                    long returnId, String returnCode) {
-        String title = "Phiếu hoàn hàng chờ duyệt";
-        String msg = "Kho " + warehouseName + " gửi kết quả QC " +
-                returnCode + " cần phê duyệt.";
-        notifyManagersForWarehouse(warehouseId, Notification.TYPE_RETURN,
-                title, msg, "RMA", returnId, Notification.PRIORITY_NORMAL);
-    }
-
-    /**
-     * Transfer pending confirmation — sent to managers.
-     */
-    public void notifyTransferPending(int fromWarehouseId, int toWarehouseId,
-                                       String fromName, String toName,
-                                       long transferId, String transferCode) {
-        String title = "Phiếu chuyển kho cần xác nhận";
-        String msg = "Cần xác nhận chuyển kho " + transferCode +
-                " từ " + fromName + " đến " + toName + ".";
-        notifyManagers(title, msg, "TRANSFER", transferId, Notification.PRIORITY_NORMAL);
     }
 
     /**

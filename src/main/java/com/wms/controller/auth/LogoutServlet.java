@@ -1,7 +1,6 @@
 package com.wms.controller.auth;
 
 import com.wms.controller.BaseController;
-import com.wms.util.AppConstants;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

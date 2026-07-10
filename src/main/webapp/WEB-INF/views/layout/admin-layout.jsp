@@ -242,10 +242,9 @@
                 var id = item.getAttribute('data-id');
                 if (id && !item.classList.contains('unread')) return;
                 fetch('/api/notifications/' + id + '/read', { method: 'POST', headers: { 'Accept': 'application/json' } })
-                .then(function(r) { return r.json(); }).then(function() {
+                .then(function(r) { return r.json(); }).then(function(data) {
                     item.classList.remove('unread');
-                    var count = parseInt(notifBadge.textContent || '0') - 1;
-                    updateBadge(Math.max(0, count));
+                    updateBadge(data.unreadCount || 0);
                 }).catch(function() {});
             });
         });

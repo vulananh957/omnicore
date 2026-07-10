@@ -83,9 +83,14 @@ public class WarehouseService {
     /** Updates an existing zone's editable fields. */
     public SaveResult updateZone(int zoneId, int warehouseId, String name, String type, String description, Integer capacity) {
         try {
-            if (warehouseDAO.isDefaultZone(zoneId, warehouseId)) {
-                return SaveResult.failure("Không thể sửa khu mặc định của hệ thống.");
+            boolean isDefault = warehouseDAO.isDefaultZone(zoneId, warehouseId);
+            if (isDefault) {
+                boolean ok = warehouseDAO.updateDefaultZone(zoneId, warehouseId,
+                        description != null ? description.trim() : null, capacity);
+                if (!ok) return SaveResult.failure("Không thể cập nhật phân khu.");
+                return SaveResult.success();
             }
+
             if (name == null || name.trim().isEmpty() || type == null || type.trim().isEmpty()) {
                 return SaveResult.failure("Vui lòng nhập tên khu và loại khu.");
             }

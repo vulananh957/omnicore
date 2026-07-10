@@ -1,7 +1,6 @@
 package com.wms.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +28,7 @@ public class OutboundOrder {
     private String outboundCode;
     private int orderId;
     private int warehouseId;
+    private Integer createdBy;
     private String status;
     private String notes;
     private LocalDateTime createdAt;
@@ -43,6 +43,17 @@ public class OutboundOrder {
     private String recipientName;
     private String orderCode;
     private String pickerName;
+
+    /** Tracking number (vận đơn) — sourced from orders.tracking_no via JOIN. */
+    @JsonProperty("trackingNo")
+    private String trackingNo;
+
+    /** Channel display name (e.g. "Lazada", "Shopee") — sourced from channels.platform via JOIN. */
+    @JsonProperty("channelName")
+    private String channelName;
+
+    @JsonProperty("labelPrinted")
+    private boolean labelPrinted;
 
     public OutboundOrder() {
     }
@@ -102,6 +113,30 @@ public class OutboundOrder {
         this.pickerName = pickerName;
     }
 
+    public String getTrackingNo() {
+        return trackingNo;
+    }
+
+    public void setTrackingNo(String trackingNo) {
+        this.trackingNo = trackingNo;
+    }
+
+    public String getChannelName() {
+        return channelName;
+    }
+
+    public void setChannelName(String channelName) {
+        this.channelName = channelName;
+    }
+
+    public boolean isLabelPrinted() {
+        return labelPrinted;
+    }
+
+    public void setLabelPrinted(boolean labelPrinted) {
+        this.labelPrinted = labelPrinted;
+    }
+
     // ── Getters / Setters ─────────────────────────────────────
 
     public int getOutboundId() {
@@ -134,6 +169,14 @@ public class OutboundOrder {
 
     public void setWarehouseId(int warehouseId) {
         this.warehouseId = warehouseId;
+    }
+
+    public Integer getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(Integer createdBy) {
+        this.createdBy = createdBy;
     }
 
     public String getStatus() {

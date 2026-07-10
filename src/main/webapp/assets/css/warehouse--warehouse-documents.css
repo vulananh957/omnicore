@@ -338,7 +338,9 @@
         z-index: 1000; opacity: 0; pointer-events: none;
         transition: opacity 0.25s ease;
     }
-    .doc-overlay.active { opacity: 1; pointer-events: auto; }
+    .doc-overlay.active {
+        opacity: 1; pointer-events: auto;
+    }
 
     .doc-modal {
         background: #fff;
@@ -431,9 +433,10 @@
         background: #fff;
         width: 100%;
         max-width: 900px;
-        max-h: 92vh;
+        max-height: calc(100vh - 40px);
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
         border-radius: var(--radius-card);
+        margin: 20px auto;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -443,14 +446,17 @@
     .doc-overlay.active .doc-detail-modal { transform: scale(1); }
 
     .doc-detail-hdr {
+        flex-shrink: 0;
         padding: 14px 20px;
         background: rgba(240, 244, 250, 0.30);
         border-bottom: 1px solid #E5EAF3;
-        display: flex; align-items: center; justify-content: center;
-        justify-content: space-between;
+        display: flex; align-items: center; justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }
     .doc-detail-title { font-size: 15px; font-weight: 700; color: var(--navy); margin: 0; }
-    
+
     .doc-detail-actions { display: flex; align-items: center; gap: 8px; }
     .btn-detail-act {
         display: inline-flex; align-items: center; gap: 6px;
@@ -470,7 +476,11 @@
     .btn-detail-act.close svg { width: 20px; height: 20px; }
 
     .doc-detail-body {
-        flex: 1; overflow-y: auto; background: #fff;
+        flex: 1;
+        min-height: 0;
+        height: 0;
+        overflow-y: auto;
+        background: #fff;
     }
 
     /* ─── Create Document Modal Form ─── */
@@ -491,12 +501,23 @@
         color: var(--navy);
     }
     @media print {
+        @page {
+            size: A4 portrait;
+            margin: 15mm;
+        }
         body * { visibility: hidden; }
-        #detailModalOverlay, #detailModalOverlay * { visibility: visible; }
-        #detailModalOverlay { position: fixed; inset: 0; width: 100vw; height: 100vh; background: #fff; z-index: 99999; }
-        .doc-detail-modal { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; max-h: none; box-shadow: none; border-radius: 0; border: none; }
-        .doc-detail-hdr, .modal-ftr { display: none !important; }
-        .doc-detail-body { overflow: visible !important; }
+        #detailModalOverlay, #detailModalOverlay * { visibility: hidden; }
+        .pdf-print-area, .pdf-print-area * { visibility: visible; }
+        .pdf-print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            background: #fff !important;
+        }
     }
     
     /* Animation fade */

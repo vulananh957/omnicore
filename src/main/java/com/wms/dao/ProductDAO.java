@@ -540,7 +540,7 @@ public class ProductDAO {
         // Daily demand: sum picked qty per day (from outbound_items joined to outbound_orders shipped)
         String sql =
             "SELECT "
-            + "  COALESCE(SUM(oi.picked_qty) / NULLIF(COUNT(DISTINCT DATE(oo.shipped_at)), 0), 0) AS d_avg, "
+            + "  COALESCE(AVG(daily_qty), 0) AS d_avg, "
             + "  COALESCE(MAX(daily_qty), 0) AS d_max "
             + "FROM ("
             + "  SELECT DATE(oo.shipped_at) AS ship_day, SUM(oi.picked_qty) AS daily_qty "

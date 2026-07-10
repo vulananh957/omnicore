@@ -65,6 +65,25 @@
                     </c:if>
                 </a>
 
+                <!-- Master SKU -->
+                <a href="${pageContext.request.contextPath}/warehouse/master-sku"
+                   class="nav-item ${currentPage == 'wh-master-sku' ? 'active' : ''}">
+                    <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16.5 9.4 7.55 4.24"/>
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                        <polyline points="3.29 7 12 12 20.71 7"/>
+                        <line x1="12" x2="12" y1="22" y2="12"/>
+                    </svg>
+                    <span>Master SKU</span>
+                    <c:if test="${currentPage == 'wh-master-sku'}">
+                        <svg class="nav-item__chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m9 18 6-6-6-6"/>
+                        </svg>
+                    </c:if>
+                </a>
+
                 <!-- Sổ kho -->
                 <a href="${pageContext.request.contextPath}/warehouse/documents"
                    class="nav-item ${currentPage == 'wh-documents' ? 'active' : ''}">
@@ -126,27 +145,7 @@
                     </c:if>
                 </a>
 
-                <!-- Chờ cấp tracking -->
-                <a href="${pageContext.request.contextPath}/warehouse/pending-tracking"
-                   class="nav-item ${currentPage == 'warehouse-pending-tracking' ? 'active' : ''}">
-                    <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <path d="M14 2v6h6"/>
-                        <path d="M9 14h6"/>
-                        <path d="M9 18h4"/>
-                    </svg>
-                    <span>Chờ cấp tracking</span>
-                    <c:if test="${not empty pendingCount && pendingCount > 0}">
-                        <span class="nav-item__count">${pendingCount}</span>
-                    </c:if>
-                    <c:if test="${currentPage == 'warehouse-pending-tracking'}">
-                        <svg class="nav-item__chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="m9 18 6-6-6-6"/>
-                        </svg>
-                    </c:if>
-                </a>
+                <!-- (Đã ẩn menu "Cấp mã vận đơn" — tính năng đã được tích hợp vào trang Xuất kho dưới dạng sub-tab "Chờ cấp mã & in tem") -->
 
                 <!-- Hàng hoàn & QC -->
                 <a href="${pageContext.request.contextPath}/warehouse/returns"
@@ -228,25 +227,6 @@
             <!-- ══ HỆ THỐNG ══ -->
             <div class="nav-group">
                 <div class="nav-group__label">Hệ Thống</div>
-
-                <!-- Master SKU -->
-                <a href="${pageContext.request.contextPath}/warehouse/master-sku"
-                   class="nav-item ${currentPage == 'wh-master-sku' ? 'active' : ''}">
-                    <svg class="nav-item__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M16.5 9.4 7.55 4.24"/>
-                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                        <polyline points="3.29 7 12 12 20.71 7"/>
-                        <line x1="12" x2="12" y1="22" y2="12"/>
-                    </svg>
-                    <span>Master SKU</span>
-                    <c:if test="${currentPage == 'wh-master-sku'}">
-                        <svg class="nav-item__chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="m9 18 6-6-6-6"/>
-                        </svg>
-                    </c:if>
-                </a>
 
                 <!-- Cài đặt tài khoản -->
                 <a href="${pageContext.request.contextPath}/warehouse/profile"
@@ -446,10 +426,9 @@
                 fetch('/api/notifications/' + id + '/read', {
                     method: 'POST',
                     headers: { 'Accept': 'application/json' }
-                }).then(function(r) { return r.json(); }).then(function() {
+                }).then(function(r) { return r.json(); }).then(function(data) {
                     item.classList.remove('unread');
-                    var count = parseInt(notifBadge.textContent || '0') - 1;
-                    updateBadge(Math.max(0, count));
+                    updateBadge(data.unreadCount || 0);
                 }).catch(function() {});
             });
         });

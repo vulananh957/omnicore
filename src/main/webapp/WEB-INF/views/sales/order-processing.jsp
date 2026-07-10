@@ -28,6 +28,10 @@
         Hàng Hoàn &amp; Khiếu Nại
         <span class="op-tab-badge" id="badgeRMA">0</span>
     </button>
+    <button class="op-tab tab-cancelled" id="tabCancelled" onclick="switchTab('cancelled')">
+        Đã hủy
+        <span class="op-tab-badge" id="badgeCancelled">0</span>
+    </button>
 </div>
 
 <%-- ── ENTERPRISE FILTER BAR ── --%>
@@ -73,7 +77,7 @@
         </div>
     </div>
 
-    <%-- Filter 3: Đơn vị vận chuyển --%>
+    <%-- Filter 3: Đơn vị vận chuyển (populated by JS from shipmentProvidersJson) --%>
     <div style="position:relative">
         <button class="op-filter-btn" onclick="toggleDropdown('ddCarrier', event)">
             <span style="display:flex;align-items:center;gap:6px">
@@ -84,10 +88,7 @@
         </button>
         <div id="ddCarrier" class="op-dropdown right">
             <button class="selected" onclick="selectCarrier('all')">Tất cả ĐVVC</button>
-            <button onclick="selectCarrier('SPX Express')">SPX Express</button>
-            <button onclick="selectCarrier('Lazada Express')">Lazada Express</button>
-            <button onclick="selectCarrier('TikTok Express')">TikTok Express</button>
-            <button onclick="selectCarrier('Viettel Post')">Viettel Post</button>
+            <%-- populated dynamically by initCarrierDropdown() --%>
         </div>
     </div>
 
@@ -216,43 +217,7 @@
     </div>
 </div>
 
-<%-- ── STICKY BATCH ACTIONS BAR (BOTTOM) ── --%>
-<div class="op-sticky-bar" id="opStickyBar">
-    <div style="display:flex;align-items:center;gap:8px">
-        <span style="width:8px;height:8px;background:#34d399;border-radius:50%;display:inline-block" id="stickyPulseDot"></span>
-        <span style="font-size:13px;font-weight:700">Đã chọn: <strong id="stickyCount" style="color:#fbbf24;font-size:15px">0</strong> đơn hàng</span>
-    </div>
-    <div style="display:flex;gap:8px" id="stickyActionsContainer">
-        <%-- Populated by JS based on active tab --%>
-    </div>
-</div>
 
-<%-- ── MERGED SHIPPING LABELS PRINT PREVIEW MODAL ── --%>
-<div class="op-modal-overlay" id="opPrintModalOverlay" onclick="closePrintModal()">
-    <div class="op-modal" onclick="event.stopPropagation()" style="max-width:550px">
-        <div class="op-modal-header">
-            <div>
-                <span class="op-modal-title" style="display:flex;align-items:center;gap:6px">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;color:#10b981"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    XEM TRƯỚC TEM VẬN CHUYỂN A6
-                </span>
-                <p style="font-size:11px;color:rgba(16,55,92,.4);margin-top:2px">Hệ thống đã gộp các trang nhãn dán Base64 nhận từ sàn thành 1 tệp in duy nhất</p>
-            </div>
-            <button class="op-modal-close" onclick="closePrintModal()">&times;</button>
-        </div>
-        <div class="op-modal-body" style="background:#f3f4f6;padding:1.5rem;overflow-y:auto" id="printModalBody">
-            <%-- Populated dynamically --%>
-        </div>
-        <div class="op-modal-footer" style="background:#fff;border-top:1px solid #E5EAF3">
-            <span style="font-size:12px;color:rgba(16,55,92,.5);margin-right:auto;display:flex;align-items:center;gap:4px">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                Ghép thành công <strong id="lblPrintLabelsCount" style="color:var(--navy)">0</strong> nhãn in
-            </span>
-            <button class="op-btn" style="background:#fff;border-color:#E5EAF3;color:rgba(16,55,92,.6)" onclick="closePrintModal()">Đóng</button>
-            <button class="op-btn success" onclick="executePrintShipping()" id="btnExecutePrint">Tiến hành in tem vật lý</button>
-        </div>
-    </div>
-</div>
 
 <%-- ── TOAST NOTIFICATIONS POPUP ── --%>
 <div class="op-toast" id="opToast">
@@ -270,14 +235,15 @@
     {
         "id": "${fn:escapeXml(order.orderCode)}",
         "channel": "${order.channel == 'ONLINE' ? 'Lazada' : fn:escapeXml(order.channel)}",
-        "customerName": "Khach hang #${order.customerId != null ? order.customerId : 'N/A'}",
-        "customerPhone": "090xxxxxxx",
-        "customerAddress": "So 123 Duong Lang, Dong Da, Ha Noi",
+        "customerName": "${fn:escapeXml(order.customerName)}",
+        "customerPhone": "${fn:escapeXml(order.customerPhone)}",
+        "customerAddress": "${fn:escapeXml(order.customerAddress)}",
         "totalItems": ${totalQty},
         "totalAmount": ${order.totalAmount},
         "status": "${order.status == 'PENDING' ? 'pending_review' : (order.status == 'CONFIRMED' ? 'confirmed' : (order.status == 'PICKING' ? 'confirmed' : (order.status == 'PACKED' ? 'packed' : (order.status == 'SHIPPED' ? 'shipping' : (order.status == 'DELIVERED' ? 'delivered' : (order.status == 'COMPLETED' ? 'completed' : (order.status == 'RETURNED' ? 'returned' : (order.status == 'DISPUTED' ? 'disputed' : (order.status == 'DISPUTE_SUCCESS' ? 'dispute_success' : (order.status == 'CANCELLED' ? 'cancelled' : order.status.toLowerCase()))))))))))}",
         "warehouse": "${fn:escapeXml(order.warehouseName)}",
         "trackingNo": "${fn:escapeXml(order.trackingNo)}",
+        "shipmentProvider": "${fn:escapeXml(order.shipmentProvider)}",
         "reviewNote": "${fn:escapeXml(order.reviewNote)}",
         "rmaReason": "${fn:escapeXml(order.rmaReason)}",
         "rmaPhysicalStatus": "${fn:escapeXml(order.rmaPhysicalStatus)}",
@@ -354,20 +320,22 @@ let selectedCarrier = "all";
 let selectedTime = "all";
 
 let activeDetailOrder = null;
-let selectedBatchIds = [];
 
 // ── INIT DOMContentLoaded ───────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", function() {
     loadOrdersFromStorage();
 
-    // Populate inventory stock cache from server (real-time) so the order
-    // detail modal shows the correct per-warehouse quantities, not zeros
-    // from an empty localStorage['wh_pricing_sales'].
-    loadInventoryStock();
+    // __whStockCache is populated automatically by initStockCacheFromServlet() IIFE above.
+    // loadInventoryStock() is called by that IIFE as a secondary refresh after DOMContentLoaded.
+    // Carriers dropdown is also populated from embedded data.
+    initCarrierDropdown();
     
-    // React interop sync
+    // React interop sync — NOTE: do NOT call loadOrdersFromStorage() here.
+    // loadOrdersFromStorage() reads from the server-rendered DOM (#orderDataContainer),
+    // which still holds the original PENDING data. Calling it after an in-memory
+    // approve/reject would overwrite allOrders and revert the status change.
+    // The event is only used to trigger a re-render for cross-component sync.
     window.addEventListener("ORDER_STORE_UPDATED", function() {
-        loadOrdersFromStorage();
         renderAll();
     });
 
@@ -377,7 +345,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Check initial search params
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get("tab");
-    if (tabParam && ["pending_review", "pending_waybill", "pending_rts", "rma_dispute"].includes(tabParam)) {
+    if (tabParam && ["pending_review", "pending_waybill", "pending_rts", "rma_dispute", "cancelled"].includes(tabParam)) {
         activeTab = tabParam;
     }
 
@@ -478,35 +446,99 @@ function getWarehouseStock(sku, wname) {
  *     "SUN-SCRE-007": { ... }
  *   }
  */
-function loadInventoryStock() {
-    fetch(window.location.origin + "${pageContext.request.contextPath}/sales/inventory-stock", {
-        method: "GET",
-        headers: { "Accept": "application/json" }
+// Populate __whStockCache from JSP-embedded lazadaOrdersJson so the detail modal
+// always has real stock data even if /sales/inventory-stock fetch fails or returns 0.
+// The lazadaOrdersJson attribute is set by SalesOrderProcessingServlet.
+(function initStockCacheFromServlet() {
+    var raw = '<c:out value="${lazadaOrdersJson}" escapeXml="false"/>';
+    if (!raw || raw.indexOf('lazadaOrdersJson') > -1 || raw.trim() === '') return;
+    try {
+        var lazOrders = JSON.parse(raw);
+        var cache = {};
+        lazOrders.forEach(function(order) {
+            if (!order.items) return;
+            order.items.forEach(function(item) {
+                if (!item.wmsSku) return;
+                if (!cache[item.wmsSku]) cache[item.wmsSku] = {};
+                // Parse "Kho Hà Nội:150.000, Kho TP.HCM:0.000" style string
+                if (item.warehouseStocks) {
+                    var parts = item.warehouseStocks.split(',');
+                    parts.forEach(function(part) {
+                        var colonIdx = part.lastIndexOf(':');
+                        if (colonIdx < 0) return;
+                        var whName = part.substring(0, colonIdx).trim();
+                        var qtyStr = part.substring(colonIdx + 1).trim();
+                        var qty = parseFloat(qtyStr);
+                        if (!isNaN(qty) && whName) {
+                            cache[item.wmsSku][whName] = qty;
+                        }
+                    });
+                }
+            });
+        });
+        window.__whStockCache = cache;
+        console.log('[order-processing] Stock cache initialized from lazadaOrdersJson:', cache);
+    } catch (e) {
+        console.warn('[order-processing] Failed to init stock cache from lazadaOrdersJson:', e);
+    }
+})();
+
+// ── Carrier dropdown init (populated from JSP-embedded shipmentProvidersJson) ─────
+function initCarrierDropdown() {
+    var raw = '<c:out value="${shipmentProvidersJson}" escapeXml="false"/>';
+    if (!raw || raw.indexOf('shipmentProvidersJson') > -1 || raw.trim() === '') return;
+    try {
+        var providers = JSON.parse(raw);
+        if (!Array.isArray(providers) || providers.length === 0) return;
+        var container = document.getElementById('ddCarrier');
+        if (!container) return;
+        // Keep "Tất cả ĐVVC" button, append provider buttons after it
+        var defaultBtn = container.querySelector('button.selected');
+        container.innerHTML = '';
+        if (defaultBtn) container.appendChild(defaultBtn);
+        providers.forEach(function(p) {
+            var name = p.providerNameVn || p.providerName || p.providerCode;
+            var btn = document.createElement('button');
+            btn.textContent = name;
+            btn.onclick = (function(n) { return function() { selectCarrier(n); }; })(name);
+            container.appendChild(btn);
+        });
+        console.log('[order-processing] Carrier dropdown initialized:', providers);
+    } catch (e) {
+        console.warn('[order-processing] Failed to init carrier dropdown:', e);
+    }
+}
+
+// Fetch live stock from server as secondary update (MERGE into existing cache, don't replace)
+(function loadInventoryStock() {
+    fetch(window.location.origin + '${pageContext.request.contextPath}/sales/inventory-stock', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
     })
     .then(function(resp) { return resp.json(); })
     .then(function(data) {
-        if (!data || !data.success || !Array.isArray(data.stocks)) return;
-        var cache = {};
+        // Only merge if server returns meaningful data; don't overwrite with empty array
+        if (!data || !data.success || !Array.isArray(data.stocks) || data.stocks.length === 0) return;
         data.stocks.forEach(function(s) {
             if (!s.sku || !s.warehouseName) return;
-            if (!cache[s.sku]) cache[s.sku] = {};
+            if (!window.__whStockCache) window.__whStockCache = {};
+            if (!window.__whStockCache[s.sku]) window.__whStockCache[s.sku] = {};
             var qty = (s.qtyAvailable !== undefined && s.qtyAvailable !== null)
                 ? Number(s.qtyAvailable)
                 : Number(s.qtyOnHand || 0);
-            cache[s.sku][s.warehouseName] = qty;
+            window.__whStockCache[s.sku][s.warehouseName] = qty;
         });
-        window.__whStockCache = cache;
-        console.log("[order-processing] Inventory stock cache loaded:", cache);
+        console.log('[order-processing] Inventory stock cache merged from server:', window.__whStockCache);
 
         // Re-render any currently-open order detail modal so the totals update
-        if (typeof renderAll === "function") {
+        if (typeof renderAll === 'function') {
             try { renderAll(); } catch (e) { /* ignore */ }
         }
     })
     .catch(function(err) {
-        console.warn("[order-processing] Failed to load inventory stock:", err);
+        console.warn('[order-processing] Failed to load inventory stock from server (using embedded data):', err);
     });
-}
+})();
 
 function resolvePhysicalItems(itemSku, itemQuantity) {
     const stored = localStorage.getItem("sku_raw_mappings_v2");
@@ -531,10 +563,21 @@ function resolvePhysicalItems(itemSku, itemQuantity) {
 }
 
 function getShippingCarrierOfOrder(order) {
-    if (order.channel === "Shopee") return "SPX Express";
-    if (order.channel === "Lazada") return "Lazada Express";
-    if (order.channel === "TikTok") return "TikTok Express";
-    return "Viettel Post";
+    // Prefer real shipment_provider from DB if present, otherwise derive from channel
+    var sp = order.shipmentProvider || order.shipment_provider;
+    if (sp && sp.trim()) {
+        // Normalize Lazada's provider codes to display names
+        if (sp.indexOf('Lazada') > -1 || sp.indexOf('LEX') > -1) return 'Lazada Express';
+        if (sp.indexOf('SPX') > -1 || sp.indexOf('Spx') > -1) return 'SPX Express';
+        if (sp.indexOf('TikTok') > -1) return 'TikTok Express';
+        if (sp.indexOf('Viettel') > -1) return 'Viettel Post';
+        return sp;
+    }
+    // Fallback: derive from channel
+    if (order.channel === 'Lazada') return 'Lazada Express';
+    if (order.channel === 'Shopee') return 'SPX Express';
+    if (order.channel === 'TikTok') return 'TikTok Express';
+    return 'Viettel Post';
 }
 
 function getOrderShippingCarrier(order) {
@@ -568,7 +611,6 @@ function showToast(msg, type = "info") {
 // ── RENDER & SWITCH TAB ──────────────────────────────────────────────
 function switchTab(tabId) {
     activeTab = tabId;
-    selectedBatchIds = [];
     hideAllDropdowns();
     
     // Sync URL parameter
@@ -582,6 +624,7 @@ function switchTab(tabId) {
     if (tabId === "pending_waybill") document.getElementById("tabWaybill").classList.add("active");
     if (tabId === "pending_rts") document.getElementById("tabRTS").classList.add("active");
     if (tabId === "rma_dispute") document.getElementById("tabRMA").classList.add("active");
+    if (tabId === "cancelled") document.getElementById("tabCancelled").classList.add("active");
     
     // Toggle time filter visibility (only in RTS tab)
     const timeFilter = document.getElementById("opTimeFilterContainer");
@@ -600,7 +643,6 @@ function renderAll() {
     renderTabBadges();
     renderTableHeader();
     renderTableBody();
-    renderStickyBar();
 }
 
 function renderTabBadges() {
@@ -611,11 +653,13 @@ function renderTabBadges() {
         return (o.status === "returned" || o.status === "disputed" || o.status === "dispute_success") 
             && o.rmaPhysicalStatus === "Đã nhập Zone Khiếu Nại";
     }).length;
+    const cancelledCnt = allOrders.filter(o => o.status === "cancelled").length;
     
     document.getElementById("badgeReview").textContent = reviewCnt;
     document.getElementById("badgeWaybill").textContent = waybillCnt;
     document.getElementById("badgeRTS").textContent = rtsCnt;
     document.getElementById("badgeRMA").textContent = rmaCnt;
+    document.getElementById("badgeCancelled").textContent = cancelledCnt;
 }
 
 // ── DROPDOWNS ────────────────────────────────────────────────────────
@@ -727,6 +771,8 @@ function getFilteredOrders() {
         } else if (activeTab === "rma_dispute") {
             matchTab = (order.status === "returned" || order.status === "disputed" || order.status === "dispute_success") 
                 && order.rmaPhysicalStatus === "Đã nhập Zone Khiếu Nại";
+        } else if (activeTab === "cancelled") {
+            matchTab = order.status === "cancelled";
         }
         
         if (!matchTab) return false;
@@ -783,15 +829,7 @@ function getFilteredOrders() {
 function renderTableHeader() {
     const header = document.getElementById("opTableHeader");
     
-    // Checkbox column for batch actions tabs
-    const isBatchTab = (activeTab === "pending_waybill" || activeTab === "pending_rts");
-    
     let html = "";
-    if (isBatchTab) {
-        html += `<th style="width: 48px; text-align: center">
-            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px;cursor:pointer"/>
-        </th>`;
-    }
     
     html += `<th style="width: 56px">STT</th>
     <th style="width: 144px">Mã đơn hàng</th>
@@ -823,11 +861,6 @@ function renderTableBody() {
     const tbody = document.getElementById("opTableBody");
     const filtered = getFilteredOrders();
     
-    // Sync selectAll checkbox state
-    const selectAllCheck = document.getElementById("selectAllCheckbox");
-    if (selectAllCheck) {
-        selectAllCheck.checked = (filtered.length > 0 && selectedBatchIds.length === filtered.length);
-    }
     
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr>' +
@@ -841,20 +874,12 @@ function renderTableBody() {
     }
     
     let html = "";
-    filtered.forEach((order, idx) => {
-        const isBatchTab = (activeTab === "pending_waybill" || activeTab === "pending_rts");
-        const isChecked = selectedBatchIds.indexOf(order.id) > -1;
+        filtered.forEach((order, idx) => {
         const cfg = STATUS_CONFIG[order.status] || { label: order.status, bg: "background:#e5eaf3", text: "color:#10375c", dot: "background:#10375c" };
         const carrier = getShippingCarrierOfOrder(order);
         const channelColor = order.channelColor || "#10375c";
         
         html += '<tr class="' + (order.status === 'pending_review' ? 'pending-row' : '') + '" onclick="openDetailModal(\'' + order.id + '\')" style="cursor:pointer">';
-        
-        if (isBatchTab) {
-            html += '<td style="text-align: center" onclick="event.stopPropagation()">' +
-                '<input type="checkbox" style="width:16px;height:16px;cursor:pointer" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelectOrder(\'' + order.id + '\', this.checked)" />' +
-            '</td>';
-        }
         
         html += '<td><span style="color:rgba(16,55,92,.4);font-weight:700;font-size:12px">' + (idx + 1) + '</span></td>' +
         '<td>' +
@@ -939,72 +964,6 @@ function renderTableBody() {
     document.getElementById("opTableFooter").textContent = "Hiển thị " + filtered.length + " / " + allOrders.length + " đơn hàng";
 }
 
-// ── BATCH SELECTION HANDLERS ──────────────────────────────────────────
-function toggleSelectAll(checked) {
-    const filtered = getFilteredOrders();
-    if (checked) {
-        selectedBatchIds = filtered.map(o => o.id);
-    } else {
-        selectedBatchIds = [];
-    }
-    renderTableBody();
-    renderStickyBar();
-}
-
-function toggleSelectOrder(id, checked) {
-    if (checked) {
-        if (selectedBatchIds.indexOf(id) === -1) {
-            selectedBatchIds.push(id);
-        }
-    } else {
-        selectedBatchIds = selectedBatchIds.filter(x => x !== id);
-    }
-    renderTableBody();
-    renderStickyBar();
-}
-
-// ── STICKY ACTIONS BAR ───────────────────────────────────────────────
-function renderStickyBar() {
-    const bar = document.getElementById("opStickyBar");
-    const count = document.getElementById("stickyCount");
-    const container = document.getElementById("stickyActionsContainer");
-    
-    if (selectedBatchIds.length === 0) {
-        bar.classList.remove("open");
-        return;
-    }
-    
-    count.textContent = selectedBatchIds.length;
-    let html = "";
-    
-    if (activeTab === "pending_waybill") {
-        html += '<button class="op-sticky-bar-btn amber" onclick="requestBatchRTS()" ' + 'disabled' + '>' +
-            '⚙️ 1. SINH MÃ TRACKING (đang chờ tích hợp)' +
-        '</button>' +
-        '<button class="op-sticky-bar-btn emerald" onclick="openPrintModal()" ' + '>' +
-            '🖨️ 2. IN TEM VẬN ĐƠN (PDF)' +
-        '</button>';
-    } else if (activeTab === "pending_rts") {
-        html += '<button class="op-sticky-bar-btn teal" onclick="requestBatchRTS()">' +
-            '🚚 XÁC NHẬN READY TO SHIP (BÁO SÀN)' +
-        '</button>';
-    }
-    
-    container.innerHTML = html;
-    bar.classList.add("open");
-}
-
-// ── BATCH READY TO SHIP ───────────────────────────────────────────────
-function requestBatchRTS() {
-    const targets = allOrders.filter(o => selectedBatchIds.indexOf(o.id) > -1);
-    if (targets.length === 0) {
-        showToast("Vui lòng chọn đơn hàng cần tạo vận đơn.", "warn");
-        return;
-    }
-    // Tính năng tạo vận đơn hàng loạt qua Lazada RTS API đang chờ tích hợp.
-    showToast("Tính năng tạo vận đơn (RTS) đang chờ tích hợp API Lazada.", "info");
-}
-
 // ── DETAIL MODAL FUNCTIONS ───────────────────────────────────────────
 function openDetailModal(id) {
     const order = allOrders.find(o => o.id === id);
@@ -1047,7 +1006,18 @@ function renderModal(order) {
     let itemsHtml = "";
     
     if (order.items) {
-        order.items.forEach(item => {
+        // Group items by SKU (Lazada sends one object per unit, e.g. qty=1 x3 instead of qty=3 x1)
+        var groupedItems = {};
+        order.items.forEach(function(item) {
+            var key = item.sku || item.name || '';
+            if (groupedItems[key]) {
+                groupedItems[key].quantity += (item.quantity || 1);
+            } else {
+                groupedItems[key] = Object.assign({}, item, { quantity: item.quantity || 1 });
+            }
+        });
+
+        Object.values(groupedItems).forEach(item => {
             const resolved = resolvePhysicalItems(item.sku, item.quantity);
             
             itemsHtml += '<div class="op-detail-item">' +
@@ -1056,7 +1026,7 @@ function renderModal(order) {
                         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>' +
                         item.name +
                     '</span>' +
-                    '<span style="font-size:12px;color:rgba(16,55,92,.6);font-weight:600">SL đặt trên sàn: <strong style="color:var(--navy);font-size:14px">' + item.quantity + '</strong></span>' +
+                    '<span style="font-size:12px;color:rgba(16,55,92,.6);font-weight:600">SL đặt trên sàn: <strong style="color:var(--navy);font-size:14px">x' + item.quantity + '</strong></span>' +
                 '</div>' +
                 '<div style="font-size:11px;color:rgba(16,55,92,.4);font-family:monospace;margin-bottom:8px">Mã SKU trên sàn: ' + item.sku + '</div>' +
                 
@@ -1271,20 +1241,26 @@ function renderModal(order) {
                     '<select class="op-select" id="actSelectWarehouse">' +
                         '<option value="">-- Chọn kho xuất hàng --</option>';
                         
-        WAREHOUSES.forEach(w => {
-            // Check if sufficient stock for ALL items in order
-            let sufficient = true;
-            if (order.items) {
-                order.items.forEach(i => {
-                    const resolvedItems = resolvePhysicalItems(i.sku, i.quantity);
-                    resolvedItems.forEach(phy => {
-                        if (getWarehouseStock(phy.sku, w.name) < phy.quantity) {
-                            sufficient = false;
-                        }
-                    });
+        var physicalSkuRequired = {};
+        if (order.items) {
+            order.items.forEach(function(i) {
+                var resolvedItems = resolvePhysicalItems(i.sku, i.quantity);
+                resolvedItems.forEach(function(phy) {
+                    physicalSkuRequired[phy.sku] = (physicalSkuRequired[phy.sku] || 0) + phy.quantity;
                 });
+            });
+        }
+                        
+        WAREHOUSES.forEach(w => {
+            let sufficient = true;
+            for (var phySku in physicalSkuRequired) {
+                const requiredQty = physicalSkuRequired[phySku];
+                if (getWarehouseStock(phySku, w.name) < requiredQty) {
+                    sufficient = false;
+                    break;
+                }
             }
-            actionHtml += '<option value="' + w.name + '">' + w.name + ' ' + (sufficient ? '(Đủ hàng)' : '(Thiếu hàng)') + '</option>';
+            actionHtml += '<option value="' + w.name + '"' + (sufficient ? '' : ' disabled') + '>' + w.name + ' ' + (sufficient ? '(Đủ hàng)' : '(Thiếu hàng)') + '</option>';
         });
         
         actionHtml += '</select>' +
@@ -1496,201 +1472,4 @@ function submitRMADispute(orderId) {
     });
 }
 
-// ── MERGED A6 THERMAL SHIPPING LABELS PRINT PREVIEW MODAL ──
-function openPrintModal() {
-    isGeneratingPDF = true;
-    renderStickyBar();
-    
-    setTimeout(() => {
-        isGeneratingPDF = false;
-        renderStickyBar();
-        
-        // Build label previews
-        const body = document.getElementById("printModalBody");
-        let html = '<div class="op-labels-grid">';
-        
-        selectedBatchIds.forEach((id, idx) => {
-            const order = allOrders.find(o => o.id === id);
-            if (!order) return;
-            
-            const carrier = getShippingCarrierOfOrder(order);
-            
-            html += '<div class="op-label-a6">' +
-                '<!-- Top bar -->' +
-                '<div class="op-label-top">' +
-                    '<span class="op-label-carrier">' + carrier + '</span>' +
-                    '<div class="op-label-barcode">' +
-                        '<div class="barcode-lines">' +
-                            '<div style="width: 2px"></div>' +
-                            '<div style="width: 4px"></div>' +
-                            '<div style="width: 1px"></div>' +
-                            '<div style="width: 2px"></div>' +
-                            '<div style="width: 5px"></div>' +
-                            '<div style="width: 1px"></div>' +
-                            '<div style="width: 3px"></div>' +
-                            '<div style="width: 2px"></div>' +
-                            '<div style="width: 4px"></div>' +
-                            '<div style="width: 1px"></div>' +
-                            '<div style="width: 2px"></div>' +
-                            '<div style="width: 5px"></div>' +
-                            '<div style="width: 1px"></div>' +
-                            '<div style="width: 2px"></div>' +
-                            '<div style="width: 1px"></div>' +
-                        '</div>' +
-                        '<span style="font-size:9.5px;font-family:monospace;font-weight:700;margin-top:2px">' + order.trackingNo + '</span>' +
-                    '</div>' +
-                '</div>' +
-                
-                '<!-- Shipping details -->' +
-                '<div class="op-label-info-grid">' +
-                    '<div class="op-label-info-col border-r">' +
-                        '<span style="font-size:8px;font-weight:800;color:rgba(16,55,92,.4);display:block">TỪ:</span>' +
-                        '<strong style="font-size:11px;display:block">OMNICORE ERP STORE</strong>' +
-                        '<span style="display:block;margin-top:2px;font-weight:700">Kho 1 - Hà Nội</span>' +
-                        '<span style="display:block;font-size:9.5px">Hotline: 1900-5678</span>' +
-                    '</div>' +
-                    '<div class="op-label-info-col" style="padding-left:4px">' +
-                        '<span style="font-size:8px;font-weight:800;color:rgba(16,55,92,.4);display:block">ĐẾN:</span>' +
-                        '<strong style="font-size:11px;display:block">' + order.customerName + '</strong>' +
-                        '<span style="display:block;font-weight:700;margin-top:2px">' + order.customerPhone + '</span>' +
-                        '<span style="display:block;font-size:10px;line-height:1.2;margin-top:2px">' + order.customerAddress + '</span>' +
-                    '</div>' +
-                '</div>' +
-                
-                '<!-- Middle details -->' +
-                '<div class="op-label-middle">' +
-                    '<div style="display:flex;flex-direction:column;gap:2px">' +
-                        '<div>Mã đơn sàn: <strong style="font-family:monospace;font-size:11.5px">' + order.id + '</strong></div>' +
-                        '<div>Kênh bán: <strong>' + order.channel + '</strong></div>' +
-                        '<div>Ngày đồng bộ: <span style="font-family:monospace">' + order.createdAt + '</span></div>' +
-                        '<div style="margin-top:3px;background:var(--alice);border:1px solid #E5EAF3;padding:2px 4px;font-size:8.5px;border-radius:3px;font-weight:700">Hình thức: THANH TOÁN KHI NHẬN HÀNG (COD)</div>' +
-                    '</div>' +
-                    
-                    '<!-- QR Code -->' +
-                    '<div class="op-label-qr">';
-                    
-            for (let qi = 0; qi < 64; qi++) {
-                html += '<div style="background:' + (Math.random() > 0.45 ? 'var(--navy)' : '#fff') + '"></div>';
-            }
-                    
-            html += '</div>' +
-                '</div>' +
-                
-                '<!-- Bottom Picking list -->' +
-                '<div class="op-label-bottom">' +
-                    '<div>' +
-                        '<div class="op-label-picking-title">' +
-                            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>' +
-                            'Danh sách nhặt hàng (Warehouse Picking List)' +
-                        '</div>' +
-                        '<table class="op-label-picking-table">' +
-                            '<thead>' +
-                                '<tr style="border-bottom:1px solid rgba(16,55,92,.1);font-size:8.5px;color:rgba(16,55,92,.4)">' +
-                                    '<th style="text-align:left;padding-bottom:2px">Sản phẩm (Master SKU)</th>' +
-                                    '<th style="text-align:right;padding-bottom:2px">SL</th>' +
-                                '</tr>' +
-                            '</thead>' +
-                            '<tbody>';
-                            
-            if (order.items) {
-                order.items.forEach(item => {
-                    const resolved = resolvePhysicalItems(item.sku, item.quantity);
-                    resolved.forEach(phy => {
-                        html += '<tr>' +
-                            '<td style="padding:3px 0">' +
-                                '<div>' + (phy.name || item.name) + '</div>' +
-                                '<div style="font-family:monospace;font-size:9.5px;color:rgba(16,55,92,.4)">(' + phy.sku + ')</div>' +
-                            '</td>' +
-                            '<td class="qty-col">' + phy.quantity + '</td>' +
-                        '</tr>';
-                    });
-                });
-            }
-                            
-            html += '</tbody>' +
-                        '</table>' +
-                    '</div>' +
-                    
-                    '<!-- Page marker footer -->' +
-                    '<div class="op-label-marker">Trang ' + (idx + 1) + ' / ' + selectedBatchIds.length + ' — TEM IN VẬN ĐƠN NỘI BỘ</div>' +
-                '</div>' +
-            '</div>';
-        });
-        
-        html += '</div>';
-        body.innerHTML = html;
-        
-        document.getElementById("lblPrintLabelsCount").textContent = selectedBatchIds.length;
-        document.getElementById("opPrintModalOverlay").classList.add("open");
-    }, 1200);
-}
-
-function closePrintModal() {
-    document.getElementById("opPrintModalOverlay").classList.remove("open");
-}
-
-function executePrintShipping() {
-    const btn = document.getElementById("btnExecutePrint");
-    btn.disabled = true;
-    btn.textContent = "Đang gửi lệnh in...";
-    
-    const targets = allOrders.filter(o => selectedBatchIds.indexOf(o.id) > -1);
-    if (targets.length === 0) {
-        btn.disabled = false;
-        btn.textContent = "Tiến hành in tem vật lý";
-        closePrintModal();
-        return;
-    }
-    
-    const promises = targets.map(o => {
-        const urlParams = new URLSearchParams();
-        urlParams.append("action", "print_shipping");
-        urlParams.append("orderCode", o.id);
-        
-        return fetch(window.location.origin + "${pageContext.request.contextPath}/sales/order-action", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-            },
-            body: urlParams.toString()
-        })
-        .then(res => {
-            if (!res.ok) throw new Error("HTTP error " + res.status);
-            return res.json();
-        })
-        .then(data => {
-            if (data.success) {
-                return { id: o.id };
-            } else {
-                throw new Error(data.message || "Failed");
-            }
-        });
-    });
-    
-    Promise.all(promises)
-    .then(results => {
-        allOrders = allOrders.map(o => {
-            const res = results.find(r => r.id === o.id);
-            if (res) {
-                o.status = "packed";
-                o.updatedAt = new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16);
-            }
-            return o;
-        });
-        
-        saveOrdersToStorage();
-        btn.disabled = false;
-        btn.textContent = "Tiến hành in tem vật lý";
-        
-        closePrintModal();
-        selectedBatchIds = [];
-        renderAll();
-        showToast("Đã gửi lệnh in tem hàng loạt xuống kho! Trạng thái chuyển sang [Chờ bàn giao]", "success");
-    })
-    .catch(err => {
-        btn.disabled = false;
-        btn.textContent = "Tiến hành in tem vật lý";
-        alert("Lỗi khi gửi lệnh in tem: " + err.message);
-    });
-}
 </script>
