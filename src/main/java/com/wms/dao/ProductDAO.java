@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -83,6 +84,178 @@ public class ProductDAO {
             LOGGER.log(Level.WARNING, "ProductDAO: Failed to find product by ID " + productId, e);
         }
         return null;
+    }
+
+    public Product findBySkuCode(String skuCode) {
+        if (skuCode == null || skuCode.isBlank()) {
+            return null;
+        }
+        String sql = SELECT_CORE + " WHERE p.sku_code = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, skuCode.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs, List.of());
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ProductDAO: Failed to find product by SKU " + skuCode, e);
+        }
+        return null;
+    }
+
+    /**
+     * Simple (total, items) pair returned by {@link #search}.
+     * NOTE: items are plain maps (snake_case keys), NOT {@link Product} — the storefront
+     * API contract (OmnicoreApiService.java in omnicore-web) expects field names like
+     * product_id/sku_code/qty_available/is_best_seller which don't exist on the internal
+     * Product model (that model is warehouse-oriented: zones, ROP, MAC price, no
+     * is_new_arrival/is_best_seller/active). Do not change this back to List<Product> —
+     * a previous version briefly did, and it silently broke the website integration
+     * (wrong field names, no images/qty_available) without any compile error.
+     */
+    public static class SearchResult {
+        public final List<Map<String, Object>> items;
+        public final int total;
+        public SearchResult(List<Map<String, Object>> items, int total) {
+            this.items = items;
+            this.total = total;
+        }
+    }
+
+    /**
+     * Storefront product search — paginated, filterable by category/keyword/flag.
+     *
+     * @param filter "new_arrival", "best_seller", or null/blank for no flag filter.
+     */
+    public SearchResult search(int page, int size, Integer categoryId, String keyword, String filter) {
+        List<Object> params = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" WHERE p.active = 1 ");
+        if (categoryId != null) {
+            where.append(" AND p.category_id = ? ");
+            params.add(categoryId);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            where.append(" AND (p.product_name LIKE ? OR p.sku_code LIKE ?) ");
+            String kw = "%" + keyword.trim() + "%";
+            params.add(kw);
+            params.add(kw);
+        }
+        if ("new_arrival".equals(filter)) {
+            where.append(" AND p.is_new_arrival = 1 ");
+        } else if ("best_seller".equals(filter)) {
+            where.append(" AND p.is_best_seller = 1 ");
+        }
+
+        int total = 0;
+        String countSql = "SELECT COUNT(*) FROM products p" + where;
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(countSql)) {
+            bindSearchParams(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) total = rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ProductDAO.search: count query failed", e);
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        String dataSql = "SELECT p.product_id, p.sku_code, p.product_name, p.category_id, c.category_name, "
+                + "p.base_price, p.attributes_text, p.barcode, p.weight_kg, p.is_new_arrival, p.is_best_seller, "
+                + "(SELECT pi.image_url FROM product_images pi WHERE pi.product_id = p.product_id "
+                + " AND pi.is_primary = 1 LIMIT 1) AS primary_image "
+                + "FROM products p LEFT JOIN categories c ON p.category_id = c.category_id"
+                + where + " ORDER BY p.product_id DESC LIMIT ? OFFSET ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(dataSql)) {
+            List<Object> dataParams = new ArrayList<>(params);
+            dataParams.add(Math.max(size, 1));
+            dataParams.add(Math.max(page - 1, 0) * Math.max(size, 1));
+            bindSearchParams(ps, dataParams);
+            try (ResultSet rs = ps.executeQuery()) {
+                InventoryDAO inventoryDAO = new InventoryDAO();
+                while (rs.next()) {
+                    items.add(mapSearchRow(rs, inventoryDAO));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ProductDAO.search: data query failed", e);
+        }
+
+        return new SearchResult(items, total);
+    }
+
+    /**
+     * Storefront product detail — same field set as {@link #search} but with the full
+     * image list instead of just the primary image, and no pagination.
+     */
+    public Map<String, Object> findDetailById(int productId) {
+        String sql = "SELECT p.product_id, p.sku_code, p.product_name, p.category_id, c.category_name, "
+                + "p.base_price, p.attributes_text, p.barcode, p.weight_kg, p.is_new_arrival, p.is_best_seller "
+                + "FROM products p LEFT JOIN categories c ON p.category_id = c.category_id "
+                + "WHERE p.product_id = ? AND p.active = 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                Map<String, Object> data = mapSearchRow(rs, null);
+                data.put("images", findImagesByProductId(conn, productId));
+                data.put("qty_available", new InventoryDAO().getTotalAvailableStock(productId));
+                return data;
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ProductDAO.findDetailById: failed for productId=" + productId, e);
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> findImagesByProductId(Connection conn, int productId) throws SQLException {
+        List<Map<String, Object>> images = new ArrayList<>();
+        String sql = "SELECT image_url, is_primary FROM product_images "
+                + "WHERE product_id = ? ORDER BY is_primary DESC, sort_order ASC";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> img = new HashMap<>();
+                    img.put("image_url", rs.getString("image_url"));
+                    img.put("is_primary", rs.getInt("is_primary") == 1);
+                    images.add(img);
+                }
+            }
+        }
+        return images;
+    }
+
+    /** Shared row → map builder for {@link #search} and {@link #findDetailById}. */
+    private Map<String, Object> mapSearchRow(ResultSet rs, InventoryDAO inventoryDAO) throws SQLException {
+        Map<String, Object> row = new HashMap<>();
+        int productId = rs.getInt("product_id");
+        row.put("product_id", productId);
+        row.put("sku_code", rs.getString("sku_code"));
+        row.put("product_name", rs.getString("product_name"));
+        int categoryId = rs.getInt("category_id");
+        row.put("category_id", rs.wasNull() ? null : categoryId);
+        row.put("category_name", rs.getString("category_name"));
+        row.put("base_price", rs.getBigDecimal("base_price"));
+        row.put("attributes_text", rs.getString("attributes_text"));
+        row.put("barcode", rs.getString("barcode"));
+        row.put("weight_kg", rs.getBigDecimal("weight_kg"));
+        row.put("is_new_arrival", rs.getInt("is_new_arrival") == 1);
+        row.put("is_best_seller", rs.getInt("is_best_seller") == 1);
+        if (inventoryDAO != null) {
+            row.put("qty_available", inventoryDAO.getTotalAvailableStock(productId));
+            row.put("primary_image", getString(rs, "primary_image"));
+        }
+        return row;
+    }
+
+    private void bindSearchParams(PreparedStatement ps, List<Object> params) throws SQLException {
+        for (int i = 0; i < params.size(); i++) {
+            ps.setObject(i + 1, params.get(i));
+        }
     }
 
     /**
@@ -578,25 +751,6 @@ public class ProductDAO {
         } catch (SQLException e) {
             return null;
         }
-    }
-
-    /**
-     * Finds a product by its SKU code.
-     */
-    public Product findBySkuCode(String skuCode) {
-        String sql = SELECT_CORE + " WHERE p.sku_code = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, skuCode);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return mapRow(rs, null);
-                }
-            }
-        } catch (SQLException e) {
-            LOGGER.log(Level.WARNING, "ProductDAO.findBySkuCode: failed for " + skuCode, e);
-        }
-        return null;
     }
 
     /**

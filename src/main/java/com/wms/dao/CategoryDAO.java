@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -156,6 +157,28 @@ public class CategoryDAO extends BaseDAO {
 
     public boolean activate(int categoryId) {
         return update(LOGGER, "UPDATE categories SET active = 1 WHERE category_id = ?", categoryId) > 0;
+    }
+
+    public Map<Integer, Integer> countActiveProductsByCategory() {
+        Map<Integer, Integer> counts = new java.util.LinkedHashMap<>();
+        String sql = "SELECT p.category_id, COUNT(*) AS product_count "
+                + "FROM products p "
+                + "JOIN categories c ON p.category_id = c.category_id "
+                + "WHERE c.active = 1 "
+                + "GROUP BY p.category_id";
+        try (Connection conn = openConnection(LOGGER);
+             PreparedStatement ps = conn == null ? null : conn.prepareStatement(sql)) {
+            if (ps == null) return counts;
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int categoryId = rs.getInt("category_id");
+                    counts.put(categoryId, rs.getInt("product_count"));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "CategoryDAO: Failed to count active products by category", e);
+        }
+        return counts;
     }
 
     public int deactivateWithDescendants(int rootCategoryId) {

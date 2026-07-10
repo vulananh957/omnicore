@@ -619,4 +619,49 @@
         <location>/WEB-INF/views/error/500.jsp</location>
     </error-page>
 
+    <!-- ── Storefront (omnicore-web) API — HMAC-SHA256 auth, see BaseApiServlet ── -->
+    <servlet>
+        <servlet-name>CategoryApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.CategoryApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>CategoryApiServlet</servlet-name>
+        <url-pattern>/api/categories</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>ProductApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.ProductApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ProductApiServlet</servlet-name>
+        <url-pattern>/api/products</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>ProductApiServlet</servlet-name>
+        <url-pattern>/api/products/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>InventoryApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.InventoryApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>InventoryApiServlet</servlet-name>
+        <url-pattern>/api/inventory/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>WebsiteOrderApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.WebsiteOrderApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>WebsiteOrderApiServlet</servlet-name>
+        <url-pattern>/api/website/orders</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>WebsiteOrderApiServlet</servlet-name>
+        <url-pattern>/api/website/orders/*</url-pattern>
+    </servlet-mapping>
+
 </web-app>

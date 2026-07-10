@@ -314,6 +314,7 @@ public class SchemaInitListener implements ServletContextListener {
             addColumnIfMissing(conn, md, "products", "unit", "VARCHAR(30) DEFAULT 'Cái'");
             addColumnIfMissing(conn, md, "products", "min_stock", "DECIMAL(12,3) DEFAULT 0");
             addColumnIfMissing(conn, md, "products", "max_stock", "DECIMAL(12,3) DEFAULT 0");
+            addColumnIfMissing(conn, md, "products", "is_best_seller", "TINYINT(1) NOT NULL DEFAULT 0");
             // UC-B2C09: Lazada short_description (max 255 chars per Lazada spec)
             addColumnIfMissing(conn, md, "products", "short_description",
                 "VARCHAR(255) DEFAULT NULL COMMENT 'Lazada short_description (<=255 chars)'");
@@ -566,6 +567,12 @@ public class SchemaInitListener implements ServletContextListener {
             addColumnIfMissing(conn, md, "orders", "rma_platform_status", "VARCHAR(100) DEFAULT NULL");
             addColumnIfMissing(conn, md, "orders", "dispute_evidence_video", "VARCHAR(255) DEFAULT NULL");
             addColumnIfMissing(conn, md, "orders", "dispute_note", "VARCHAR(255) DEFAULT NULL");
+            addColumnIfMissing(conn, md, "orders", "web_order_ref",
+                    "VARCHAR(100) DEFAULT NULL COMMENT 'Dedup key for orders created by omnicore-web'");
+            addColumnIfMissing(conn, md, "orders", "web_customer_ref",
+                    "VARCHAR(100) DEFAULT NULL COMMENT 'omnicore-web customers.customer_id — reference only, not a real FK'");
+            createIndexIfNotExists(conn, "orders", "uq_web_order_ref",
+                    "CREATE UNIQUE INDEX uq_web_order_ref ON orders (web_order_ref)");
         }
     }
 

@@ -163,6 +163,14 @@ public class AuthFilter implements Filter {
         if (path.equals("/favicon.ico")) return true;
         // Allow test-pt.jsp under /login
         if (path.startsWith("/login/")) return true;
+        // Allow all Lazada API paths (secured at channel level)
+        if (path.startsWith("/api/lazada/")) return true;
+        // Storefront (omnicore-web) API — secured via HMAC-SHA256 in BaseApiServlet,
+        // not session-based, so must bypass AuthFilter entirely.
+        if (path.equals("/api/categories") || path.startsWith("/api/categories/")) return true;
+        if (path.equals("/api/products") || path.startsWith("/api/products/")) return true;
+        if (path.equals("/api/inventory") || path.startsWith("/api/inventory/")) return true;
+        if (path.startsWith("/api/website/")) return true;
         // Allow declared public paths
         return PUBLIC_PATHS.contains(path);
     }

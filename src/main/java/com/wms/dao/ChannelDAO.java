@@ -123,6 +123,25 @@ public class ChannelDAO {
         return null;
     }
 
+    public Channel findByPlatform(String platform) {
+        if (platform == null || platform.isBlank()) {
+            return null;
+        }
+        String sql = "SELECT * FROM channels WHERE platform = ? ORDER BY channel_id ASC LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, platform);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapResultSetToChannel(rs);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelDAO: Failed to find channel by platform " + platform, e);
+        }
+        return null;
+    }
+
     /**
      * Updates an existing channel configuration.
      *
