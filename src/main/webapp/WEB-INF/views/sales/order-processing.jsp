@@ -242,6 +242,7 @@
         "totalAmount": ${order.totalAmount},
         "status": "${order.status == 'PENDING' ? 'pending_review' : (order.status == 'CONFIRMED' ? 'confirmed' : (order.status == 'PICKING' ? 'confirmed' : (order.status == 'PACKED' ? 'packed' : (order.status == 'SHIPPED' ? 'shipping' : (order.status == 'DELIVERED' ? 'delivered' : (order.status == 'COMPLETED' ? 'completed' : (order.status == 'RETURNED' ? 'returned' : (order.status == 'DISPUTED' ? 'disputed' : (order.status == 'DISPUTE_SUCCESS' ? 'dispute_success' : (order.status == 'CANCELLED' ? 'cancelled' : order.status.toLowerCase()))))))))))}",
         "warehouse": "${fn:escapeXml(order.warehouseName)}",
+        "webOrderRef": "${fn:escapeXml(order.webOrderRef)}",
         "trackingNo": "${fn:escapeXml(order.trackingNo)}",
         "shipmentProvider": "${fn:escapeXml(order.shipmentProvider)}",
         "reviewNote": "${fn:escapeXml(order.reviewNote)}",
@@ -1276,6 +1277,18 @@ function renderModal(order) {
                 '<button class="op-btn success" onclick="submitApprove(true)">[ DUYỆT ĐƠN &amp; PHÂN BỔ KHO ]</button>' +
             '</div>' +
         '</div>';
+    } else if (order.status === "shipping" && order.webOrderRef) {
+        // Website order — no external platform webhook; Sales/Kho confirms delivery manually (mock shipper).
+        actionHtml += '<div class="op-action-box" style="border-color:#10b981;background:rgba(16,185,129,.03)">' +
+            '<div class="op-action-title" style="color:#059669">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>' +
+                'Đơn Website — Xác nhận giao hàng thủ công' +
+            '</div>' +
+            '<p style="font-size:12px;color:rgba(16,55,92,.6)">Đơn Website không có webhook từ sàn TMĐT. Khi đơn vị vận chuyển đã giao hàng thành công, bấm xác nhận bên dưới để bắt đầu tính cửa sổ 7 ngày hoàn trả cho khách.</p>' +
+            '<div style="display:flex;justify-content:flex-end;margin-top:8px">' +
+                '<button class="op-btn success" onclick="submitConfirmDelivered(\'' + order.id + '\')">[ XÁC NHẬN ĐÃ GIAO ]</button>' +
+            '</div>' +
+        '</div>';
     } else if (order.status === "shipping" || order.status === "delivered" || order.status === "packed") {
         // Render Webhook Simulator Actions
         actionHtml += '<div class="op-action-box" style="border-color:#10b981;background:rgba(16,185,129,.03)">' +
@@ -1410,6 +1423,38 @@ function submitApprove(approve) {
         closeDetailModal();
         renderAll();
         showToast(approve ? "Đã duyệt đơn và chuyển giao việc kho thành công!" : "Đã từ chối đơn hàng thành công!", "success");
+    });
+}
+
+// Website order — Sales/Kho xác nhận đã giao (mock shipper, không có webhook thật)
+function submitConfirmDelivered(orderId) {
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    const params = {
+        action: "confirm_delivered",
+        orderCode: orderId
+    };
+
+    postOrderAction(params, function(err, resp) {
+        isSubmitting = false;
+        if (err) {
+            alert("Lỗi xác nhận giao hàng: " + err);
+            return;
+        }
+
+        allOrders = allOrders.map(o => {
+            if (o.id === orderId) {
+                o.status = "delivered";
+                o.updatedAt = new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16);
+            }
+            return o;
+        });
+
+        saveOrdersToStorage();
+        closeDetailModal();
+        renderAll();
+        showToast("Đã xác nhận giao hàng thành công!", "success");
     });
 }
 

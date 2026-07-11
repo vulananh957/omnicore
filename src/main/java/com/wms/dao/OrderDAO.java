@@ -30,7 +30,7 @@ public class OrderDAO extends BaseDAO {
      */
     public List<Order> getAllOrders() {        List<Order> list = new ArrayList<>();
         String sqlOrders = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, o.updated_at, "
-                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, o.shipment_provider, "
+                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, o.shipment_provider, o.web_order_ref, "
                            + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
                            + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                            + "FROM orders o "
@@ -92,6 +92,7 @@ public class OrderDAO extends BaseDAO {
                     order.setRmaPlatformStatus(rsOrders.getString("rma_platform_status"));
                     order.setDisputeEvidenceVideo(rsOrders.getString("dispute_evidence_video"));
                     order.setDisputeNote(rsOrders.getString("dispute_note"));
+                    order.setWebOrderRef(rsOrders.getString("web_order_ref"));
 
                     // Customer & recipient details — prefer order_shipping_details first, fall back to lazada_orders, then users table
                     String recipientName = rsOrders.getString("recipient_name");
@@ -290,6 +291,74 @@ public class OrderDAO extends BaseDAO {
             status, video, note, platformStatus, orderCode) > 0;
     }
 
+    /** Manual "Sales/Kho xác nhận đã giao" action — stamps delivered_at for the 7-day return window. */
+    public boolean markDelivered(String orderCode) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'DELIVERED', delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
+          + "WHERE order_code = ? AND status = 'SHIPPED'",
+            orderCode) > 0;
+    }
+
+    /**
+     * Used by the storefront confirm-received/return API — status + delivered_at, scoped to
+     * web_order_ref IS NOT NULL so a forged orderId belonging to a non-Website order 404s.
+     */
+    public java.util.Map<String, Object> findDeliveryInfoById(int orderId) {
+        return queryOne(LOGGER,
+            "SELECT status, delivered_at FROM orders WHERE order_id = ? AND web_order_ref IS NOT NULL",
+            rs -> {
+                java.util.Map<String, Object> m = new java.util.HashMap<>();
+                m.put("status", rs.getString("status"));
+                Timestamp deliveredAt = rs.getTimestamp("delivered_at");
+                m.put("deliveredAt", deliveredAt == null ? null : deliveredAt.toLocalDateTime());
+                return m;
+            }, orderId);
+    }
+
+    /** Customer clicked "Đã nhận" early — only valid while still DELIVERED (not already COMPLETED/DISPUTED/etc). */
+    public boolean markCompletedByOrderId(int orderId) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP "
+          + "WHERE order_id = ? AND web_order_ref IS NOT NULL AND status = 'DELIVERED'",
+            orderId) > 0;
+    }
+
+    /** Customer submitted a return request — moves the order into Sales review. */
+    public boolean markDisputedByOrderId(int orderId) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'DISPUTED', updated_at = CURRENT_TIMESTAMP "
+          + "WHERE order_id = ? AND web_order_ref IS NOT NULL AND status IN ('DELIVERED', 'COMPLETED')",
+            orderId) > 0;
+    }
+
+    /** Sales approved the return — feeds the existing physical-return warehouse pipeline. */
+    public boolean markReturnedByOrderId(int orderId) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'RETURNED', updated_at = CURRENT_TIMESTAMP WHERE order_id = ?",
+            orderId) > 0;
+    }
+
+    /** Sales rejected the return request — order stands as completed. */
+    public boolean revertDisputeToCompleted(int orderId) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP "
+          + "WHERE order_id = ? AND status = 'DISPUTED'",
+            orderId) > 0;
+    }
+
+    /**
+     * Website orders DELIVERED more than 7 days ago with no pending return request —
+     * auto-advance to COMPLETED. Scoped to web_order_ref IS NOT NULL only (Lazada untouched).
+     */
+    public List<Integer> findWebsiteOrderIdsEligibleForAutoComplete() {
+        return queryList(LOGGER,
+            "SELECT o.order_id FROM orders o "
+          + "WHERE o.status = 'DELIVERED' AND o.web_order_ref IS NOT NULL "
+          + "AND o.delivered_at IS NOT NULL AND o.delivered_at <= (NOW() - INTERVAL 7 DAY) "
+          + "AND NOT EXISTS (SELECT 1 FROM rma_requests r WHERE r.order_id = o.order_id AND r.status = 'PENDING')",
+            rs -> rs.getInt("order_id"));
+    }
+
     /**
      * Returns top-selling products by total revenue for the dashboard.
      */
@@ -326,7 +395,7 @@ public class OrderDAO extends BaseDAO {
         String sql = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, "
                    + "o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, "
                    + "o.tracking_no, o.review_note, o.channel_id, o.lazada_package_id, "
-                   + "o.is_pack_requested, o.is_rts_pushed, o.is_label_printed, o.shipment_provider, "
+                   + "o.is_pack_requested, o.is_rts_pushed, o.is_label_printed, o.shipment_provider, o.web_order_ref, "
                    + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
                    + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                    + "FROM orders o "
@@ -382,6 +451,7 @@ public class OrderDAO extends BaseDAO {
                         (shippingAddress != null && !shippingAddress.trim().isEmpty()) ? shippingAddress
                         : ((lazadaAddress != null && !lazadaAddress.trim().isEmpty()) ? lazadaAddress : "Chưa có địa chỉ"));
                     order.setShipmentProvider(rs.getString("shipment_provider"));
+                    order.setWebOrderRef(rs.getString("web_order_ref"));
                     return order;
                 }
             }

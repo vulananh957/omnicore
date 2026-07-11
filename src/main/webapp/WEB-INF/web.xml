@@ -478,6 +478,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>RmaApprovalServlet</servlet-name>
+        <servlet-class>com.wms.controller.sales.RmaApprovalServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>RmaApprovalServlet</servlet-name>
+        <url-pattern>/sales/rma-approval</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>OrderActionServlet</servlet-name>
         <servlet-class>com.wms.controller.sales.OrderActionServlet</servlet-class>
     </servlet>
@@ -758,6 +767,15 @@
     <servlet-mapping>
         <servlet-name>WebsiteOrderApiServlet</servlet-name>
         <url-pattern>/api/website/orders/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>WebsiteOrderActionApiServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.WebsiteOrderActionApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>WebsiteOrderActionApiServlet</servlet-name>
+        <url-pattern>/api/website/order-actions/*</url-pattern>
     </servlet-mapping>
 
 </web-app>

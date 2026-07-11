@@ -233,6 +233,29 @@ public class OrderService {
                     return ActionResult.failure("Không thể cập nhật trạng thái.");
                 }
             }
+            case "confirm_delivered": {
+                Order current = orderDAO.findByOrderCode(orderCode);
+                if (current == null) {
+                    log.warn("Confirm delivered failed: order not found orderCode={}", orderCode);
+                    return ActionResult.failure("Không tìm thấy đơn hàng: " + orderCode);
+                }
+                if (current.getWebOrderRef() == null || current.getWebOrderRef().isBlank()) {
+                    return ActionResult.failure("Xác nhận giao hàng thủ công chỉ áp dụng cho đơn Website. Đơn sàn TMĐT tự cập nhật qua webhook.");
+                }
+                if (!"SHIPPED".equalsIgnoreCase(current.getStatus())) {
+                    return ActionResult.failure("Chỉ xác nhận giao hàng khi đơn đang ở trạng thái Đang vận chuyển.");
+                }
+                boolean ok = orderDAO.markDelivered(orderCode);
+                if (ok) {
+                    log.info("Order marked delivered manually: orderCode={} userId={}", orderCode, userId);
+                    if (current.getCreatedBy() != null) {
+                        notificationService.notifyOrderStatus(current.getCreatedBy(),
+                                current.getOrderId(), orderCode, "SHIPPED", "DELIVERED");
+                    }
+                }
+                return ok ? ActionResult.success("Xác nhận giao hàng thành công.")
+                          : ActionResult.failure("Không thể cập nhật trạng thái.");
+            }
             case "rts": {
                 Order current = orderDAO.findByOrderCode(orderCode);
                 if (current == null) {

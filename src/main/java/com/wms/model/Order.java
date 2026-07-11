@@ -33,6 +33,9 @@ public class Order {
     private String rmaPlatformStatus;
     private String disputeEvidenceVideo;
     private String disputeNote;
+    // Set only for orders created by omnicore-web — the channel-agnostic marker
+    // used to gate Website-only actions (manual delivery confirm, return window).
+    private String webOrderRef;
 
     // Customer Info fields
     private String customerName;
@@ -281,5 +284,8 @@ public class Order {
     public void setCustomerAddress(String customerAddress) {
         this.customerAddress = customerAddress;
     }
+
+    public String getWebOrderRef() { return webOrderRef; }
+    public void setWebOrderRef(String webOrderRef) { this.webOrderRef = webOrderRef; }
 }
 

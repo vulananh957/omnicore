@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+- Luồng hoàn trả hàng cho đơn Website (7 ngày kể từ khi giao): sau khi Sales/Kho bấm **"Xác nhận đã giao"** (action mới `confirm_delivered`, chỉ đơn có `web_order_ref`), `orders.delivered_at` được stamp. `WebsiteOrderAutoCompleteScheduler` (chạy mỗi giờ) tự chuyển `DELIVERED` → `COMPLETED` sau 7 ngày nếu không có yêu cầu hoàn trả đang chờ duyệt.
+- `RmaRequest`/`RmaDAO`: nối bảng `rma_requests` (tồn tại sẵn nhưng chưa từng dùng) vào luồng thật — thêm cột `evidence_photos`, `evidence_video`, `resolution_note`.
+- 2 API endpoint mới `POST /api/website/order-actions/{id}/confirm-received` và `/return` (HMAC, giống các endpoint `/api/website/*` khác) — khách xác nhận nhận hàng sớm hoặc gửi yêu cầu hoàn trả (lý do + ảnh/video base64, validate còn hạn 7 ngày).
+- `ReturnEvidenceServlet` (`/return-evidence/*`) — serve ảnh/video bằng chứng cho Sales xem, session-auth như `PublishImageServlet`.
+- Trang Sales mới `/sales/rma-approval` — duyệt/từ chối yêu cầu hoàn trả Website kèm xem ảnh/video bằng chứng.
+- `order-processing.jsp`: nút "XÁC NHẬN ĐÃ GIAO" cho đơn Website ở trạng thái `SHIPPED` (đơn sàn TMĐT khác vẫn giữ nguyên luồng webhook cũ).
+- Cột mới: `orders.delivered_at`, `orders.web_order_ref` được thêm vào `Order` model + `OrderDAO` (getAllOrders/findByOrderCode) để phân biệt đơn Website với đơn sàn TMĐT ở tầng hiển thị (thay vì dựa vào heuristic `channel` dễ sai).
+
 ### Changed
 - `admin/channel-create.jsp`: field **API Endpoint URL** và **App Key** chỉ bắt buộc (`required`) khi Platform = Lazada. Kênh Website không dùng 2 field này (omnicore-main không gọi ra ngoài cho kênh Website, chỉ nhận request từ omnicore-web qua HMAC bằng `app_secret`) nên bỏ bắt buộc, ẩn dấu `*` tương ứng. Toggle bằng JS theo `platform`, đồng bộ cả lúc load trang (create lẫn edit mode), không sửa validate phía server (`ChannelConfigServlet` vốn không validate required).
 - Đổi `platform` của channel storefront từ `'OwnWebsite'` → `'Website'` (`BaseApiServlet`, `WebsiteOrderApiServlet`, seed SQL, dòng dữ liệu thật trong `channels`) — khớp đúng giá trị dropdown có sẵn trong `admin/channel-create.jsp` ("Website (Online Shop)"). Trước khi đổi, form Sửa kênh trong admin sẽ không khớp được tuỳ chọn nào, có nguy cơ ghi đè nhầm platform khi admin lưu form.

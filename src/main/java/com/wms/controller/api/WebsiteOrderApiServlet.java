@@ -59,7 +59,7 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
             return;
         }
 
-        String sql = "SELECT status FROM orders WHERE order_id = ? AND web_order_ref IS NOT NULL";
+        String sql = "SELECT status, delivered_at FROM orders WHERE order_id = ? AND web_order_ref IS NOT NULL";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, orderId);
@@ -71,6 +71,14 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
                 Map<String, Object> data = new LinkedHashMap<>();
                 data.put("order_id", orderId);
                 data.put("status", rs.getString("status"));
+                java.sql.Timestamp deliveredAt = rs.getTimestamp("delivered_at");
+                if (deliveredAt != null) {
+                    data.put("delivered_at", deliveredAt.toLocalDateTime().toString());
+                    data.put("return_deadline", deliveredAt.toLocalDateTime().plusDays(7).toString());
+                } else {
+                    data.put("delivered_at", null);
+                    data.put("return_deadline", null);
+                }
                 sendJson(resp, HttpServletResponse.SC_OK, data);
             }
         } catch (SQLException e) {

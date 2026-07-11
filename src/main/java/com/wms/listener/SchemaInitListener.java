@@ -584,6 +584,8 @@ public class SchemaInitListener implements ServletContextListener {
                     "VARCHAR(100) DEFAULT NULL COMMENT 'omnicore-web customers.customer_id — reference only, not a real FK'");
             addColumnIfMissing(conn, md, "orders", "shipment_provider",
                     "VARCHAR(100) DEFAULT NULL COMMENT 'Assigned shipping carrier — any channel, not Lazada-specific'");
+            addColumnIfMissing(conn, md, "orders", "delivered_at",
+                    "DATETIME DEFAULT NULL COMMENT 'Stamped when status becomes DELIVERED — any channel; base for the 7-day website return window'");
             createIndexIfNotExists(conn, "orders", "uq_web_order_ref",
                     "CREATE UNIQUE INDEX uq_web_order_ref ON orders (web_order_ref)");
         }
@@ -689,6 +691,17 @@ public class SchemaInitListener implements ServletContextListener {
         try (Connection conn = DBConnection.getConnection()) {
             createTableIfNotExists(conn, "rma_requests",
                 "CREATE TABLE rma_requests (rma_id INT AUTO_INCREMENT PRIMARY KEY, order_id INT NOT NULL, channel_return_id VARCHAR(100), return_waybill VARCHAR(100), rma_code VARCHAR(50) NOT NULL UNIQUE, status ENUM('PENDING','APPROVED','DISPUTED','RESOLVED') NOT NULL DEFAULT 'PENDING', return_reason VARCHAR(255) NOT NULL, zone_id INT, requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, returned_at DATETIME) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            {
+                DatabaseMetaData rmaMd = conn.getMetaData();
+                // Customer-submitted evidence for the Website return flow (photo/video/description)
+                // — first real use of this table, previously created but never wired up.
+                addColumnIfMissing(conn, rmaMd, "rma_requests", "evidence_photos",
+                        "TEXT DEFAULT NULL COMMENT 'Comma-separated URLs of customer-uploaded return photos'");
+                addColumnIfMissing(conn, rmaMd, "rma_requests", "evidence_video",
+                        "VARCHAR(255) DEFAULT NULL COMMENT 'URL of customer-uploaded return video'");
+                addColumnIfMissing(conn, rmaMd, "rma_requests", "resolution_note",
+                        "VARCHAR(255) DEFAULT NULL COMMENT 'Sales note when approving/rejecting the return request'");
+            }
             createTableIfNotExists(conn, "rma_items",
                 "CREATE TABLE rma_items (rma_item_id INT AUTO_INCREMENT PRIMARY KEY, rma_id INT NOT NULL, product_id INT NOT NULL, channel_return_item_id VARCHAR(100), quantity DECIMAL(12,3) NOT NULL DEFAULT 1, refund_amount DECIMAL(15,2)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             createTableIfNotExists(conn, "qc_inspections",
