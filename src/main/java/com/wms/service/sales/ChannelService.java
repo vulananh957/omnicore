@@ -7,6 +7,7 @@ import com.lazada.lazop.api.LazopRequest;
 import com.lazada.lazop.api.LazopResponse;
 import com.wms.dao.ChannelDAO;
 import com.wms.model.Channel;
+import com.wms.service.auth.AuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ public class ChannelService {
 
     private final ChannelDAO channelDAO = new ChannelDAO();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AuthService authService = new AuthService();
 
     public List<Channel> findAll() throws SQLException {
         return channelDAO.findAll();
@@ -113,12 +115,10 @@ public class ChannelService {
             log.info("Refreshing Lazada access token for channel '{}' (ID: {})",
                     channel.getChannelName(), channel.getChannelId());
 
-            String jsonResponse = com.wms.service.auth.AuthService.class
-                    .getDeclaredConstructor().newInstance()
-                    .refreshAccessToken(channel);
+            String jsonResponse = authService.refreshAccessToken(channel);
 
             com.fasterxml.jackson.databind.JsonNode root =
-                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(jsonResponse);
+                    objectMapper.readTree(jsonResponse);
 
             if (root.has("code") && !root.has("access_token")) {
                 log.error("Lazada token refresh API error [{}]: {}",
@@ -155,6 +155,20 @@ public class ChannelService {
             log.error("Unexpected error refreshing token for channel '{}' (ID: {}): {}",
                     channel.getChannelName(), channel.getChannelId(), e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * Normalises platform-specific fields before persisting a Channel.
+     * Business rules:
+     * - Website channels authenticate via HMAC (app_secret); api_key is unused
+     *   and must be NULL to avoid storing a misleading generated-but-unused value.
+     *
+     * @param channel the channel to normalise in-place
+     */
+    public void normalizeChannel(Channel channel) {
+        if ("Website".equals(channel.getPlatform())) {
+            channel.setApiKey(null);
         }
     }
 

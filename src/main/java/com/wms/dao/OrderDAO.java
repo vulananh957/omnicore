@@ -30,7 +30,7 @@ public class OrderDAO extends BaseDAO {
      */
     public List<Order> getAllOrders() {        List<Order> list = new ArrayList<>();
         String sqlOrders = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, o.updated_at, "
-                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, o.shipment_provider, o.web_order_ref, "
+                           + "o.tracking_no, o.review_note, o.rma_reason, o.rma_physical_status, o.rma_platform_status, o.dispute_evidence_video, o.dispute_note, o.shipment_provider, o.web_order_ref, o.shipping_fee, "
                            + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
                            + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                            + "FROM orders o "
@@ -39,7 +39,15 @@ public class OrderDAO extends BaseDAO {
                            + "LEFT JOIN users u ON o.customer_id = u.user_id "
                            + "LEFT JOIN lazada_orders lo ON o.channel_order_id = lo.lazada_order_id_str "
                            + "ORDER BY o.created_at DESC LIMIT 100";
-        String sqlItems = "SELECT p.product_id, p.sku_code, p.product_name, oi.qty, oi.unit_price " +
+        String sqlItems = "SELECT p.product_id, p.sku_code, p.product_name, oi.qty, oi.unit_price, " +
+                          "(SELECT GROUP_CONCAT(CONCAT(w.warehouse_name, ':', COALESCE(inv.qty_available, 0)) SEPARATOR ', ') " +
+                          " FROM warehouses w " +
+                          " LEFT JOIN inventory inv ON w.warehouse_id = inv.warehouse_id AND inv.product_id = p.product_id AND inv.stock_type = 'NORMAL'" +
+                          ") AS warehouse_stocks, " +
+                          "(SELECT COALESCE(SUM(inv2.qty_available), 0) " +
+                          " FROM inventory inv2 " +
+                          " WHERE inv2.product_id = p.product_id AND inv2.stock_type = 'NORMAL'" +
+                          ") AS qty_available " +
                           "FROM order_items oi " +
                           "JOIN products p ON oi.product_id = p.product_id " +
                           "WHERE oi.order_id = ?";
@@ -93,6 +101,7 @@ public class OrderDAO extends BaseDAO {
                     order.setDisputeEvidenceVideo(rsOrders.getString("dispute_evidence_video"));
                     order.setDisputeNote(rsOrders.getString("dispute_note"));
                     order.setWebOrderRef(rsOrders.getString("web_order_ref"));
+                    order.setShippingFee(rsOrders.getDouble("shipping_fee"));
 
                     // Customer & recipient details — prefer order_shipping_details first, fall back to lazada_orders, then users table
                     String recipientName = rsOrders.getString("recipient_name");
@@ -130,6 +139,8 @@ public class OrderDAO extends BaseDAO {
                             item.setProductName(rsItems.getString("product_name"));
                             item.setQuantity(rsItems.getInt("qty"));
                             item.setUnitPrice(rsItems.getDouble("unit_price"));
+                            item.setWarehouseStocks(rsItems.getString("warehouse_stocks"));
+                            item.setQtyAvailable(rsItems.getInt("qty_available"));
                             items.add(item);
                         }
                         order.setItems(items);
@@ -203,10 +214,12 @@ public class OrderDAO extends BaseDAO {
     }
 
     public boolean updateOrderStatusAndWarehouse(String orderCode, String status, int warehouseId, String reviewNote) {
+        Integer whId = (warehouseId <= 0) ? null : warehouseId;
         return update(LOGGER,
             "UPDATE orders SET status = ?, warehouse_id = ?, review_note = ?, updated_at = CURRENT_TIMESTAMP WHERE order_code = ?",
-            status, warehouseId, reviewNote, orderCode) > 0;
+            status, whId, reviewNote, orderCode) > 0;
     }
+
 
     public boolean updateOrderTrackingNo(String orderCode, String trackingNo) {
         // Bỏ logic set status='PACKED' ngầm - tách bạch tracking assignment với print_shipping action
@@ -255,12 +268,18 @@ public class OrderDAO extends BaseDAO {
                                        boolean packRequested, boolean rtsPushed) {
         return update(LOGGER,
             "UPDATE orders SET lazada_package_id = ?, "
-                + "is_pack_requested = ?, is_rts_pushed = ?, "
+                + "is_pack_requested = ?, is_rts_pushed = ?, review_note = NULL, "
                 + "updated_at = CURRENT_TIMESTAMP WHERE order_code = ?",
             packageId,
             packRequested ? 1 : 0,
             rtsPushed ? 1 : 0,
             orderCode) > 0;
+    }
+
+    public boolean updateLazadaPackError(String orderCode, String errorMessage) {
+        return update(LOGGER,
+            "UPDATE orders SET review_note = ?, updated_at = CURRENT_TIMESTAMP WHERE order_code = ?",
+            "Lỗi Pack: " + errorMessage, orderCode) > 0;
     }
 
     /**
@@ -291,12 +310,25 @@ public class OrderDAO extends BaseDAO {
             status, video, note, platformStatus, orderCode) > 0;
     }
 
-    /** Manual "Sales/Kho xác nhận đã giao" action — stamps delivered_at for the 7-day return window. */
+    /** Manual “Sales/Kho xác nhận đã giao” action — stamps delivered_at for the 7-day return window.
+     * Accepts PACKED (self-delivery, no carrier) and SHIPPED (has carrier) status. */
     public boolean markDelivered(String orderCode) {
-        return update(LOGGER,
+        // Accept PACKED (self-delivery skip SHIPPED) OR SHIPPED (has carrier)
+        boolean ok = update(LOGGER,
             "UPDATE orders SET status = 'DELIVERED', delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
-          + "WHERE order_code = ? AND status = 'SHIPPED'",
+          + "WHERE order_code = ? AND status IN ('SHIPPED', 'PACKED')",
             orderCode) > 0;
+        if (ok) {
+            // Keep order_shipping_details.shipping_status in sync with orders.status instead
+            // of maintaining a separate granular carrier-status stepper (PICKED_UP/IN_TRANSIT/
+            // ...) — this action (Sales/Manager/Admin, independent of the mock shipping
+            // toggle) is the single source of truth for "has this order been delivered".
+            update(LOGGER,
+                "UPDATE order_shipping_details SET shipping_status = 'DELIVERED', updated_at = CURRENT_TIMESTAMP "
+              + "WHERE order_id = (SELECT order_id FROM orders WHERE order_code = ?)",
+                orderCode);
+        }
+        return ok;
     }
 
     /**
@@ -395,7 +427,7 @@ public class OrderDAO extends BaseDAO {
         String sql = "SELECT o.order_id, o.order_code, o.customer_id, o.warehouse_id, w.warehouse_name, "
                    + "o.channel, o.status, o.total_amount, o.note, o.created_by, o.created_at, "
                    + "o.tracking_no, o.review_note, o.channel_id, o.lazada_package_id, "
-                   + "o.is_pack_requested, o.is_rts_pushed, o.is_label_printed, o.shipment_provider, o.web_order_ref, "
+                   + "o.is_pack_requested, o.is_rts_pushed, o.is_label_printed, o.shipment_provider, o.web_order_ref, o.shipping_fee, "
                    + "sd.recipient_name, sd.shipping_address, sd.recipient_phone AS shipping_recipient_phone, u.phone AS customer_phone, u.full_name AS customer_name, "
                    + "lo.customer_phone AS lazada_customer_phone, lo.customer_name AS lazada_customer_name, lo.shipping_address AS lazada_shipping_address "
                    + "FROM orders o "
@@ -452,6 +484,7 @@ public class OrderDAO extends BaseDAO {
                         : ((lazadaAddress != null && !lazadaAddress.trim().isEmpty()) ? lazadaAddress : "Chưa có địa chỉ"));
                     order.setShipmentProvider(rs.getString("shipment_provider"));
                     order.setWebOrderRef(rs.getString("web_order_ref"));
+                    order.setShippingFee(rs.getDouble("shipping_fee"));
                     return order;
                 }
             }
@@ -463,21 +496,31 @@ public class OrderDAO extends BaseDAO {
 
     public List<OrderItem> findItemsByOrderId(int orderId) {
         List<OrderItem> items = new ArrayList<>();
-        String sql = "SELECT oi.product_id, p.sku_code, p.product_name, oi.qty, oi.unit_price "
+        String sql = "SELECT oi.product_id, p.sku_code, p.product_name, oi.qty, oi.unit_price, "
+                   + "(SELECT GROUP_CONCAT(CONCAT(w.warehouse_name, ':', COALESCE(inv.qty_available, 0)) SEPARATOR ', ') "
+                   + " FROM warehouses w "
+                   + " LEFT JOIN inventory inv ON w.warehouse_id = inv.warehouse_id AND inv.product_id = p.product_id AND inv.stock_type = 'NORMAL'"
+                   + ") AS warehouse_stocks, "
+                   + "(SELECT COALESCE(SUM(inv2.qty_available), 0) "
+                   + " FROM inventory inv2 "
+                   + " WHERE inv2.product_id = p.product_id AND inv2.stock_type = 'NORMAL'"
+                   + ") AS qty_available "
                    + "FROM order_items oi "
                    + "JOIN products p ON oi.product_id = p.product_id "
                    + "WHERE oi.order_id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, orderId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
+            try (ResultSet rsItems = ps.executeQuery()) {
+                while (rsItems.next()) {
                     OrderItem item = new OrderItem();
-                    item.setProductId(rs.getInt("product_id"));
-                    item.setSkuCode(rs.getString("sku_code"));
-                    item.setProductName(rs.getString("product_name"));
-                    item.setQuantity(rs.getInt("qty"));
-                    item.setUnitPrice(rs.getDouble("unit_price"));
+                    item.setProductId(rsItems.getInt("product_id"));
+                    item.setSkuCode(rsItems.getString("sku_code"));
+                    item.setProductName(rsItems.getString("product_name"));
+                    item.setQuantity(rsItems.getInt("qty"));
+                    item.setUnitPrice(rsItems.getDouble("unit_price"));
+                    item.setWarehouseStocks(rsItems.getString("warehouse_stocks"));
+                    item.setQtyAvailable(rsItems.getInt("qty_available"));
                     items.add(item);
                 }
             }

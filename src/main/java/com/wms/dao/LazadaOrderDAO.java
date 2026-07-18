@@ -828,4 +828,34 @@ public class LazadaOrderDAO {
             LOGGER.log(Level.WARNING, "upsertItems failed for " + lazadaOrderIdStr, e);
         }
     }
+
+    /**
+     * Records a Lazada RTS (Ready-To-Ship) attempt in lazada_rts_log.
+     *
+     * @param channelId   Channel that owns the order.
+     * @param orderId     WMS internal order ID.
+     * @param orderCode   WMS order code (stored as lazada_order_id in log).
+     * @param packageId   Lazada package_id.
+     * @param status      "SUCCESS" or "FAILED".
+     * @param response    Raw Lazada response (truncated to 3 500 chars).
+     */
+    public void insertRtsLog(int channelId, int orderId, String orderCode,
+                             String packageId, String status, String response) {
+        String sql = "INSERT INTO lazada_rts_log "
+                + "(channel_id, order_id, lazada_order_id, package_id, status, response_excerpt) "
+                + "VALUES (?, ?, ?, ?, ?, ?)";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, channelId);
+            ps.setInt(2, orderId);
+            ps.setString(3, orderCode);
+            ps.setString(4, packageId);
+            ps.setString(5, status);
+            ps.setString(6, response == null ? null
+                    : (response.length() > 3500 ? response.substring(0, 3500) : response));
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "LazadaOrderDAO.insertRtsLog failed for orderCode=" + orderCode, e);
+        }
+    }
 }

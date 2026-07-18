@@ -3,9 +3,8 @@ package com.wms.controller.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.wms.dao.ChannelDAO;
 import com.wms.dao.InventoryDAO;
-import com.wms.dao.WarehouseDAO;
+import com.wms.mockshipping.MockShippingService;
 import com.wms.model.Channel;
-import com.wms.model.Warehouse;
 import com.wms.util.DBConnection;
 import com.wms.util.JsonUtil;
 
@@ -19,8 +18,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,10 +41,8 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
     private static final String PLATFORM = "Website";
 
     private final ChannelDAO channelDAO = new ChannelDAO();
-    private final WarehouseDAO warehouseDAO = new WarehouseDAO();
     private final InventoryDAO inventoryDAO = new InventoryDAO();
-
-    private record AllocatedItem(int productId, int warehouseId, int qty) {}
+    private final MockShippingService mockShippingService = new MockShippingService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -101,6 +98,12 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
             return;
         }
 
+        // Optional: customer's chosen mock shipping carrier (com.wms.mockshipping — Website
+        // only, isolated package). 0/absent = no carrier chosen (mock off, or checkout didn't
+        // send one) — order is created without shipment_provider/shipping_fee, same as before
+        // this feature existed.
+        int mockCarrierId = node.path("mock_carrier_id").asInt(0);
+
         String webOrderRef = node.path("web_order_ref").asText(null);
         String customerName = node.path("customer_name").asText(null);
         String customerPhone = node.path("customer_phone").asText(null);
@@ -155,24 +158,16 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
             totalAmount += qty * unitPrice;
         }
 
-        // Phase A — reserve stock across active warehouses before writing anything.
-        List<Warehouse> activeWarehouses = warehouseDAO.findAll().stream()
-                .filter(Warehouse::isActive)
-                .toList();
-
-        List<AllocatedItem> allocated = new ArrayList<>();
+        // Phase A — validate total available stock without soft-allocating.
+        // NOTE: No soft-allocation here because the warehouse is not yet assigned at PENDING stage.
+        // Soft-allocation happens in OutboundService.autoCreateFromOrder() when the order is approved
+        // and a specific warehouse is confirmed. Pre-allocating here caused double-reservation (holding
+        // inflated 2x per order) because the approval path always soft-allocates again.
         for (int[] req0 : requestedItems) {
             int productId = req0[0];
-            int qty = req0[1];
-            Warehouse chosen = activeWarehouses.stream()
-                    .filter(w -> inventoryDAO.getAvailableStock(productId, w.getWarehouseId()) >= qty)
-                    .max(Comparator.comparingInt(w -> inventoryDAO.getAvailableStock(productId, w.getWarehouseId())))
-                    .orElse(null);
-
-            boolean ok = chosen != null && inventoryDAO.softAllocateInventory(productId, chosen.getWarehouseId(), qty);
-            if (!ok) {
-                releaseAll(allocated);
-                int available = inventoryDAO.getTotalAvailableStock(productId);
+            int qty       = req0[1];
+            int available = inventoryDAO.getTotalAvailableStock(productId);
+            if (available < qty) {
                 Map<String, Object> detail = new LinkedHashMap<>();
                 detail.put("product_id", productId);
                 detail.put("requested", qty);
@@ -180,44 +175,74 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
                 sendErrorWithDetail(resp, HttpServletResponse.SC_CONFLICT, "Insufficient stock", detail);
                 return;
             }
-            allocated.add(new AllocatedItem(productId, chosen.getWarehouseId(), qty));
         }
 
         // Phase B — persist order + items + shipping snapshot in one transaction.
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
             try {
+                double shippingFee = (mockCarrierId <= 0) ? (totalAmount >= 500000 ? 0 : 30000) : 0;
                 int orderId = insertOrder(conn, webOrderRef, webCustomerRef, channel.getChannelId(), totalAmount,
-                        customerName, customerPhone, customerAddress);
+                        customerName, customerPhone, customerAddress, shippingFee);
                 for (int i = 0; i < requestedItems.size(); i++) {
                     insertOrderItem(conn, orderId, requestedItems.get(i)[0], requestedItems.get(i)[1], unitPrices.get(i));
                 }
                 conn.commit();
 
+                // Phase C — Atomic deduction with lock (Phase 3 — Hybrid Sync)
+                // After order is persisted, atomically deduct inventory to prevent race condition
+                // with Lazada/Shopee orders arriving simultaneously.
+                boolean allDeductionsSucceeded = true;
+                for (int i = 0; i < requestedItems.size(); i++) {
+                    int productId = requestedItems.get(i)[0];
+                    int qty = requestedItems.get(i)[1];
+                    boolean deducted = inventoryDAO.deductWithLock(productId, orderId, webOrderRef, PLATFORM, qty, null);
+                    if (!deducted) {
+                        allDeductionsSucceeded = false;
+                        LOGGER.severe("WebsiteOrderApiServlet: deduction failed for product " + productId
+                                + " order " + webOrderRef + " — inventory became unavailable");
+                        break;
+                    }
+                }
+
+                // If any deduction failed, rollback the order
+                if (!allDeductionsSucceeded) {
+                    deleteOrder(orderId);
+                    Map<String, Object> detail = new LinkedHashMap<>();
+                    detail.put("message", "Inventory became unavailable during processing (race condition)");
+                    sendErrorWithDetail(resp, HttpServletResponse.SC_CONFLICT, "Stock không đủ", detail);
+                    return;
+                }
+
+                double finalTotal = totalAmount + shippingFee;
+                if (mockCarrierId > 0) {
+                    // Best-effort: a failure here shouldn't fail order creation (stock is
+                    // already committed) — just means shipment_provider/shipping_fee stay
+                    // unset, same as if the customer hadn't picked a carrier.
+                    if (mockShippingService.assignCarrier(orderId, mockCarrierId)) {
+                        finalTotal += mockShippingService.feeFor(mockCarrierId).doubleValue();
+                    } else {
+                        LOGGER.warning("WebsiteOrderApiServlet: mock carrier assign failed orderId=" + orderId
+                                + " carrierId=" + mockCarrierId);
+                    }
+                }
+
                 Map<String, Object> data = new LinkedHashMap<>();
                 data.put("order_id", orderId);
                 data.put("web_order_ref", webOrderRef);
                 data.put("status", "PENDING");
-                data.put("total_amount", totalAmount);
+                data.put("total_amount", finalTotal);
                 sendJson(resp, HttpServletResponse.SC_CREATED, data);
             } catch (SQLException e) {
                 conn.rollback();
-                releaseAll(allocated);
                 LOGGER.log(Level.SEVERE, "WebsiteOrderApiServlet: failed to persist order webOrderRef=" + webOrderRef, e);
                 sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi tạo đơn hàng");
             } finally {
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
-            releaseAll(allocated);
             LOGGER.log(Level.SEVERE, "WebsiteOrderApiServlet: DB connection failed webOrderRef=" + webOrderRef, e);
             sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi tạo đơn hàng");
-        }
-    }
-
-    private void releaseAll(List<AllocatedItem> allocated) {
-        for (AllocatedItem a : allocated) {
-            inventoryDAO.releaseSoftAllocateInventory(a.productId(), a.warehouseId(), java.math.BigDecimal.valueOf(a.qty()));
         }
     }
 
@@ -244,28 +269,44 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
     }
 
     private int insertOrder(Connection conn, String webOrderRef, String webCustomerRef, int channelId, double totalAmount,
-                             String customerName, String customerPhone, String customerAddress)
+                             String customerName, String customerPhone, String customerAddress, double shippingFee)
             throws SQLException {
         // channel='WEBSITE' (not 'ONLINE') — OrderDAO.detectChannel() auto-labels raw
         // channel='ONLINE' as "Lazada" for admin display, which would mislabel website orders.
         String sql = "INSERT INTO orders (order_code, channel, status, total_amount, channel_id, "
-                + "web_order_ref, web_customer_ref, sync_status, customer_name, customer_phone, customer_address) "
-                + "VALUES (?, 'WEBSITE', 'PENDING', ?, ?, ?, ?, 'SYNCED', ?, ?, ?)";
+                + "web_order_ref, web_customer_ref, sync_status, shipping_fee) "
+                + "VALUES (?, 'WEBSITE', 'PENDING', ?, ?, ?, ?, 'SYNCED', ?)";
+        int orderId = 0;
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, webOrderRef);
-            ps.setDouble(2, totalAmount);
+            ps.setDouble(2, totalAmount + shippingFee);
             ps.setInt(3, channelId);
             ps.setString(4, webOrderRef);
             ps.setString(5, webCustomerRef);
-            ps.setString(6, customerName);
-            ps.setString(7, customerPhone);
-            ps.setString(8, customerAddress);
+            ps.setDouble(6, shippingFee);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (keys.next()) return keys.getInt(1);
+                if (keys.next()) {
+                    orderId = keys.getInt(1);
+                }
             }
         }
-        throw new SQLException("Insert into orders did not return a generated key");
+        if (orderId == 0) {
+            throw new SQLException("Insert into orders did not return a generated key");
+        }
+
+        // Insert shipping details into order_shipping_details
+        String sqlShipping = "INSERT INTO order_shipping_details (order_id, recipient_name, recipient_phone, shipping_address, shipping_status) "
+                + "VALUES (?, ?, ?, ?, 'PENDING')";
+        try (PreparedStatement ps = conn.prepareStatement(sqlShipping)) {
+            ps.setInt(1, orderId);
+            ps.setString(2, customerName);
+            ps.setString(3, customerPhone);
+            ps.setString(4, customerAddress);
+            ps.executeUpdate();
+        }
+
+        return orderId;
     }
 
     private void insertOrderItem(Connection conn, int orderId, int productId, int qty, double unitPrice) throws SQLException {
@@ -276,6 +317,27 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
             ps.setInt(3, qty);
             ps.setDouble(4, unitPrice);
             ps.executeUpdate();
+        }
+    }
+
+    private void deleteOrder(int orderId) {
+        String sqlItems = "DELETE FROM order_items WHERE order_id = ?";
+        String sqlShipping = "DELETE FROM order_shipping_details WHERE order_id = ?";
+        String sqlOrder = "DELETE FROM orders WHERE order_id = ?";
+        try (Connection conn = DBConnection.getConnection()) {
+            try (PreparedStatement ps1 = conn.prepareStatement(sqlItems);
+                 PreparedStatement ps2 = conn.prepareStatement(sqlShipping);
+                 PreparedStatement ps3 = conn.prepareStatement(sqlOrder)) {
+                ps1.setInt(1, orderId);
+                ps1.executeUpdate();
+                ps2.setInt(1, orderId);
+                ps2.executeUpdate();
+                ps3.setInt(1, orderId);
+                ps3.executeUpdate();
+                LOGGER.info("deleteOrder: rolled back order " + orderId);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "deleteOrder: failed to rollback order " + orderId, e);
         }
     }
 

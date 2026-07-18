@@ -74,8 +74,8 @@ public class LazadaWebhookService {
         if (tracking == null) {
             tracking = order.hasNonNull("tracking") ? order.get("tracking").asText() : null;
         }
-
         Order o = orderDAO.findByOrderCode(orderId);
+        boolean isNewOrder = false;
 
         if (o != null) {
             if (o.getChannelId() > 0) {
@@ -104,6 +104,7 @@ public class LazadaWebhookService {
                 releaseAllocations(orderId);
                 return; // no soft-allocation for cancelled orders
             }
+            
             if (tracking != null && !tracking.isEmpty()
                     && (o.getTrackingNo() == null || !o.getTrackingNo().equals(tracking))) {
                 orderDAO.updateOrderTrackingNo(orderId, tracking);
@@ -113,15 +114,17 @@ public class LazadaWebhookService {
             LOGGER.info("LazadaWebhookService: order " + orderId
                     + " not found in DB, fetching from Lazada API...");
             o = upsertOrderFromWebhook(orderId, order);
+            if (o != null) {
+                isNewOrder = true;
+            }
         }
+
+        // Left in PENDING status with no warehouse assigned so Sales Staff can manually assign it on WMS.
 
         // BR-04 soft-allocation: only if warehouse is assigned and the order is still PENDING.
         // Once approved, the soft-allocation is handled by the WMS approval/outbound flow.
         if (o != null && o.getWarehouseId() > 0 && "PENDING".equals(o.getStatus())) {
             softAllocateForOrder(o);
-        } else if (o != null) {
-            LOGGER.fine("LazadaWebhookService: skipping soft-allocation for order " + orderId
-                    + " (status=" + o.getStatus() + ", warehouse_id=" + o.getWarehouseId() + ")");
         }
     }
 

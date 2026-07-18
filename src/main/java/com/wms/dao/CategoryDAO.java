@@ -73,6 +73,11 @@ public class CategoryDAO extends BaseDAO {
         }, categoryId);
     }
 
+    public Category findByCategoryCode(String categoryCode) {
+        String code = categoryCode == null ? null : categoryCode.toUpperCase();
+        return queryOne(LOGGER, "SELECT * FROM categories WHERE category_code = ?", MAP_CATEGORY, code);
+    }
+
     public List<Category> findByParentId(Integer parentId, boolean activeOnly) {
         String sql;
         if (parentId == null) {

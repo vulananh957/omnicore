@@ -10,42 +10,7 @@
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/sales--sales-orders.css?v=2"/>
 
-                <script id="orders-seed-data" type="application/json">[
-                    <c:forEach var="order" items="${orderList}" varStatus="status">
-                        <c:set var="totalQty" value="0" />
-                        <c:forEach var="item" items="${order.items}">
-                            <c:set var="totalQty" value="${totalQty + item.quantity}" />
-                        </c:forEach>
-                        {
-                            "id": "${fn:escapeXml(order.orderCode)}",
-                            "channel": "${order.channel == 'ONLINE' ? 'Lazada' : fn:escapeXml(order.channel)}",
-                            "customerName": "${fn:escapeXml(order.customerName)}",
-                            "customerPhone": "${fn:escapeXml(order.customerPhone)}",
-                            "totalItems": ${totalQty},
-                            "totalAmount": ${order.totalAmount},
-                            "status": "${order.status == 'PENDING' ? 'pending_review' : (order.status == 'CONFIRMED' ? 'confirmed' : (order.status == 'PACKING' ? 'packing' : (order.status == 'PACKED' ? 'packed' : (order.status == 'SHIPPED' ? 'shipping' : (order.status == 'DELIVERED' ? 'delivered' : (order.status == 'COMPLETED' ? 'completed' : (order.status == 'RETURNED' ? 'returned' : (order.status == 'DISPUTED' ? 'disputed' : (order.status == 'DISPUTE_SUCCESS' ? 'dispute_success' : (order.status == 'CANCELLED' ? 'cancelled' : order.status.toLowerCase()))))))))))}",
-                            "warehouse": "${fn:escapeXml(order.warehouseName)}",
-                            "trackingNo": "${fn:escapeXml(order.trackingNo)}",
-                            "reviewNote": "${fn:escapeXml(order.reviewNote)}",
-                            "rmaReason": "${fn:escapeXml(order.rmaReason)}",
-                            "rmaPhysicalStatus": "${fn:escapeXml(order.rmaPhysicalStatus)}",
-                            "rmaPlatformStatus": "${fn:escapeXml(order.rmaPlatformStatus)}",
-                            "disputeEvidenceVideo": "${fn:escapeXml(order.disputeEvidenceVideo)}",
-                            "disputeNote": "${fn:escapeXml(order.disputeNote)}",
-                            "createdAt": "${order.createdAt}",
-                            "items": [
-                                <c:forEach var="item" items="${order.items}" varStatus="itemStatus">
-                                    {
-                                        "sku": "${fn:escapeXml(item.skuCode)}",
-                                        "name": "${fn:escapeXml(item.productName)}",
-                                        "quantity": ${item.quantity},
-                                        "price": ${item.unitPrice}
-                                    }${!itemStatus.last ? ',' : ''}
-                                </c:forEach>
-                            ]
-                        }${!status.last ? ',' : ''}
-                    </c:forEach>
-                ]</script>
+                <script id="orders-seed-data" type="application/json">${ordersJson}</script>
 
                 <%-- Lazada orders with WMS inventory data for stock table in modal --%>
                 <script id="lazada-orders-seed" type="application/json">${lazadaOrdersJson}</script>
@@ -64,7 +29,7 @@
                             delivered: { label: "Đã giao", bg: "#ecfdf5", text: "#059669", border: "#a7f3d0", dot: "#10b981" },
                             completed: { label: "Hoàn thành", bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0", dot: "#16a34a" },
                             returned: { label: "Trả hàng (Hoàn thành công)", bg: "#fff1f2", text: "#e11d48", border: "#fecdd3", dot: "#f43f5e" },
-                            disputed: { label: "Đang khiếu nại (Hoàn thất bại)", bg: "#fef2f2", text: "#dc2626", border: "#fecaca", dot: "#ef4444" },
+                            disputed: { label: "Đang khiếu nại", bg: "#fef3c7", text: "#b45309", border: "#fcd34d", dot: "#f59e0b" },
                             dispute_success: { label: "Đã bồi thường", bg: "#ecfdf5", text: "#059669", border: "#a7f3d0", dot: "#10b981" },
                             cancelled: { label: "Đã hủy", bg: "#f9fafb", text: "#374151", border: "#e5e7eb", dot: "#6b7280" },
                         };
@@ -90,7 +55,7 @@
                             CHANNEL_COLORS.Lazada = "#0F146D";
                             CHANNEL_COLORS.Website = "#EB8317";
                         }
-                        const SHIPPING_CARRIERS = ["SPX Express", "Lazada Express", "TikTok Express", "Viettel Post"];
+                        const SHIPPING_CARRIERS = ["SPX Express", "Lazada Express", "TikTok Express", "Viettel Post", "Tự túc"];
 
                         function getCarrierByChannel(ch) {
                             // Lazada uses Lazada Express (LEX), not SPX. Shopee & TikTok use SPX.
@@ -98,7 +63,7 @@
                             if (ch === 'Lazada') return 'Lazada Express';
                             if (ch === 'Shopee' || ch === 'TikTok') return 'SPX Express';
                             if (CHANNELS.indexOf(ch) !== -1) return 'SPX Express';
-                            return 'Viettel Post';
+                            return 'Tự túc';
                         }
 
                         // ── App Stock Lookup (from server-side embedded lazadaOrders) ─────────────────
@@ -221,6 +186,31 @@
 
                             localStorage.setItem("b2c_orders_v2", JSON.stringify(allOrders));
                             buildProductDropdown();
+
+                            // Check initial search params
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const tabParam = urlParams.get("tab");
+                            if (tabParam && ["all", "pending_review", "awaiting_pickup", "shipping", "delivered", "completed", "returned", "cancelled"].includes(tabParam)) {
+                                activeTab = tabParam;
+                                // Update active tab class
+                                document.querySelectorAll(".om-tab").forEach(el => {
+                                    el.classList.remove("active", "active-amber", "active-blue", "active-indigo", "active-emerald", "active-green", "active-red");
+                                });
+                                const activeClsMap = {
+                                    "all": "active",
+                                    "pending_review": "active-amber",
+                                    "awaiting_pickup": "active-blue",
+                                    "shipping": "active-indigo",
+                                    "delivered": "active-emerald",
+                                    "completed": "active-green",
+                                    "returned": "active-red"
+                                };
+                                const el = document.getElementById("tab-" + tabParam);
+                                if (el) el.classList.add(activeClsMap[tabParam] || "active");
+                                const statusFilter = document.getElementById("omStatusFilter");
+                                if (statusFilter) statusFilter.style.display = (tabParam === "all") ? "" : "none";
+                            }
+
                             renderAll();
                             bindEvents();
                         });
@@ -232,6 +222,12 @@
                             if (activeOrderId) {
                                 const o = allOrders.find(x => x.id === activeOrderId);
                                 if (o) renderModal(o);
+                            }
+
+                            // Update website RMA container visibility
+                            const websiteRmaContainer = document.getElementById("websiteRmaContainer");
+                            if (websiteRmaContainer) {
+                                websiteRmaContainer.style.display = (activeTab === "returned") ? "block" : "none";
                             }
                         }
 
@@ -271,7 +267,8 @@
 
                                 const matchCh = selectedChannel === "all" || o.channel === selectedChannel;
                                 const matchSt = activeTab !== "all" || selectedStatus === "all" || o.status === selectedStatus;
-                                const matchCar = selectedCarrier === "all" || getCarrierByChannel(o.channel) === selectedCarrier;
+                                const carrier = o.shipmentProvider || o._lazCourierName || (o.channel === "WEBSITE" ? "Chưa chỉ định" : getCarrierByChannel(o.channel));
+                                const matchCar = selectedCarrier === "all" || carrier === selectedCarrier;
                                 const matchProd = selectedProduct === "all" || (o.items || []).some(i => i.name === selectedProduct);
                                 const q = searchQuery.toLowerCase();
                                 const matchSrch = !q ||
@@ -458,6 +455,26 @@
                             // Body
                             let bodyHtml = "";
 
+                            const isLazada = (o.channel === 'Lazada');
+                            const buyerName = isLazada ? (o._lazCustomerName || o.customerName || '') : (o.customerName || '');
+                            const buyerPhone = isLazada ? (o._lazCustomerPhone || o.customerPhone || '') : (o.customerPhone || '');
+                            const buyerAddress = isLazada ? (o._lazShippingAddress || o.customerAddress || '') : (o.customerAddress || '');
+                            const buyerPayment = isLazada ? (o._lazPaymentMethod || '') : 'COD';
+
+                            let buyerHtml = `
+                                <div class="om-info-row"><span class="om-info-label">Họ và tên:</span><strong class="om-info-value">` + escHtml(buyerName) + `</strong></div>
+                                <div class="om-info-row"><span class="om-info-label">Số điện thoại:</span><strong class="om-info-value">` + escHtml(buyerPhone) + `</strong></div>
+                                <div class="om-info-row top-align"><span class="om-info-label">Địa chỉ giao hàng:</span><strong class="om-info-value">` + escHtml(buyerAddress) + `</strong></div>
+                                ` + (buyerPayment ? '<div class="om-info-row"><span class="om-info-label">Phương thức thanh toán:</span><strong class="om-info-value">' + escHtml(buyerPayment) + '</strong></div>' : '') + `
+                            `;
+                            if (isLazada) {
+                                buyerHtml += `
+                                    <div class="om-info-row" style="margin-top:8px;font-size:10px;color:#999">
+                                        * Thông tin khách hàng được Lazada ẩn phần giữa theo chính sách bảo mật cho app bên thứ 3
+                                    </div>
+                                `;
+                            }
+
                             // ── Phần 1: Customer + Shipping info (Lazada full details)
                             bodyHtml += `<div class="om-info-grid">
         <div class="om-info-card">
@@ -466,13 +483,7 @@
                 Thông tin người mua
             </div>
             \${o._lazOrderNumber ? '<div class="om-info-row"><span class="om-info-label">Mã khách hàng:</span><strong class="om-info-value">' + escHtml(o._lazOrderNumber) + '</strong></div>' : ''}
-            \${o._lazCustomerName ? '<div class="om-info-row"><span class="om-info-label">Họ và tên:</span><strong class="om-info-value">' + escHtml(o._lazCustomerName) + '</strong></div>' : ''}
-            \${o._lazCustomerPhone ? '<div class="om-info-row"><span class="om-info-label">Số điện thoại:</span><strong class="om-info-value">' + escHtml(o._lazCustomerPhone) + '</strong></div>' : ''}
-            \${o._lazShippingAddress ? '<div class="om-info-row top-align"><span class="om-info-label">Địa chỉ giao hàng:</span><strong class="om-info-value">' + escHtml(o._lazShippingAddress) + '</strong></div>' : ''}
-            \${o._lazPaymentMethod ? '<div class="om-info-row"><span class="om-info-label">Phương thức thanh toán:</span><strong class="om-info-value">' + escHtml(o._lazPaymentMethod) + '</strong></div>' : ''}
-            <div class="om-info-row" style="margin-top:8px;font-size:10px;color:#999">
-                * Thông tin khách hàng được Lazada ẩn phần giữa theo chính sách bảo mật cho app bên thứ 3
-            </div>
+            ` + buyerHtml + `
         </div>
         <div class="om-info-card">
             <div class="om-info-card-title">
@@ -508,11 +519,23 @@
                             }).join("");
 
                             // Calculate Lazada payment breakdown
-                            const lazPrice = parseFloat(o._lazPrice || o.totalAmount || 0);
-                            const lazShip = parseFloat(o._lazShippingFee || 0);
-                            const lazVoucherSel = parseFloat(o._lazVoucherSeller || 0);
-                            const lazVoucherPlat = parseFloat(o._lazVoucherPlatform || 0);
-                            const lazTotal = lazPrice + lazShip - lazVoucherSel - lazVoucherPlat;
+                            const lazPrice = isLazada 
+                                ? parseFloat(o._lazPrice || o.totalAmount || 0)
+                                : (parseFloat(o.totalAmount || 0) - parseFloat(o.shippingFee || 0));
+                            const lazShip = isLazada 
+                                ? parseFloat(o._lazShippingFee || 0)
+                                : parseFloat(o.shippingFee || 0);
+                            const lazVoucherSel = isLazada ? parseFloat(o._lazVoucherSeller || 0) : 0;
+                            const lazVoucherPlat = isLazada ? parseFloat(o._lazVoucherPlatform || 0) : 0;
+                            const lazTotal = isLazada 
+                                ? (lazPrice + lazShip - lazVoucherSel - lazVoucherPlat)
+                                : parseFloat(o.totalAmount || 0);
+
+                            const discountHtml = isLazada ? `
+                                <div style="margin-bottom:4px"><span>Giảm giá từ Cửa hàng:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherSel.toLocaleString()}đ</strong></div>
+                                <div style="margin-bottom:4px"><span>Giảm giá từ Lazada:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherPlat.toLocaleString()}đ</strong></div>
+                            ` : '';
+
                             bodyHtml += `<div class="om-section">
         <div class="om-section-title">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
@@ -525,8 +548,7 @@
         </div>
         <div style="margin-top:8px;padding:10px;background:#f9fafb;border-radius:4px;font-size:12px">
             <div style="margin-bottom:4px"><span>Phí vận chuyển:</span> <strong style="float:right">\${lazShip.toLocaleString()}đ</strong></div>
-            <div style="margin-bottom:4px"><span>Giảm giá từ Cửa hàng:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherSel.toLocaleString()}đ</strong></div>
-            <div style="margin-bottom:4px"><span>Giảm giá từ Lazada:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherPlat.toLocaleString()}đ</strong></div>
+            \${discountHtml}
             <div style="font-weight:700;border-top:1px solid #ddd;padding-top:4px;margin-top:4px"><span>Tổng cộng:</span> <strong style="float:right">\${lazTotal.toLocaleString()}đ</strong></div>
         </div>
     </div>`;
@@ -722,6 +744,12 @@
                         // ── Tab switching ────────────────────────────────────────────────────
                         function switchTab(tab) {
                             activeTab = tab;
+
+                            // Sync URL parameter
+                            const url = new URL(window.location);
+                            url.searchParams.set("tab", tab);
+                            window.history.pushState({}, '', url);
+
                             // Update tab styles
                             document.querySelectorAll(".om-tab").forEach(el => {
                                 el.classList.remove("active", "active-amber", "active-blue", "active-indigo", "active-emerald", "active-green", "active-red");
@@ -742,7 +770,7 @@
                             const statusFilter = document.getElementById("omStatusFilter");
                             if (statusFilter) statusFilter.style.display = (tab === "all") ? "" : "none";
 
-                            renderTable();
+                            renderAll();
                         }
 
                         // ── Search input ─────────────────────────────────────────────────────
@@ -924,8 +952,15 @@
                                                 .filter(id => id && !knownOrderIds.has(id));
 
                                             if (newIds.length > 0) {
-                                                allOrders = newAllOrders;
-                                                newIds.forEach(id => knownOrderIds.add(id));
+                                                newAllOrders.forEach(function(nu) {
+                                                    const existingIdx = allOrders.findIndex(o => o.id === nu.id);
+                                                    if (existingIdx !== -1) {
+                                                        allOrders[existingIdx] = nu;
+                                                    } else {
+                                                        allOrders.push(nu);
+                                                    }
+                                                    knownOrderIds.add(nu.id);
+                                                });
                                                 renderAll();
                                                 showNewOrderToast(newIds.length);
                                             } else {
@@ -1086,8 +1121,7 @@
                                                         <button onclick="selectStatus('completed')">Hoàn thành</button>
                                                         <button onclick="selectStatus('returned')">Trả hàng (Hoàn thành
                                                             công)</button>
-                                                        <button onclick="selectStatus('disputed')">Đang khiếu nại (Hoàn
-                                                            thất bại)</button>
+                                                        <button onclick="selectStatus('disputed')">Đang khiếu nại</button>
                                                         <button onclick="selectStatus('dispute_success')">Đã bồi
                                                             thường</button>
                                                         <button onclick="selectStatus('cancelled')">Đã hủy</button>
@@ -1172,6 +1206,80 @@
                                 </div>
 
                                 <%-- ── Data Table ─────────────────────────────────────────────────────── --%>
+                                 <%-- Website RMA Requests Integration --%>
+                                 <c:if test="${not empty pendingRmaList}">
+                                     <div id="websiteRmaContainer" style="display: none; max-width: 100%; margin: 0 auto 1.5rem auto;">
+                                         <h3 style="font-size: 15px; color: var(--navy); font-weight: 700; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 8px;">
+                                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 18px; height: 18px; color: var(--orange);">
+                                                 <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                                 <polyline points="9 22 9 12 15 12 15 22"/>
+                                             </svg>
+                                             Yêu Cầu Hoàn Trả từ Website (${fn:length(pendingRmaList)})
+                                         </h3>
+                                         <c:forEach var="rma" items="${pendingRmaList}">
+                                             <div style="background: white; border: 1px solid #E5EAF3; border-radius: var(--radius-card); padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                                                     <div>
+                                                         <h3 style="color: var(--navy); font-size: 15px; font-weight: 700; margin: 0;">Đơn #${fn:escapeXml(rma.orderCode)}</h3>
+                                                         <p style="color: rgba(16,55,92,0.45); font-size: 12px; margin: 0.25rem 0 0 0;">
+                                                             Mã yêu cầu: ${fn:escapeXml(rma.rmaCode)} &middot;
+                                                             Gửi lúc: <fmt:formatDate value="${rma.requestedAtAsDate}" pattern="dd/MM/yyyy HH:mm"/>
+                                                         </p>
+                                                     </div>
+                                                     <span style="background: #fef9c3; color: #854d0e; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;">Chờ duyệt</span>
+                                                 </div>
+
+                                                 <div style="background: var(--alice); border-radius: calc(var(--radius-btn) - 2px); padding: 1rem; margin-bottom: 1rem;">
+                                                     <span style="font-size: 11px; font-weight: 700; color: rgba(16,55,92,0.4); text-transform: uppercase;">Lý do trả hàng</span>
+                                                     <p style="margin: 0.375rem 0 0 0; font-size: 13px; color: var(--navy);">${fn:escapeXml(rma.returnReason)}</p>
+                                                 </div>
+
+                                                 <c:if test="${not empty rma.evidencePhotos}">
+                                                     <div style="margin-bottom: 1rem;">
+                                                         <span style="font-size: 11px; font-weight: 700; color: rgba(16,55,92,0.4); text-transform: uppercase;">Ảnh bằng chứng</span>
+                                                         <div style="display: flex; gap: 8px; margin-top: 0.5rem; flex-wrap: wrap;">
+                                                             <c:forEach var="photoUrl" items="${fn:split(rma.evidencePhotos, ',')}">
+                                                                 <a href="${pageContext.request.contextPath}${photoUrl}" target="_blank">
+                                                                     <img src="${pageContext.request.contextPath}${photoUrl}"
+                                                                          style="width: 90px; height: 90px; object-fit: cover; border: 1px solid #E5EAF3; border-radius: calc(var(--radius-btn) - 4px);" />
+                                                                 </a>
+                                                             </c:forEach>
+                                                         </div>
+                                                     </div>
+                                                 </c:if>
+
+                                                 <c:if test="${not empty rma.evidenceVideo}">
+                                                     <div style="margin-bottom: 1rem;">
+                                                         <span style="font-size: 11px; font-weight: 700; color: rgba(16,55,92,0.4); text-transform: uppercase;">Video bằng chứng</span>
+                                                         <div style="margin-top: 0.5rem;">
+                                                             <video src="${pageContext.request.contextPath}${rma.evidenceVideo}" controls style="max-width: 320px; border-radius: calc(var(--radius-btn) - 4px);"></video>
+                                                         </div>
+                                                     </div>
+                                                 </c:if>
+
+                                                 <form method="POST" action="${pageContext.request.contextPath}/sales/rma-approval">
+                                                     <input type="hidden" name="rmaId" value="${rma.rmaId}" />
+                                                     <input type="hidden" name="orderId" value="${rma.orderId}" />
+                                                     <input type="hidden" name="redirect" value="${pageContext.request.contextPath}/sales/orders?tab=returned" />
+                                                     <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">Ghi chú duyệt / từ chối</label>
+                                                     <textarea name="note" rows="2" placeholder="VD: Sản phẩm lỗi rõ ràng qua ảnh, đồng ý hoàn trả..."
+                                                               style="width: 100%; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px); margin-bottom: 0.75rem;"></textarea>
+                                                     <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                                                         <button type="submit" name="action" value="reject"
+                                                                 style="padding: 0.5rem 1.25rem; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; font-size: 13px; font-weight: 600; border-radius: calc(var(--radius-btn) - 2px); cursor: pointer;">
+                                                             Từ chối
+                                                         </button>
+                                                         <button type="submit" name="action" value="approve"
+                                                                 style="padding: 0.5rem 1.25rem; background: var(--orange); color: white; border: none; font-size: 13px; font-weight: 600; border-radius: calc(var(--radius-btn) - 2px); cursor: pointer;">
+                                                             Duyệt hoàn trả
+                                                         </button>
+                                                     </div>
+                                                 </form>
+                                             </div>
+                                         </c:forEach>
+                                     </div>
+                                 </c:if>
+
                                     <div class="om-table-card">
                                         <div class="om-table-scroll">
                                             <table class="om-table">

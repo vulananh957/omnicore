@@ -12,6 +12,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 
 /**
  * WarehouseIssueDAO — Data Access Object for warehouse issue notes (warehouse_issues).
@@ -77,5 +81,45 @@ public class WarehouseIssueDAO {
                 try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ex) { /* ignore */ }
             }
         }
+    }
+
+    public List<Map<String, Object>> findScrapProductsWithQty(int warehouseId) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        String sql = "SELECT p.product_id, p.sku_code, p.product_name, "
+                   + "COALESCE(s.total_scrap, 0) - COALESCE(i.total_issued, 0) AS scrap_qty "
+                   + "FROM products p "
+                   + "JOIN ("
+                   + "    SELECT sr.product_id, SUM(sr.qty) AS total_scrap "
+                   + "    FROM scrap_records sr "
+                   + "    JOIN return_orders ro ON sr.return_id = ro.return_id "
+                   + "    WHERE ro.warehouse_id = ? "
+                   + "    GROUP BY sr.product_id"
+                   + ") s ON p.product_id = s.product_id "
+                   + "LEFT JOIN ("
+                   + "    SELECT id.product_id, SUM(id.quantity) AS total_issued "
+                   + "    FROM issue_details id "
+                   + "    JOIN warehouse_issues wi ON id.issue_id = wi.issue_id "
+                   + "    WHERE wi.issue_type = 'SCRAP' AND wi.warehouse_id = ? "
+                   + "    GROUP BY id.product_id"
+                   + ") i ON p.product_id = i.product_id "
+                   + "HAVING scrap_qty > 0";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, warehouseId);
+            ps.setInt(2, warehouseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("productId", rs.getInt("product_id"));
+                    map.put("skuCode", rs.getString("sku_code"));
+                    map.put("productName", rs.getString("product_name"));
+                    map.put("scrapQty", rs.getBigDecimal("scrap_qty"));
+                    list.add(map);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "WarehouseIssueDAO: Failed to query scrap products", e);
+        }
+        return list;
     }
 }

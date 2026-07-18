@@ -430,13 +430,7 @@
         </svg>
         Bộ lọc
     </button>
-    <button class="ret-btn-create" id="btnOpenCreateReturn">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        Tạo phiếu hàng hoàn / RMA
-    </button>
+
 </div>
 
 <!-- ═══ STATUS TABS ═══ -->
@@ -616,14 +610,18 @@
             "customer": "${r.customerName}",
             "phone": "${r.customerPhone}",
             "returnedAt": "${r.createdAt}",
+            "evidencePhotos": "${r.evidencePhotos}",
+            "evidenceVideo": "${r.evidenceVideo}",
             "status": "${r.status eq 'RECEIVED' or r.status eq 'INSPECTING' ? 'pending_qc' : r.status eq 'PASS' or r.status eq 'FAIL' ? 'qc_done' : r.status eq 'RESTOCKED' ? 'restocked' : 'scrapped'}",
             "qcBy": "",
             "items": [
                 <c:forEach items="${r.items}" var="item" varStatus="iStatus">
                     {
+                        "productId": ${item.productId},
                         "skuCode": "${item.skuCode}",
                         "skuName": "${item.skuName}",
                         "qty": ${item.qty},
+                        "unitPrice": ${item.unitPrice != null ? item.unitPrice : 0},
                         "returnReason": "${item.returnReason}",
                         "qcDecision": "${item.qcDecision}",
                         "qcNote": "${item.qcNote}"
@@ -732,17 +730,20 @@
     populateProductsSelect();
 
     // ─── Open / Close Create Return Modal ───
-    document.getElementById('btnOpenCreateReturn').addEventListener('click', function () {
-        formSoRef.value = '';
-        formCustomer.value = '';
-        formPhone.value = '';
-        formItemSku.value = '';
-        formItemQty.value = 1;
-        formItemReason.value = '';
-        tempItems = [];
-        renderTempItemsTable();
-        createReturnOverlay.style.display = 'flex';
-    });
+    var btnOpen = document.getElementById('btnOpenCreateReturn');
+    if (btnOpen) {
+        btnOpen.addEventListener('click', function () {
+            formSoRef.value = '';
+            formCustomer.value = '';
+            formPhone.value = '';
+            formItemSku.value = '';
+            formItemQty.value = 1;
+            formItemReason.value = '';
+            tempItems = [];
+            renderTempItemsTable();
+            createReturnOverlay.style.display = 'flex';
+        });
+    }
     document.getElementById('btnCloseCreateReturn').addEventListener('click', function () { createReturnOverlay.style.display = 'none'; });
     document.getElementById('btnCancelCreateReturn').addEventListener('click', function () { createReturnOverlay.style.display = 'none'; });
     createReturnOverlay.addEventListener('click', function (e) { if (e.target === createReturnOverlay) createReturnOverlay.style.display = 'none'; });
@@ -955,7 +956,36 @@
 
     // ─── Sub-renderers ───
     function renderQCFormItems(rma) {
-        qcModalBody.innerHTML = rma.items.map(function (item) {
+        var evidenceHtml = '';
+        if ((rma.evidencePhotos && rma.evidencePhotos.trim() !== '') || (rma.evidenceVideo && rma.evidenceVideo.trim() !== '')) {
+            evidenceHtml = '<div style="background: rgba(16,55,92,0.02); border: 1px dashed var(--border); border-radius: var(--radius-card); padding: 16px; margin-bottom: 20px;">' +
+                           '  <span style="font-size: 11px; font-weight: 700; color: rgba(16,55,92,0.4); text-transform: uppercase;">Ảnh & Video bằng chứng của khách hàng</span>' +
+                           '  <div style="display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; align-items: flex-start;">';
+            
+            if (rma.evidencePhotos && rma.evidencePhotos.trim() !== '') {
+                var photos = rma.evidencePhotos.split(',');
+                photos.forEach(function(photoUrl) {
+                    if (photoUrl.trim() !== '') {
+                        var fullUrl = window.location.origin + '${pageContext.request.contextPath}' + photoUrl.trim();
+                        evidenceHtml += '    <a href="' + fullUrl + '" target="_blank">' +
+                                        '      <img src="' + fullUrl + '" style="width: 80px; height: 80px; object-fit: cover; border: 1px solid #E5EAF3; border-radius: calc(var(--radius-btn) - 4px);" />' +
+                                        '    </a>';
+                    }
+                });
+            }
+            
+            if (rma.evidenceVideo && rma.evidenceVideo.trim() !== '') {
+                var fullVideoUrl = window.location.origin + '${pageContext.request.contextPath}' + rma.evidenceVideo.trim();
+                evidenceHtml += '    <div>' +
+                                '      <video src="' + fullVideoUrl + '" controls style="max-height: 80px; max-width: 160px; border: 1px solid #E5EAF3; border-radius: calc(var(--radius-btn) - 4px);"></video>' +
+                                '    </div>';
+            }
+            
+            evidenceHtml += '  </div>' +
+                            '</div>';
+        }
+
+        var itemsHtml = rma.items.map(function (item) {
             var activeGood = tempDecisions[item.skuCode] === 'resalable' ? 'active' : '';
             var activeBad  = tempDecisions[item.skuCode] === 'defective' ? 'active' : '';
             var currentNote = tempNotes[item.skuCode] || '';
@@ -985,6 +1015,8 @@
                    '  </div>' +
                    '</div>';
         }).join('');
+
+        qcModalBody.innerHTML = evidenceHtml + itemsHtml;
     }
 
     function renderPrintLayout(rma) {
@@ -992,20 +1024,9 @@
         var reuseQty = rma.items.filter(function (i) { return i.qcDecision === 'resalable'; }).reduce(function (sum, i) { return sum + i.qty; }, 0);
         var destQty  = rma.items.filter(function (i) { return i.qcDecision === 'defective'; }).reduce(function (sum, i) { return sum + i.qty; }, 0);
         
-        // Mock print price details
-        var priceMap = {
-            "978-0545162074": 150000,
-            "978-8935235670891": 95000,
-            "978-0316769174": 45000,
-            "978-0061120084": 25000,
-            "978-0451524935": 120000,
-            "978-0142437230": 35000,
-            "978-0439708180": 60000
-        };
-
         var totalValue = 0;
         var itemRows = rma.items.map(function (item, idx) {
-            var unitPrice = priceMap[item.skuCode] || 50000;
+            var unitPrice = item.unitPrice || 0;
             var subtotal = item.qty * unitPrice;
             totalValue += subtotal;
 
@@ -1329,7 +1350,37 @@
             var expandedClass = isExpanded ? 'expanded' : '';
             var expandSection = '';
             if (isExpanded) {
+                var evidenceHtml = '';
+                if ((rma.evidencePhotos && rma.evidencePhotos.trim() !== '') || (rma.evidenceVideo && rma.evidenceVideo.trim() !== '')) {
+                    evidenceHtml = '<div class="ret-evidence-section" style="padding: 16px 20px; background: #fafbfc; border-bottom: 1px solid var(--border);">';
+                    evidenceHtml += '  <span style="font-size: 11px; font-weight: 700; color: rgba(16,55,92,0.4); text-transform: uppercase;">Ảnh & Video bằng chứng của khách hàng</span>';
+                    evidenceHtml += '  <div style="display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; align-items: flex-start;">';
+                    
+                    if (rma.evidencePhotos && rma.evidencePhotos.trim() !== '') {
+                        var photos = rma.evidencePhotos.split(',');
+                        photos.forEach(function(photoUrl) {
+                            if (photoUrl.trim() !== '') {
+                                var fullUrl = window.location.origin + '${pageContext.request.contextPath}' + photoUrl.trim();
+                                evidenceHtml += '    <a href="' + fullUrl + '" target="_blank">';
+                                evidenceHtml += '      <img src="' + fullUrl + '" style="width: 80px; height: 80px; object-fit: cover; border: 1px solid #E5EAF3; border-radius: calc(var(--radius-btn) - 4px);" />';
+                                evidenceHtml += '    </a>';
+                            }
+                        });
+                    }
+                    
+                    if (rma.evidenceVideo && rma.evidenceVideo.trim() !== '') {
+                        var fullVideoUrl = window.location.origin + '${pageContext.request.contextPath}' + rma.evidenceVideo.trim();
+                        evidenceHtml += '    <div>';
+                        evidenceHtml += '      <video src="' + fullVideoUrl + '" controls style="max-height: 80px; max-width: 160px; border: 1px solid #E5EAF3; border-radius: calc(var(--radius-btn) - 4px);"></video>';
+                        evidenceHtml += '    </div>';
+                    }
+                    
+                    evidenceHtml += '  </div>';
+                    evidenceHtml += '</div>';
+                }
+
                 expandSection = '<div class="ret-sheet-body">' +
+                                evidenceHtml +
                                 '  <table class="ret-table">' +
                                 '    <thead>' +
                                 '      <tr>' +

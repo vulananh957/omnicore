@@ -655,11 +655,20 @@ public class LedgerDAO {
         return true;
     }
 
+    /**
+     * Records the inventory deduction + ledger entry for an outbound reaching SHIPPED, and
+     * stamps shipped_at. Does NOT touch outbound_orders.status/version — that transition
+     * (plus its own idempotency guard) is owned entirely by
+     * OutboundService.updateStatus()'s compareAndSetStatus call, which now always runs
+     * BEFORE this method. Previously this method did its own unguarded
+     * "UPDATE outbound_orders SET status='SHIPPED'", bypassing the optimistic lock —
+     * two concurrent SHIPPED calls could both reach here and double-deduct inventory.
+     */
     private boolean approveOutbound(Connection conn, String docId, int userId) throws SQLException {
         int outboundId = -1;
         int warehouseId = -1;
-        String status = "";
-        String sqlFind = "SELECT outbound_id, warehouse_id, status FROM outbound_orders "
+        boolean alreadyShipped = false;
+        String sqlFind = "SELECT outbound_id, warehouse_id, shipped_at FROM outbound_orders "
                        + "WHERE outbound_code = ? OR (outbound_code IS NULL AND CONCAT('SOUT-OUT-', outbound_id) = ?)";
         try (PreparedStatement ps = conn.prepareStatement(sqlFind)) {
             ps.setString(1, docId);
@@ -668,12 +677,12 @@ public class LedgerDAO {
                 if (rs.next()) {
                     outboundId = rs.getInt("outbound_id");
                     warehouseId = rs.getInt("warehouse_id");
-                    status = rs.getString("status");
+                    alreadyShipped = rs.getTimestamp("shipped_at") != null;
                 }
             }
         }
         if (outboundId == -1) throw new SQLException("Outbound not found: " + docId);
-        if ("SHIPPED".equals(status) || "DELIVERED".equals(status)) return true;
+        if (alreadyShipped) return true;
 
         List<Map<String, Object>> items = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
@@ -703,7 +712,7 @@ public class LedgerDAO {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "UPDATE outbound_orders SET status = 'SHIPPED', shipped_at = ? WHERE outbound_id = ?")) {
+                "UPDATE outbound_orders SET shipped_at = ? WHERE outbound_id = ?")) {
             ps.setTimestamp(1, Timestamp.valueOf(LocalDateTime.now()));
             ps.setInt(2, outboundId);
             ps.executeUpdate();
@@ -926,10 +935,11 @@ public class LedgerDAO {
                 }
             } else if ("Phiếu Xuất Kho".equals(docType)) {
                 String sql = 
-                    "SELECT oi.qty, oi.picked_qty, p.sku_code, p.product_name, p.unit, p.base_price " +
+                    "SELECT oi.qty, oi.picked_qty, p.sku_code, p.product_name, p.unit, COALESCE(oi2.unit_price, p.base_price) AS final_price " +
                     "FROM outbound_items oi " +
                     "LEFT JOIN products p ON oi.product_id = p.product_id " +
                     "LEFT JOIN outbound_orders oo ON oi.outbound_id = oo.outbound_id " +
+                    "LEFT JOIN order_items oi2 ON oo.order_id = oi2.order_id AND oi.product_id = oi2.product_id " +
                     "WHERE oo.outbound_code = ? OR (oo.outbound_code IS NULL AND CONCAT('SOUT-OUT-', oo.outbound_id) = ?)";
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setString(1, docId);
@@ -946,7 +956,7 @@ public class LedgerDAO {
                             map.put("hsd", "30/06/2027");
                             map.put("qtyRequest", rs.getDouble("qty"));
                             map.put("qtyIssued", rs.getDouble("picked_qty"));
-                            map.put("price", rs.getDouble("base_price"));
+                            map.put("price", rs.getDouble("final_price"));
                             items.add(map);
                         }
                     }
@@ -1037,9 +1047,10 @@ public class LedgerDAO {
                 // RMA: format id is RMA-XXXXX where XXXXX is return_id
                 int returnId = Integer.parseInt(docId.replace("RMA-", ""));
                 String sql =
-                    "SELECT ri.quantity, ri.unit_price, ri.return_reason, p.sku_code, p.product_name, p.unit, p.base_price " +
+                    "SELECT ri.quantity, ri.unit_price, ri.return_reason, p.sku_code, p.product_name, p.unit, p.base_price, qr.decision " +
                     "FROM return_items ri " +
                     "LEFT JOIN products p ON ri.product_id = p.product_id " +
+                    "LEFT JOIN qc_records qr ON (ri.return_id = qr.return_id AND ri.product_id = qr.product_id) " +
                     "WHERE ri.return_id = ?";
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setInt(1, returnId);
@@ -1051,9 +1062,22 @@ public class LedgerDAO {
                             map.put("sku", rs.getString("sku_code"));
                             map.put("name", rs.getString("product_name"));
                             map.put("uom", rs.getString("unit"));
-                            map.put("returned", rs.getDouble("quantity"));
-                            map.put("reuse", rs.getDouble("quantity"));
-                            map.put("destroy", 0.0);
+                            
+                            double qty = rs.getDouble("quantity");
+                            map.put("returned", qty);
+                            
+                            String decision = rs.getString("decision");
+                            if ("PASS".equalsIgnoreCase(decision)) {
+                                map.put("reuse", qty);
+                                map.put("destroy", 0.0);
+                            } else if ("FAIL".equalsIgnoreCase(decision)) {
+                                map.put("reuse", 0.0);
+                                map.put("destroy", qty);
+                            } else {
+                                map.put("reuse", 0.0);
+                                map.put("destroy", 0.0);
+                            }
+                            
                             double unitPrice = rs.getDouble("unit_price");
                             if (rs.wasNull() || unitPrice == 0) unitPrice = rs.getDouble("base_price");
                             map.put("price", unitPrice);
@@ -1230,13 +1254,13 @@ public class LedgerDAO {
                         // Get actual price from order_items
                         double price = rs.getDouble("base_price");
                         if (orderId > 0 && productId > 0) {
-                            String priceSql = "SELECT actual_price FROM order_items WHERE order_id = ? AND product_id = ? LIMIT 1";
+                            String priceSql = "SELECT unit_price FROM order_items WHERE order_id = ? AND product_id = ? LIMIT 1";
                             try (PreparedStatement pps = conn.prepareStatement(priceSql)) {
                                 pps.setInt(1, orderId);
                                 pps.setInt(2, productId);
                                 try (ResultSet prs = pps.executeQuery()) {
                                     if (prs.next()) {
-                                        price = prs.getDouble("actual_price");
+                                        price = prs.getDouble("unit_price");
                                     }
                                 }
                             } catch (Exception ex) {

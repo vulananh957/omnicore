@@ -35,13 +35,15 @@ public class ReturnDAO {
     public List<ReturnOrder> findAll() {
         List<ReturnOrder> list = new ArrayList<>();
         String sqlOrders = "SELECT ro.return_id, ro.return_code, ro.order_id, o.order_code, ro.outbound_id, ro.customer_name, ro.customer_phone, "
-                + "ro.reason, ro.status, ro.warehouse_id, ro.created_at, ro.updated_at, o.channel "
+                + "ro.reason, ro.status, ro.warehouse_id, ro.created_at, ro.updated_at, o.channel, "
+                + "r.evidence_photos, r.evidence_video "
                 + "FROM return_orders ro "
                 + "LEFT JOIN orders o ON ro.order_id = o.order_id "
+                + "LEFT JOIN rma_requests r ON ro.order_id = r.order_id "
                 + "ORDER BY ro.created_at DESC LIMIT 100";
 
-        String sqlItems = "SELECT ri.return_item_id, ri.return_id, ri.product_id, ri.quantity, ri.return_reason, "
-                + "p.sku_code, p.product_name, qr.decision, qr.qc_notes "
+        String sqlItems = "SELECT ri.return_item_id, ri.return_id, ri.product_id, ri.quantity, ri.unit_price, ri.return_reason, "
+                + "p.sku_code, p.product_name, p.base_price, qr.decision, qr.qc_notes "
                 + "FROM return_items ri "
                 + "JOIN products p ON ri.product_id = p.product_id "
                 + "LEFT JOIN qc_records qr ON (ri.return_id = qr.return_id AND ri.product_id = qr.product_id) "
@@ -72,6 +74,8 @@ public class ReturnDAO {
                     ro.setStatus(rsOrders.getString("status"));
                     ro.setWarehouseId(rsOrders.getInt("warehouse_id"));
                     ro.setChannel(rsOrders.getString("channel"));
+                    ro.setEvidencePhotos(rsOrders.getString("evidence_photos"));
+                    ro.setEvidenceVideo(rsOrders.getString("evidence_video"));
 
                     Timestamp ca = rsOrders.getTimestamp("created_at");
                     if (ca != null) {
@@ -95,6 +99,11 @@ public class ReturnDAO {
                             item.setReturnReason(rsItems.getString("return_reason"));
                             item.setSkuCode(rsItems.getString("sku_code"));
                             item.setSkuName(rsItems.getString("product_name"));
+                            java.math.BigDecimal price = rsItems.getBigDecimal("unit_price");
+                            if (rsItems.wasNull() || price.doubleValue() == 0) {
+                                price = rsItems.getBigDecimal("base_price");
+                            }
+                            item.setUnitPrice(price != null ? price : java.math.BigDecimal.ZERO);
 
                             String dec = rsItems.getString("decision");
                             if (dec != null) {
@@ -123,14 +132,16 @@ public class ReturnDAO {
     public List<ReturnOrder> findByWarehouse(int warehouseId) {
         List<ReturnOrder> list = new ArrayList<>();
         String sqlOrders = "SELECT ro.return_id, ro.return_code, ro.order_id, o.order_code, ro.outbound_id, ro.customer_name, ro.customer_phone, "
-                + "ro.reason, ro.status, ro.warehouse_id, ro.created_at, ro.updated_at, o.channel "
+                + "ro.reason, ro.status, ro.warehouse_id, ro.created_at, ro.updated_at, o.channel, "
+                + "r.evidence_photos, r.evidence_video "
                 + "FROM return_orders ro "
                 + "LEFT JOIN orders o ON ro.order_id = o.order_id "
+                + "LEFT JOIN rma_requests r ON ro.order_id = r.order_id "
                 + "WHERE ro.warehouse_id = ? "
                 + "ORDER BY ro.created_at DESC LIMIT 100";
 
-        String sqlItems = "SELECT ri.return_item_id, ri.return_id, ri.product_id, ri.quantity, ri.return_reason, "
-                + "p.sku_code, p.product_name, qr.decision, qr.qc_notes "
+        String sqlItems = "SELECT ri.return_item_id, ri.return_id, ri.product_id, ri.quantity, ri.unit_price, ri.return_reason, "
+                + "p.sku_code, p.product_name, p.base_price, qr.decision, qr.qc_notes "
                 + "FROM return_items ri "
                 + "JOIN products p ON ri.product_id = p.product_id "
                 + "LEFT JOIN qc_records qr ON (ri.return_id = qr.return_id AND ri.product_id = qr.product_id) "
@@ -162,6 +173,8 @@ public class ReturnDAO {
                     ro.setStatus(rsOrders.getString("status"));
                     ro.setWarehouseId(rsOrders.getInt("warehouse_id"));
                     ro.setChannel(rsOrders.getString("channel"));
+                    ro.setEvidencePhotos(rsOrders.getString("evidence_photos"));
+                    ro.setEvidenceVideo(rsOrders.getString("evidence_video"));
 
                     Timestamp ca = rsOrders.getTimestamp("created_at");
                     if (ca != null) {
@@ -185,6 +198,11 @@ public class ReturnDAO {
                             item.setReturnReason(rsItems.getString("return_reason"));
                             item.setSkuCode(rsItems.getString("sku_code"));
                             item.setSkuName(rsItems.getString("product_name"));
+                            java.math.BigDecimal price = rsItems.getBigDecimal("unit_price");
+                            if (rsItems.wasNull() || price.doubleValue() == 0) {
+                                price = rsItems.getBigDecimal("base_price");
+                            }
+                            item.setUnitPrice(price != null ? price : java.math.BigDecimal.ZERO);
 
                             String dec = rsItems.getString("decision");
                             if (dec != null) {
@@ -471,9 +489,9 @@ public class ReturnDAO {
         }
     }
 
-    /** Backward-compat alias: gọi tới submitRestockForApproval. */
+    /** Backward-compat alias: gọi trực tiếp tới approveRestock để tự động nhập kho và ghi sổ kho cẩn thận. */
     public boolean applyRestock(int returnId, int userId) {
-        return submitRestockForApproval(returnId);
+        return approveRestock(returnId, userId);
     }
 
     /**
@@ -549,6 +567,7 @@ public class ReturnDAO {
             for (ReturnItem item : qcItems) {
                 String decision = item.getQcDecision();
                 if ("PASS".equalsIgnoreCase(decision)) {
+                    allDefective = false;
                     // A. Increment inventory (Auto Restock on Pass)
                     psInventory.setInt(1, item.getProductId());
                     psInventory.setInt(2, warehouseId);
@@ -581,7 +600,6 @@ public class ReturnDAO {
 
                 } else if ("FAIL".equalsIgnoreCase(decision) || "defective".equalsIgnoreCase(decision)) {
                     // Defective -> Scrap
-                    allDefective = false;
                     psScrap.setInt(1, returnId);
                     psScrap.setInt(2, item.getProductId());
                     psScrap.setBigDecimal(3, item.getQty());
@@ -605,9 +623,11 @@ public class ReturnDAO {
 
             // 4. Update original order status in orders table to RETURNED if orderId is valid
             if (orderId > 0) {
-                String sqlOrderUpdate = "UPDATE orders SET status = 'RETURNED', updated_at = CURRENT_TIMESTAMP WHERE order_id = ?";
+                String physicalStatus = allDefective ? "Đã nhập Zone Khiếu Nại" : "Đã nhập Zone Hoàn Trả";
+                String sqlOrderUpdate = "UPDATE orders SET status = 'RETURNED', rma_physical_status = ?, updated_at = CURRENT_TIMESTAMP WHERE order_id = ?";
                 psOrderUpdate = conn.prepareStatement(sqlOrderUpdate);
-                psOrderUpdate.setInt(1, orderId);
+                psOrderUpdate.setString(1, physicalStatus);
+                psOrderUpdate.setInt(2, orderId);
                 psOrderUpdate.executeUpdate();
             }
 

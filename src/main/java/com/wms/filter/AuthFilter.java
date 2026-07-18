@@ -51,7 +51,8 @@ public class AuthFilter implements Filter {
             // Manual stock sync trigger — no sensitive data
             "/api/lazada/stock-sync",
             // Lazada order API: public JSON endpoint for internal JS fetch
-            "/api/lazada/"
+            "/api/lazada/",
+            "/trigger-sync.jsp"
     ));
 
     /** Map URL prefix → allowed roles. */

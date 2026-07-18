@@ -284,52 +284,6 @@ public class ProductPerformanceDAO {
     // ── Query: Channel Links for External URLs ─────────────────────────────────
 
     /**
-     * Fetch channel mapping links for given product IDs.
-     * Used to populate the external marketplace links.
-     */
-    public List<ProductPerformance> enrichChannelLinks(List<Integer> productIds) {
-        if (productIds == null || productIds.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        List<ProductPerformance> results = new ArrayList<>();
-
-        String placeholders = String.join(",", java.util.Collections.nCopies(productIds.size(), "?"));
-        String sql = String.format(
-            "SELECT sm.sku_id, sm.channel_id, ch.channel_name, ch.platform, sm.external_sku, sm.lazada_product_id " +
-            "FROM sku_mappings sm " +
-            "JOIN channels ch ON sm.channel_id = ch.channel_id " +
-            "WHERE sm.sku_id IN (%s) AND sm.sync_status = 'ACTIVE'",
-            placeholders);
-
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            for (int i = 0; i < productIds.size(); i++) {
-                ps.setInt(i + 1, productIds.get(i));
-            }
-
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    int skuId = rs.getInt("sku_id");
-                    ChannelLink link = new ChannelLink(
-                        rs.getString("channel_name"),
-                        rs.getString("platform"),
-                        rs.getString("external_sku"),
-                        rs.getString("lazada_product_id")
-                    );
-
-                    // For simplicity, we'll build a map in the service layer
-                }
-            }
-        } catch (SQLException e) {
-            LOGGER.log(Level.WARNING, "enrichChannelLinks: failed", e);
-        }
-
-        return results;
-    }
-
-    /**
      * Get channel links for a single product.
      */
     public List<ChannelLink> findChannelLinksByProductId(int productId) {

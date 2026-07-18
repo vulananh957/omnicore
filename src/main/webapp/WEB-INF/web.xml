@@ -351,6 +351,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>WarehouseRtvServlet</servlet-name>
+        <servlet-class>com.wms.controller.warehouse.WarehouseRtvServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>WarehouseRtvServlet</servlet-name>
+        <url-pattern>/warehouse/rtv</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>FulfillmentRequestServlet</servlet-name>
         <servlet-class>com.wms.controller.warehouse.FulfillmentRequestServlet</servlet-class>
     </servlet>
@@ -542,14 +551,6 @@
         <url-pattern>/sales/categories</url-pattern>
     </servlet-mapping>
 
-    <servlet>
-        <servlet-name>SalesMappingExceptionServlet</servlet-name>
-        <servlet-class>com.wms.controller.sales.SalesMappingExceptionServlet</servlet-class>
-    </servlet>
-    <servlet-mapping>
-        <servlet-name>SalesMappingExceptionServlet</servlet-name>
-        <url-pattern>/sales/mapping-exceptions</url-pattern>
-    </servlet-mapping>
 
     <!-- ── Admin routes ────────────────────────────────────────── -->
     <servlet>

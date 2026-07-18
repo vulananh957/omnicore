@@ -44,6 +44,7 @@ public class LazadaShipmentService {
     private final ChannelDAO channelDAO = new ChannelDAO();
     private final OrderDAO orderDAO = new OrderDAO();
     private final InventoryDAO inventoryDAO = new InventoryDAO();
+    private final com.wms.dao.LazadaOrderDAO lazadaOrderDAO = new com.wms.dao.LazadaOrderDAO();
 
     public LazadaShipmentService() {
         this.gateway = ChannelRegistry.get("Lazada");
@@ -211,7 +212,7 @@ public class LazadaShipmentService {
                 if (msg.isEmpty()) msg = "Lazada từ chối RTS.";
                 ChannelSyncAudit.log(ch.getChannelId(), "RTS",
                         order.getOrderCode(), 200, "package_id=" + packageId, null, msg, dt);
-                logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
+                lazadaOrderDAO.insertRtsLog(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
                         "FAILED", msg);
                 return ShipmentResult.fail(msg);
             }
@@ -230,7 +231,7 @@ public class LazadaShipmentService {
                         String failMsg = "package_id=" + pkgId + " err=" + errCode + " msg=" + pkgMsg;
                         ChannelSyncAudit.log(ch.getChannelId(), "RTS",
                                 order.getOrderCode(), 200, failMsg, null, failMsg, dt);
-                        logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(),
+                        lazadaOrderDAO.insertRtsLog(ch.getChannelId(), order.getOrderId(), order.getOrderCode(),
                                 packageId, "FAILED", failMsg);
                         return ShipmentResult.fail("Lazada RTS lỗi cho gói " + pkgId
                                 + ": [" + errCode + "] " + pkgMsg);
@@ -238,19 +239,30 @@ public class LazadaShipmentService {
                 }
             }
 
-            // RTS confirmed — update flags, deduct stock, set SHIPPED
+            // RTS confirmed — update flags, and update lazada_orders table
             ChannelSyncAudit.logSuccess(ch.getChannelId(), "RTS",
                     order.getOrderCode(), 200, "package_id=" + packageId, body, dt);
             orderDAO.updateLazadaPackage(order.getOrderCode(), packageId, true, true);
-            logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
+            lazadaOrderDAO.insertRtsLog(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
                     "SUCCESS", body);
-            deductShippedInventoryForOrder(order);
-            orderDAO.updateOrderStatus(order.getOrderCode(), "SHIPPED");
+            
+            // Mark RTS timestamp and wms_status in lazada_orders table
+            com.wms.dao.LazadaOrderDAO lazadaOrderDAO = new com.wms.dao.LazadaOrderDAO();
+            lazadaOrderDAO.updateRtsAt(order.getOrderCode());
+            lazadaOrderDAO.updateStatus(order.getOrderCode(), "HANDED_OVER");
+
+            // Update WMS outbound order status to HANDED_OVER
+            com.wms.dao.OutboundDAO outboundDAO = new com.wms.dao.OutboundDAO();
+            int outboundId = outboundDAO.findActiveOutboundIdByOrderCode(order.getOrderCode());
+            if (outboundId > 0) {
+                new com.wms.service.warehouse.OutboundService().updateStatus(outboundId, "HANDED_OVER");
+            }
+            
             return ShipmentResult.ok(order.getTrackingNo(), packageId);
         } catch (Exception e) {
             ChannelSyncAudit.logFailure(ch.getChannelId(), "RTS",
                     order.getOrderCode(), 500, "package_id=" + packageId, e.getMessage());
-            logRts(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
+            lazadaOrderDAO.insertRtsLog(ch.getChannelId(), order.getOrderId(), order.getOrderCode(), packageId,
                     "FAILED", e.getMessage());
             return ShipmentResult.fail(e.getMessage());
         }
@@ -372,25 +384,6 @@ public class LazadaShipmentService {
         return null;
     }
 
-    private void logRts(int channelId, int orderId, String orderCode, String packageId,
-                        String status, String response) {
-        String sql = "INSERT INTO lazada_rts_log "
-                + "(channel_id, order_id, lazada_order_id, package_id, status, response_excerpt) "
-                + "VALUES (?, ?, ?, ?, ?, ?)";
-        try (java.sql.Connection conn = com.wms.util.DBConnection.getConnection();
-             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, channelId);
-            ps.setInt(2, orderId);
-            ps.setString(3, orderCode);
-            ps.setString(4, packageId);
-            ps.setString(5, status);
-            ps.setString(6, response == null ? null
-                    : (response.length() > 3500 ? response.substring(0, 3500) : response));
-            ps.executeUpdate();
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "logRts failed", e);
-        }
-    }
 
     /**
      * Deducts physical inventory for every item in the given order (BR-04 final step).

@@ -669,6 +669,7 @@
 .cp-platform-card.selected.shopee { border-color: #EE4D2D; background: rgba(238, 77, 45, 0.03); }
 .cp-platform-card.selected.lazada { border-color: #0F146D; background: rgba(15, 20, 109, 0.03); }
 .cp-platform-card.selected.tiktok { border-color: #69C9D0; background: rgba(105, 201, 208, 0.03); }
+.cp-platform-card.selected.website { border-color: #EB8317; background: rgba(235, 131, 23, 0.03); }
 
 .cp-platform-header { display: flex; align-items: center; justify-content: space-between; }
 .cp-platform-badge {
@@ -690,6 +691,7 @@
 .cp-platform-card.selected.shopee .cp-platform-chk { background: #EE4D2D; border-color: #EE4D2D; }
 .cp-platform-card.selected.lazada .cp-platform-chk { background: #0F146D; border-color: #0F146D; }
 .cp-platform-card.selected.tiktok .cp-platform-chk { background: #69C9D0; border-color: #69C9D0; }
+.cp-platform-card.selected.website .cp-platform-chk { background: #EB8317; border-color: #EB8317; }
 .cp-platform-chk svg { width: 14px; height: 14px; color: #fff; display: none; }
 .cp-platform-card.selected .cp-platform-chk svg { display: block; }
 .cp-platform-desc { font-size: 11px; color: rgba(16, 55, 92, 0.4); line-height: 1.4; }

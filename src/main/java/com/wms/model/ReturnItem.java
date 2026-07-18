@@ -14,6 +14,7 @@ public class ReturnItem {
     private String skuName; // Joined from products
     private BigDecimal qty;
     private String returnReason;
+    private BigDecimal unitPrice;
     
     // QC details joined from qc_records
     private String qcDecision = "pending"; // pending, resalable, defective
@@ -92,5 +93,13 @@ public class ReturnItem {
 
     public void setQcNote(String qcNote) {
         this.qcNote = qcNote;
+    }
+
+    public BigDecimal getUnitPrice() {
+        return unitPrice;
+    }
+
+    public void setUnitPrice(BigDecimal unitPrice) {
+        this.unitPrice = unitPrice;
     }
 }

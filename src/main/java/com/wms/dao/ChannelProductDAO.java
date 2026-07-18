@@ -29,7 +29,7 @@ public class ChannelProductDAO {
         + "cp.dimensions AS cp_dimensions, cp.weight_kg AS cp_weight_kg, "
         + "cp.seller_sku, cp.short_description, cp.brand, cp.description, "
         + "c.channel_name, c.platform, "
-        + "p.sku_code, p.product_name, p.dimensions AS product_dimensions, p.weight_kg AS product_weight_kg "
+        + "p.sku_code, p.product_name, p.attributes_text AS product_dimensions, p.weight_kg AS product_weight_kg "
         + "FROM channel_products cp "
         + "LEFT JOIN channels c ON cp.channel_id = c.channel_id "
         + "LEFT JOIN products p ON cp.product_id = p.product_id";

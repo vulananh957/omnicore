@@ -17,9 +17,9 @@
 
     Map<String, Integer> statusCounts = new HashMap<>();
     statusCounts.put("ALL", outboundOrders.size());
-    statusCounts.put("PENDING", 0);
-    statusCounts.put("PICKING", 0);
+    statusCounts.put("PENDING_PACK", 0);
     statusCounts.put("PACKED", 0);
+    statusCounts.put("HANDED_OVER", 0);
     statusCounts.put("SHIPPED", 0);
     statusCounts.put("CANCELLED", 0);
     for (OutboundOrder o : outboundOrders) {
@@ -67,7 +67,7 @@
         </div>
         <div class="outbound-kpi-card__info">
             <div class="outbound-kpi-card__val" id="stat-pending-pick">0</div>
-            <div class="outbound-kpi-card__lbl">Chờ chuẩn bị hàng</div>
+            <div class="outbound-kpi-card__lbl">Chờ đóng gói</div>
         </div>
     </div>
     
@@ -80,7 +80,7 @@
         </div>
         <div class="outbound-kpi-card__info">
             <div class="outbound-kpi-card__val" id="stat-picking-pack">0</div>
-            <div class="outbound-kpi-card__lbl">Đang pick/pack</div>
+            <div class="outbound-kpi-card__lbl">Đang đóng gói</div>
         </div>
     </div>
     
@@ -94,7 +94,7 @@
         </div>
         <div class="outbound-kpi-card__info">
             <div class="outbound-kpi-card__val" id="stat-packed">0</div>
-            <div class="outbound-kpi-card__lbl">Chờ vận chuyển</div>
+            <div class="outbound-kpi-card__lbl">Đã đóng gói</div>
         </div>
     </div>
 
@@ -180,29 +180,54 @@
      MODALS SECTION
      ══════════════════════════════════════════════════════════ -->
 
-<!-- 1. Confirmation Dispatch Modal -->
 <div class="overlay-backdrop" id="confirmDispatchOverlay">
-    <div class="modal-shell modal-size-sm">
-        <div class="modal-body-section" style="text-align:center; padding: 24px 24px 16px 24px;">
+    <div class="modal-shell modal-size-md">
+        <div class="modal-header-section" style="background: rgba(240, 244, 250, 0.3); border-bottom:1px solid #e2e8f0; padding:16px 24px;">
+            <h3 class="modal-hdr-title" style="font-size: 16px; font-weight:800; color:var(--navy);">Phiếu xuất kho nháp (Draft)</h3>
+            <button onclick="window.closeConfirmDispatch()" class="btn-modal-close-icon" style="border:none; background:none; font-size:24px; cursor:pointer;">&times;</button>
+        </div>
+        <div class="modal-body-section" style="padding: 24px;">
             <input type="hidden" id="confirm-dispatch-order-id"/>
-            <div style="width: 56px; height: 56px; background: rgba(235,131,23,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
-                <svg style="width: 24px; height: 24px; color: var(--orange);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
-                </svg>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom: 16px; font-size:12px; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid #e2e8f0;">
+                <div>Mã DO: <strong id="confirm-do-id" style="color:var(--navy);">DO-2026-XXXX</strong></div>
+                <div>Đơn hàng: <strong id="confirm-so-id">SO-XXXX</strong></div>
+                <div style="grid-column: span 2;">Khách hàng: <strong id="confirm-customer-id">Khách hàng</strong></div>
             </div>
-            <h2 class="modal-hdr-title" style="font-size: 16px; font-weight:800; margin-bottom:4px;">Xác nhận xuất kho</h2>
-            <p class="modal-hdr-desc" style="font-size:13px; margin-bottom:2px;"><strong id="confirm-do-id">DO-2026-XXXX</strong> · <span id="confirm-so-id">SO-XXXX</span></p>
-            <p class="modal-hdr-desc" style="font-size:13px; margin-bottom:16px;">Khách: <strong id="confirm-customer-id" style="color:var(--navy);">Khách hàng</strong></p>
             
-            <div style="background: var(--alice); padding: 12px; border-radius: calc(var(--radius-btn) - 2px); text-align: left;">
-                <p style="font-size:12px; color:rgba(16, 55, 92, 0.6); line-height: 1.4; margin: 0;">
-                    Hành động này sẽ trừ <strong style="color:var(--navy);">qty_on_hand</strong> khỏi kho và cập nhật trạng thái đơn hàng thành "Đang giao".
+            <h4 style="font-size:12px; font-weight:700; margin-bottom:8px; color:var(--navy);">Danh sách SKU bàn giao thực tế:</h4>
+            <div style="max-height: 180px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 16px; background:#fff;">
+                <table class="wms-table" style="margin: 0; width: 100%; font-size:12px; border-collapse:collapse;">
+                    <thead style="background:#f1f5f9; position:sticky; top:0; z-index:10;">
+                        <tr>
+                            <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">SKU</th>
+                            <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Tên sản phẩm</th>
+                            <th style="padding:8px; text-align:right; width:70px; border-bottom:1px solid #e2e8f0;">Yêu cầu</th>
+                            <th style="padding:8px; text-align:center; width:90px; border-bottom:1px solid #e2e8f0;">Thực tế</th>
+                        </tr>
+                    </thead>
+                    <tbody id="confirm-dispatch-items-list">
+                        <!-- Filled dynamically -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="font-size:12px; font-weight:600; color:var(--navy); display:block; margin-bottom:4px;">Ghi chú bàn giao cho shipper:</label>
+                <textarea id="confirm-dispatch-note" class="form-control" style="width:100%; height:60px; font-size:12px; resize:none; padding:8px; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box;" placeholder="Nhập ghi chú xuất kho tại đây..."></textarea>
+            </div>
+
+            <div style="background: #fef3c7; border: 1px solid #fcd34d; padding: 10px; border-radius: 6px; display:flex; gap:8px; align-items:flex-start;">
+                <svg style="width: 16px; height: 16px; color:#b45309; flex-shrink:0; margin-top:2px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p style="font-size:11px; color:#b45309; line-height: 1.4; margin: 0; font-weight:500;">
+                    Vui lòng đối soát thực tế bàn giao. Khi bấm <strong>"Duyệt và Xuất kho"</strong>, hệ thống sẽ chốt chứng từ và khấu trừ tồn kho vật lý.
                 </p>
             </div>
         </div>
-        <div class="modal-footer-section" style="padding: 16px 24px;">
-            <button onclick="window.closeConfirmDispatch()" class="btn-action-secondary" style="flex:1; justify-content:center;">Hủy</button>
-            <button onclick="window.submitConfirmDispatch()" class="btn-action-primary" style="flex:1; justify-content:center; background: var(--orange);">Xác nhận xuất kho</button>
+        <div class="modal-footer-section" style="padding: 12px 24px; border-top:1px solid #e2e8f0; display:flex; gap:12px;">
+            <button onclick="window.closeConfirmDispatch()" class="btn-action-secondary" style="flex:1; justify-content:center; padding:10px;">Hủy</button>
+            <button onclick="window.submitConfirmDispatch()" class="btn-action-primary" style="flex:1; justify-content:center; background: var(--orange); padding:10px; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer;">Duyệt và Xuất kho</button>
         </div>
     </div>
 </div>
@@ -324,7 +349,7 @@
                 
                 <!-- Qty -->
                 <div class="outbound-form-group" style="margin-bottom:0;">
-                    <label class="outbound-form-label">Số lượng tiêu hủy *</label>
+                    <label class="outbound-form-label">Số lượng tiêu hủy * <span id="disposal-qty-limit" style="font-size:11px;color:#dc2626;font-weight:500;"></span></label>
                     <input type="number" id="disposal-qty" min="1" value="1" class="outbound-form-input" style="font-weight:700; text-align:right;"/>
                 </div>
             </div>
@@ -622,28 +647,22 @@
     var STATUS_CONFIG = {
         draft: { label: "Bản nháp", iconName: "ClipboardList", bg: "rgba(16, 55, 92, 0.08)", text: "rgba(16, 55, 92, 0.6)", dot: "rgba(16, 55, 92, 0.3)", color: "#64748b" },
         pending_bm: { label: "Chờ duyệt", iconName: "Lock", bg: "#fef3c7", text: "#b45309", dot: "#f59e0b", color: "#d97706" },
-        pending_pick: { label: "Chờ chuẩn bị hàng", iconName: "Clock", bg: "#eff6ff", text: "#1d4ed8", dot: "#3b82f6", color: "#2563eb" },
-        picking: { label: "Đang pick", iconName: "ArrowUpFromLine", bg: "rgba(245, 200, 66, 0.15)", text: "#d97706", dot: "#f5c842", color: "#eb8317" },
-        packed: { label: "Đã đóng gói", iconName: "Package", bg: "#f3e8ff", text: "#7e22ce", dot: "#a855f7", color: "#9333ea" },
+        pending_pick: { label: "Chờ đóng gói", iconName: "Clock", bg: "#eff6ff", text: "#1d4ed8", dot: "#3b82f6", color: "#2563eb" },
+        packed: { label: "Đang đóng gói", iconName: "Package", bg: "#f3e8ff", text: "#7e22ce", dot: "#a855f7", color: "#9333ea" },
+        handed_over: { label: "Đã đóng gói", iconName: "ArrowUpFromLine", bg: "rgba(245, 200, 66, 0.15)", text: "#d97706", dot: "#f5c842", color: "#eb8317" },
         dispatched: { label: "Đã xuất kho", iconName: "Truck", bg: "#ecfdf5", text: "#047857", dot: "#10b981", color: "#059669" },
         cancelled: { label: "Đã hủy", iconName: "XCircle", bg: "#fee2e2", text: "#991b1b", dot: "#ef4444", color: "#dc2626" }
     };
 
     var STATUS_TABS = [
         { id: "all", label: "Tất cả" },
-        { id: "pending_pick", label: "Chờ chuẩn bị hàng" },
-        { id: "picking", label: "Đang pick" },
-        { id: "packed", label: "Đã đóng gói" },
+        { id: "pending_pick", label: "Chờ đóng gói" },
+        { id: "packed", label: "Đang đóng gói" },
+        { id: "handed_over", label: "Đã đóng gói" },
         { id: "dispatched", label: "Đã xuất kho" },
         { id: "cancelled", label: "Đã hủy" }
     ];
 
-    // Sub-tabs inside "Đang pick" — phân luồng picking & chờ cấp mã vận đơn.
-    // Flow nghiệp vụ: PICKING → (gom xong → sang sub-tab "Chờ cấp mã") → (cấp tracking → PACKED)
-    var PICK_SUBTABS = [
-        { id: "picking",        label: "Đang nhặt hàng" },
-        { id: "waiting_tracking", label: "Chờ cấp mã & in tem" }
-    ];
     var activePickSubTab = "picking";
 
     // Local controller states
@@ -676,6 +695,20 @@
         }
     } catch (e) { DB_PRODUCTS = []; }
 
+    var SCRAP_PRODUCTS = [];
+    try {
+        var rawScrapProductsJson = '<c:out value="${scrapProductsJson}" escapeXml="false"/>';
+        if (rawScrapProductsJson && rawScrapProductsJson.trim() && rawScrapProductsJson.indexOf('scrapProductsJson') === -1) {
+            SCRAP_PRODUCTS = JSON.parse(rawScrapProductsJson).map(function(p) {
+                return {
+                    sku: p.skuCode || '',
+                    name: p.productName || '',
+                    scrapQty: p.scrapQty || 0
+                };
+            });
+        }
+    } catch (e) { SCRAP_PRODUCTS = []; }
+
     function submitPostAction(action, params) {
         var form = document.createElement('form');
         form.method = 'POST';
@@ -704,9 +737,9 @@
     function mapDbOrderToFrontend(dbOrder) {
         var status = 'draft';
         var statusLower = (dbOrder.status || '').toLowerCase();
-        if (statusLower === 'pending') status = 'pending_pick';
-        else if (statusLower === 'picking') status = 'picking';
-        else if (statusLower === 'packed') status = 'packed';
+        if (statusLower === 'pending' || statusLower === 'pending_pack') status = 'pending_pick';
+        else if (statusLower === 'picking' || statusLower === 'packed') status = 'packed';
+        else if (statusLower === 'handed_over') status = 'handed_over';
         else if (statusLower === 'shipped') status = 'dispatched';
         else if (statusLower === 'cancelled') status = 'cancelled';
 
@@ -745,6 +778,7 @@
         var hasTracking = trackingNo && trackingNo.trim().length > 0;
         var channelName = dbOrder.channelName || 'Sales';
         var isLazada = (channelName || '').toLowerCase() === 'lazada';
+        var isWebsite = (channelName || '').toLowerCase() === 'website';
 
         // Channel palette (chip + halo) so card vẫn có màu sắc đa kênh
         var channelColors = {
@@ -755,15 +789,20 @@
         var channelColor = channelColors[channelLower] || channelColors.default;
 
         return {
-            id: dbOrder.code || ('DB-' + dbOrder.outboundId),
-            dbOutboundId: dbOrder.outboundId,
-            issueDocumentId: dbOrder.code || ('DB-' + dbOrder.outboundId),
+            // OutboundOrder.outboundId is serialized as "id" (@JsonProperty("id")), not
+            // "outboundId" — reading dbOrder.outboundId here was always undefined, so every
+            // status-transition button silently fell back to a localStorage-only stub instead
+            // of calling the real backend API. No warehouse click ever persisted.
+            id: dbOrder.code || ('DB-' + dbOrder.id),
+            dbOutboundId: dbOrder.id,
+            issueDocumentId: dbOrder.code || ('DB-' + dbOrder.id),
             mappedOrderId: dbOrder.orderId,
             orderCode: dbOrder.orderCode,
             soRef: dbOrder.orderCode || ('SO-' + dbOrder.orderId),
             channel: channelName,
             channelColor: channelColor,
             isLazada: isLazada,
+            isWebsite: isWebsite,
             customer: dbOrder.recipientName || ("Khách hàng từ đơn #" + dbOrder.orderId),
             address: dbOrder.shippingAddress || dbOrder.notes || "Khu vực hàng thường",
             status: status,
@@ -775,14 +814,15 @@
             hasTracking: hasTracking,
             allPicked: allPicked,
             labelPrinted: dbOrder.labelPrinted || false,
+            restocked: dbOrder.restocked || false,
+            rtsPushed: dbOrder.rtsPushed || false,
+            reviewNote: dbOrder.reviewNote || '',
             items: itemsMapped
         };
     }
 
     // Bootstrap data initialization
     function initLocalStorageData() {
-        var localOrders = JSON.parse(localStorage.getItem(DO_STORAGE_KEY) || '[]');
-
         // Bind server-side outbound orders if available from servlet
         var SERVER_OUTBOUND_ORDERS = [];
         try {
@@ -796,17 +836,9 @@
 
         var mappedServerOrders = SERVER_OUTBOUND_ORDERS.map(mapDbOrderToFrontend);
 
-        // Merge picked state from local storage to keep checkboxes checked across reloads
-        mappedServerOrders.forEach(function(serverOrd) {
-            var localOrd = localOrders.find(function(lo) { return lo.id === serverOrd.id; });
-            if (localOrd) {
-                // Picked state now comes from DB (outbound_items.picked_qty) — server is authoritative.
-                if (localOrd.restocked !== undefined) {
-                    serverOrd.restocked = localOrd.restocked;
-                }
-            }
-        });
-
+        // Picked state and restocked state both come from the DB now (outbound_items.picked_qty,
+        // outbound_orders.restocked_at) — server is authoritative for any order with a dbOutboundId.
+        // localStorage is only consulted for local-only mock orders that have no DB record at all.
         pickOrders = mappedServerOrders;
 
         // Load fulfillment requests from servlet (already fetched server-side)
@@ -890,7 +922,7 @@
     // Render counts and update UI statistics
     function renderStatistics() {
         var counts = {
-            draft: 0, pending_bm: 0, pending_pick: 0, picking: 0, packed: 0, dispatched: 0, cancelled: 0
+            draft: 0, pending_bm: 0, pending_pick: 0, packed: 0, handed_over: 0, dispatched: 0, cancelled: 0
         };
         var now = new Date();
         var todayStr = now.getFullYear() + '-'
@@ -910,8 +942,8 @@
         if ((el = document.getElementById('stat-draft'))) el.textContent = counts.draft;
         if ((el = document.getElementById('stat-pending-bm'))) el.textContent = counts.pending_bm;
         if ((el = document.getElementById('stat-pending-pick'))) el.textContent = counts.pending_pick;
-        if ((el = document.getElementById('stat-picking-pack'))) el.textContent = counts.picking;
-        if ((el = document.getElementById('stat-packed'))) el.textContent = counts.packed;
+        if ((el = document.getElementById('stat-picking-pack'))) el.textContent = counts.packed;
+        if ((el = document.getElementById('stat-packed'))) el.textContent = counts.handed_over;
         if ((el = document.getElementById('stat-dispatched'))) el.textContent = dispatchedToday;
 
         // Alerts banners visibility (mutually exclusive)
@@ -984,47 +1016,62 @@
 
             // Action button state machine
             var actionBtnHtml = '';
+            var packError = order.isLazada && order.status === 'pending_pick' && order.reviewNote && order.reviewNote.indexOf('Lỗi Pack: ') === 0;
+            
             if (order.status === 'pending_pick') {
-                actionBtnHtml = '<button class="btn-workflow-step blue" onclick="window.handleStartPicking(\'' + order.id + '\', event)">Bắt đầu Pick</button>';
-            } else if (order.status === 'picking') {
-                // Đang pick: nút luôn là "Xác nhận đóng gói"
-                actionBtnHtml = '<button class="btn-workflow-step purple" onclick="window.handleConfirmPacking(\'' + order.id + '\', event)">Xác nhận đóng gói</button>';
+                if (order.isLazada) {
+                    var oc = (order.orderCode || order.soRef || order.id).replace(/'/g, "\\'");
+                    if (!order.hasTracking) {
+                        var btnText = packError ? "Thử lại API" : "Chuẩn bị hàng";
+                        var btnColor = packError ? "background:#ef4444; color:#fff;" : "background:#6366f1; color:#fff;";
+                        actionBtnHtml = '<button class="btn-workflow-step" style="' + btnColor + '" onclick="window.triggerLazadaPack(\'' + oc + '\', event)">' + btnText + '</button>';
+                    } else {
+                        actionBtnHtml = '<button class="btn-workflow-step blue" onclick="window.handleStartPacking(\'' + order.id + '\', event)">Bắt đầu đóng gói</button>';
+                    }
+                } else {
+                    actionBtnHtml = '<button class="btn-workflow-step blue" onclick="window.handleStartPacking(\'' + order.id + '\', event)">Bắt đầu đóng gói</button>';
+                }
             } else if (order.status === 'packed') {
                 var oc = (order.orderCode || order.soRef || order.id).replace(/'/g, "\\'");
                 if (order.isLazada) {
-                    if (!order.hasTracking) {
-                        // Chưa cấp mã
-                        actionBtnHtml = '<button class="btn-workflow-step indigo" onclick="window.handleGenerateTracking(\'' + oc + '\', \'' + order.id + '\', event)">' +
-                            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;">' +
-                                '<rect x="3" y="4" width="18" height="16" rx="1"/><line x1="7" y1="8" x2="7" y2="20"/><line x1="11" y1="8" x2="11" y2="20"/><line x1="15" y1="8" x2="15" y2="20"/><line x1="19" y1="8" x2="19" y2="20"/>' +
-                            '</svg>Cấp mã &amp; in tem</button>';
-                    } else if (!order.labelPrinted) {
-                        // Đã cấp mã nhưng chưa in tem
-                        var tnLabel = '<span class="tracking-no-pill" style="margin-right: 8px;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>' + order.trackingNo + '</span>';
-                        actionBtnHtml = tnLabel +
-                            '<button class="btn-workflow-step orange" onclick="window.printLazadaLabel(\'' + oc + '\', event)" title="In tem vận đơn Lazada">' +
-                                '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;">' +
-                                    '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>' +
-                                    '<rect x="6" y="14" width="12" height="8"/>' +
-                                '</svg>In tem Lazada</button>';
-                    } else {
-                        // Đã cấp mã và đã in tem -> Hiện nút Xuất kho
-                        var tnLabel = '<span class="tracking-no-pill" style="margin-right: 8px;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>' + order.trackingNo + '</span>';
-                        actionBtnHtml = tnLabel +
-                            '<button class="btn-workflow-step orange" style="margin-right: 8px;" onclick="window.printLazadaLabel(\'' + oc + '\', event)" title="In tem vận đơn Lazada">' +
-                                '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;">' +
-                                    '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>' +
-                                    '<rect x="6" y="14" width="12" height="8"/>' +
-                                '</svg>In tem Lazada</button>' +
-                            '<button class="btn-workflow-step green" onclick="window.openConfirmDispatch(\'' + order.id + '\', event)">Xuất kho</button>';
-                    }
-                } else {
-                    // Không phải Lazada -> Hiện nút Xuất kho trực tiếp
                     var tnLabel = order.hasTracking
                         ? '<span class="tracking-no-pill" style="margin-right: 8px;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>' + order.trackingNo + '</span>'
                         : '';
-                    actionBtnHtml = tnLabel + '<button class="btn-workflow-step orange" onclick="window.openConfirmDispatch(\'' + order.id + '\', event)">Xuất kho</button>';
+                    
+                    var printBtnText = order.labelPrinted ? 'In lại tem' : 'In tem Lazada';
+                    var printBtn = '<button class="btn-workflow-step orange" style="margin-right: 8px;" onclick="window.printLazadaLabel(\'' + oc + '\', event)" title="In tem vận đơn Lazada">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;">' +
+                                '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>' +
+                                '<rect x="6" y="14" width="12" height="8"/>' +
+                            '</svg>' + printBtnText + '</button>';
+                    
+                    var disabledAttr = order.labelPrinted ? '' : 'disabled';
+                    var opacityStyle = order.labelPrinted ? '' : 'opacity: 0.5; cursor: not-allowed;';
+                    actionBtnHtml = tnLabel + printBtn +
+                        '<button class="btn-workflow-step purple" ' + disabledAttr + ' style="' + opacityStyle + '" onclick="window.triggerLazadaRts(\'' + oc + '\', event)">Xác nhận đóng gói</button>';
+                } else if (order.isWebsite && order.hasTracking) {
+                    // Mock shipping (com.wms.mockshipping) — carrier + waybill already assigned
+                    // (checkout choice + auto-generated at "Bắt đầu đóng gói"). Same print-then-
+                    // unlock pattern as Lazada, but the label is our own generated mock, not a
+                    // real courier's PDF.
+                    var tnLabelWeb = '<span class="tracking-no-pill" style="margin-right: 8px;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>' + order.trackingNo + '</span>';
+                    var printBtnTextWeb = order.labelPrinted ? 'In lại tem' : 'In tem';
+                    var printBtnWeb = '<button class="btn-workflow-step orange" style="margin-right: 8px;" onclick="window.printMockLabel(\'' + oc + '\', event)" title="In tem vận đơn (mock)">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;">' +
+                                '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>' +
+                                '<rect x="6" y="14" width="12" height="8"/>' +
+                            '</svg>' + printBtnTextWeb + '</button>';
+                    var disabledAttrWeb = order.labelPrinted ? '' : 'disabled';
+                    var opacityStyleWeb = order.labelPrinted ? '' : 'opacity: 0.5; cursor: not-allowed;';
+                    actionBtnHtml = tnLabelWeb + printBtnWeb +
+                        '<button class="btn-workflow-step purple" ' + disabledAttrWeb + ' style="' + opacityStyleWeb + '" onclick="window.handleConfirmPacking(\'' + order.id + '\', event)">Xác nhận đóng gói</button>';
+                } else {
+                    actionBtnHtml = '<button class="btn-workflow-step purple" onclick="window.handleConfirmPacking(\'' + order.id + '\', event)">Xác nhận đóng gói</button>';
                 }
+            } else if (order.status === 'handed_over') {
+                actionBtnHtml = '<button class="btn-workflow-step blue" style="background:#2563eb; color:#fff;" onclick="window.openConfirmDispatch(\'' + order.id + '\', event)">Xuất kho</button>';
+            } else if (order.status === 'dispatched') {
+                actionBtnHtml = '<button class="btn-workflow-step blue" style="background:#2563eb; color:#fff;" onclick="window.openReceiptDetail(\'' + order.id + '\', event)">Xem &amp; In phiếu xuất</button>';
             } else if (order.status === 'draft') {
                 actionBtnHtml = '<button class="btn-workflow-step amber" onclick="window.handleSubmitForBM(\'' + order.id + '\', event)">Trình duyệt BM</button>';
             } else if (order.status === 'pending_bm') {
@@ -1037,15 +1084,8 @@
                 }
             }
 
-            // Document details viewer icon
+            // Document details viewer icon (removed/merged to main button action)
             var detailBtnHtml = '';
-            if (order.status === 'dispatched') {
-                detailBtnHtml = '<button class="btn-view-doc" title="Xem chi tiết" onclick="window.openReceiptDetail(\'' + order.id + '\', event)">' +
-                    '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' +
-                        '<circle cx="12" cy="12" r="3"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>' +
-                    '</svg>' +
-                '</button>';
-            }
 
             // Collapsible items rows
             var itemsRows = order.items.map(function(item) {
@@ -1130,12 +1170,27 @@
                     '<div><strong>Quản lý từ chối duyệt:</strong> "' + order.disposalRejectReason + '" (Nhân viên vui lòng kiểm tra lại)</div>' +
                 '</div>';
             }
+            
+            var packErrorAlert = '';
+            if (packError) {
+                var errorMsg = order.reviewNote.substring(10);
+                packErrorAlert = '<div class="outbound-reject-reason-box" style="border-color:#fca5a5; background:#fef2f2; color:#b91c1c;">' +
+                    '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#ef4444; width:18px; height:18px;">' +
+                        '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />' +
+                    '</svg>' +
+                    '<div><strong>Lỗi chuẩn bị hàng (API Pack):</strong> "' + errorMsg + '" (Vui lòng bấm Thử lại API hoặc kiểm tra cấu hình)</div>' +
+                '</div>';
+            }
 
-    var cancelSimulationHtml = '';
+            var cancelSimulationHtml = '';
+            var itemStyle = packError ? 'border: 2px solid #ef4444;' : '';
+            var hdrClickAction = order.status === 'dispatched' 
+                ? 'window.openReceiptDetail(\'' + order.id + '\', event)' 
+                : 'window.handleToggleExpand(\'' + order.id + '\')';
 
-            return '<div class="outbound-item ' + (isExpanded ? 'expanded' : '') + '">' +
+            return '<div class="outbound-item ' + (isExpanded ? 'expanded' : '') + '" style="' + itemStyle + '">' +
                 '<!-- Header -->' +
-                '<div class="outbound-hdr" onclick="window.handleToggleExpand(\'' + order.id + '\')">' +
+                '<div class="outbound-hdr" onclick="' + hdrClickAction + '">' +
                     '<div class="outbound-channel-badge" style="background:' + (order.channelColor || '#64748b') + '">' +
                         order.channel.slice(0, 2).toUpperCase() +
                     '</div>' +
@@ -1155,6 +1210,7 @@
                             disposalDetails +
                         '</div>' +
                         rejectionAlert +
+                        packErrorAlert +
                     '</div>' +
                     '<div class="outbound-actions-row">' +
                         detailBtnHtml +
@@ -1246,8 +1302,8 @@
         if (event) event.stopPropagation();
         var order = pickOrders.find(function(o) { return o.id === orderId; });
         if (!order) return;
-        if (order.status !== 'picking') {
-            alert('Vui lòng bấm "Bắt đầu Pick" trước khi xác nhận đã pick sản phẩm!');
+        if (order.status !== 'packed') {
+            alert('Vui lòng bấm "Bắt đầu đóng gói" trước khi xác nhận đã pick sản phẩm!');
             return;
         }
         var item = order.items.find(function(i) { return i.skuCode === skuCode; });
@@ -1288,22 +1344,8 @@
         }
     };
 
-    // Transition: Pending Pick -> Picking
-    window.handleStartPicking = function(orderId, event) {
-        if (event) event.stopPropagation();
-        var order = pickOrders.find(function(o) { return o.id === orderId; });
-        if (!order) return;
-        if (order.dbOutboundId) {
-            submitPostAction('updateStatus', { outboundId: order.dbOutboundId, status: 'PICKING' });
-        } else {
-            order.status = 'picking';
-            order.assignedTo = window.WMS_USER.fullName || 'Nhân viên kho';
-            saveState();
-        }
-    };
-
-    // Transition: Picking -> Packed
-    window.handleConfirmPacking = function(orderId, event) {
+    // Transition: Pending Pick -> Packing
+    window.handleStartPacking = function(orderId, event) {
         if (event) event.stopPropagation();
         var order = pickOrders.find(function(o) { return o.id === orderId; });
         if (!order) return;
@@ -1311,6 +1353,21 @@
             submitPostAction('updateStatus', { outboundId: order.dbOutboundId, status: 'PACKED' });
         } else {
             order.status = 'packed';
+            order.assignedTo = window.WMS_USER.fullName || 'Nhân viên kho';
+            saveState();
+        }
+    };
+    window.handleStartPicking = window.handleStartPacking;
+
+    // Transition: Packing -> Packed (HANDED_OVER)
+    window.handleConfirmPacking = function(orderId, event) {
+        if (event) event.stopPropagation();
+        var order = pickOrders.find(function(o) { return o.id === orderId; });
+        if (!order) return;
+        if (order.dbOutboundId) {
+            submitPostAction('updateStatus', { outboundId: order.dbOutboundId, status: 'HANDED_OVER' });
+        } else {
+            order.status = 'handed_over';
 
             // Mark all items as picked
             order.items.forEach(function(item) {
@@ -1398,6 +1455,55 @@
         setTimeout(function() {
             location.reload();
         }, 1500);
+    };
+
+    // com.wms.mockshipping — same open-tab-then-refresh pattern as Lazada's real label,
+    // but /mockshipping/label renders our own generated HTML instead of a real courier PDF.
+    window.printMockLabel = function(orderCode, event) {
+        if (event) event.stopPropagation();
+        if (!orderCode) return;
+        var ctx = document.body.getAttribute('data-context-path') || '';
+        window.open(ctx + '/mockshipping/label?orderCode=' + encodeURIComponent(orderCode), '_blank');
+        setTimeout(function() {
+            location.reload();
+        }, 1500);
+    };
+
+    // Gọi API Pack thủ công cho đơn Lazada (Chuẩn bị hàng / Thử lại API)
+    window.triggerLazadaPack = function(orderCode, event) {
+        if (event) event.stopPropagation();
+        if (!orderCode) return;
+
+        var btn = event && event.currentTarget ? event.currentTarget : null;
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            btn.innerHTML = '<span class="pt-spinner"></span>Đang chuẩn bị...';
+        }
+
+        var ctx = document.body.getAttribute('data-context-path') || '';
+        fetch(ctx + '/lazada/pack?orderCode=' + encodeURIComponent(orderCode), {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showTrackingToast(true, '✓ Chuẩn bị hàng thành công cho đơn ' + orderCode + '.');
+                setTimeout(function() { window.location.reload(); }, 1200);
+            } else {
+                showTrackingToast(false, '✗ Lỗi: ' + (data.errorMessage || 'Không xác định'));
+                setTimeout(function() { window.location.reload(); }, 2000);
+            }
+        })
+        .catch(function(err) {
+            showTrackingToast(false, '✗ Lỗi kết nối: ' + err.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('is-loading');
+                btn.innerHTML = originalHtml;
+            }
+        });
     };
 
     // Kích hoạt Ready-To-Ship cho đơn Lazada — gọi servlet /lazada/rts
@@ -1571,6 +1677,22 @@
         document.getElementById('confirm-do-id').textContent = order.id;
         document.getElementById('confirm-so-id').textContent = order.mappedOrderId || order.soRef;
         document.getElementById('confirm-customer-id').textContent = order.customer;
+        document.getElementById('confirm-dispatch-note').value = order.note || '';
+
+        // Populate items table
+        var listContainer = document.getElementById('confirm-dispatch-items-list');
+        listContainer.innerHTML = '';
+        (order.items || []).forEach(function(item) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = 
+                '<td style="padding:8px; font-family:monospace; font-size:11px; border-bottom:1px solid #e2e8f0;">' + item.skuCode + '</td>' +
+                '<td style="padding:8px; font-weight:600; border-bottom:1px solid #e2e8f0;">' + item.skuName + '</td>' +
+                '<td style="padding:8px; text-align:right; font-weight:700; border-bottom:1px solid #e2e8f0;">' + item.qty + '</td>' +
+                '<td style="padding:8px; text-align:center; border-bottom:1px solid #e2e8f0;">' +
+                    '<input type="number" class="confirm-item-qty-input" data-product-id="' + item.productId + '" min="0" max="' + item.qty + '" value="' + item.qty + '" style="width:60px; text-align:center; padding:3px; font-size:12px; border:1px solid #cbd5e1; border-radius:4px; font-weight:700;"/>' +
+                '</td>';
+            listContainer.appendChild(tr);
+        });
 
         confirmOverlay.classList.add('active');
     };
@@ -1585,7 +1707,21 @@
         if (!order) return;
 
         if (order.dbOutboundId) {
-            submitPostAction('updateStatus', { outboundId: order.dbOutboundId, status: 'SHIPPED' });
+            var params = {
+                outboundId: order.dbOutboundId,
+                status: 'SHIPPED',
+                note: document.getElementById('confirm-dispatch-note').value
+            };
+            
+            // Gather quantity parameters
+            var inputs = document.querySelectorAll('.confirm-item-qty-input');
+            inputs.forEach(function(input) {
+                var productId = input.getAttribute('data-product-id');
+                var val = input.value;
+                params['qty_' + productId] = val;
+            });
+            
+            submitPostAction('updateStatus', params);
         } else {
             // Perform stock availability verification
             var validation = validateStockAvailability(order.items, DB_INVENTORY_STOCK);
@@ -1770,20 +1906,22 @@
     var disposalOverlay = document.getElementById('disposalModalOverlay');
 
     window.openDisposalModal = function() {
-        // Populate SKU options from the database product list.
+        // Populate SKU options from the SCRAP_PRODUCTS list.
         var skuSelect = document.getElementById('disposal-sku');
-        var selectOptions = DB_PRODUCTS.map(function(s) {
-            return '<option value="' + s.sku + '">' + s.name + ' (' + s.sku + ')</option>';
+        var selectOptions = SCRAP_PRODUCTS.map(function(s) {
+            return '<option value="' + s.sku + '">' + s.name + ' (' + s.sku + ') - Hỏng: ' + s.scrapQty + ' Cái</option>';
         }).join('');
-        skuSelect.innerHTML = DB_PRODUCTS.length
+        skuSelect.innerHTML = SCRAP_PRODUCTS.length
             ? '<option value="" disabled selected>-- Chọn sản phẩm hỏng --</option>' + selectOptions
-            : '<option value="" disabled selected>(Không có sản phẩm nào trong kho)</option>';
+            : '<option value="" disabled selected>(Không có sản phẩm nào bị hỏng/cần tiêu hủy)</option>';
 
         selectedDisposalSku = "";
         disposalEvidence = "";
         disposalEvidenceName = "";
 
         document.getElementById('disposal-qty').value = "1";
+        document.getElementById('disposal-qty').removeAttribute('max');
+        document.getElementById('disposal-qty-limit').innerText = "";
         document.getElementById('disposal-reason').value = "";
         
         renderEvidenceUploadBox();
@@ -1796,7 +1934,49 @@
 
     window.handleDisposalSkuSelect = function(sku) {
         selectedDisposalSku = sku;
+        var p = SCRAP_PRODUCTS.find(function(s) { return s.sku === sku; });
+        var limitSpan = document.getElementById('disposal-qty-limit');
+        var qtyInput = document.getElementById('disposal-qty');
+        if (p) {
+            var limitVal = p.scrapQty;
+            limitSpan.innerText = "(Tối đa: " + limitVal + ")";
+            qtyInput.setAttribute('max', limitVal);
+            var currentVal = parseInt(qtyInput.value) || 1;
+            if (currentVal > limitVal) {
+                qtyInput.value = limitVal;
+            } else if (currentVal < 1) {
+                qtyInput.value = 1;
+            }
+        } else {
+            limitSpan.innerText = "";
+            qtyInput.removeAttribute('max');
+        }
     };
+
+    // Add event listener to clamp disposal quantity input
+    document.addEventListener("DOMContentLoaded", function() {
+        var qtyInput = document.getElementById('disposal-qty');
+        if (qtyInput) {
+            qtyInput.addEventListener('input', function() {
+                if (selectedDisposalSku) {
+                    var p = SCRAP_PRODUCTS.find(function(s) { return s.sku === selectedDisposalSku; });
+                    if (p) {
+                        var limitVal = p.scrapQty;
+                        var val = parseInt(qtyInput.value) || 0;
+                        if (val > limitVal) {
+                            qtyInput.value = limitVal;
+                        } else if (val < 1 && qtyInput.value !== "") {
+                            qtyInput.value = 1;
+                        }
+                    }
+                }
+            });
+            qtyInput.addEventListener('blur', function() {
+                var val = parseInt(qtyInput.value) || 1;
+                if (val < 1) qtyInput.value = 1;
+            });
+        }
+    });
 
     function renderEvidenceUploadBox() {
         var box = document.getElementById('scrapUploadBox');
@@ -1859,8 +2039,18 @@
             return;
         }
         var qty = parseInt(document.getElementById('disposal-qty').value) || 0;
+        var p = SCRAP_PRODUCTS.find(function(s) { return s.sku === selectedDisposalSku; });
+        if (!p) {
+            alert('Lỗi: Sản phẩm được chọn không nằm trong danh sách hàng hỏng.');
+            return;
+        }
+        var limitVal = p.scrapQty;
         if (qty <= 0) {
             alert('Số lượng tiêu hủy phải lớn hơn 0!');
+            return;
+        }
+        if (qty > limitVal) {
+            alert('Số lượng tiêu hủy (' + qty + ') không được vượt quá số lượng hàng hỏng hiện có trong kho (' + limitVal + ')!');
             return;
         }
         var reason = document.getElementById('disposal-reason').value.trim();

@@ -13,6 +13,8 @@ public class OrderItem {
     private String productName;
     private int quantity;
     private double unitPrice;
+    private String warehouseStocks;
+    private int qtyAvailable;
 
     // Constructors
     public OrderItem() {}
@@ -58,5 +60,21 @@ public class OrderItem {
 
     public void setUnitPrice(double unitPrice) {
         this.unitPrice = unitPrice;
+    }
+
+    public String getWarehouseStocks() {
+        return warehouseStocks;
+    }
+
+    public void setWarehouseStocks(String warehouseStocks) {
+        this.warehouseStocks = warehouseStocks;
+    }
+
+    public int getQtyAvailable() {
+        return qtyAvailable;
+    }
+
+    public void setQtyAvailable(int qtyAvailable) {
+        this.qtyAvailable = qtyAvailable;
     }
 }

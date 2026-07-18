@@ -51,6 +51,7 @@ public class SchemaInitListener implements ServletContextListener {
             ensureLazadaSyncLogTable();
             ensureLazadaStockPushLogTable();
             ensureSkuMappingsTable();
+            ensureMappingExceptionsTable();
             ensureInventoryTable();
             ensureInventoryLedgerTable();
             ensureOrdersTable();
@@ -70,6 +71,10 @@ public class SchemaInitListener implements ServletContextListener {
             ensureLazadaOrderItemsTable();
             ensureLazadaCategoriesTable();
             ensureProductRopLogTable();
+            ensureSystemConfigTable();
+            ensureLazadaShipmentProvidersTable();
+            ensureNotificationsTable();
+            ensureMockShippingCarriersTable();
             migrateChannelsColumns();
             ensureIndexes();
             seedDefaultData();
@@ -586,6 +591,16 @@ public class SchemaInitListener implements ServletContextListener {
                     "VARCHAR(100) DEFAULT NULL COMMENT 'Assigned shipping carrier — any channel, not Lazada-specific'");
             addColumnIfMissing(conn, md, "orders", "delivered_at",
                     "DATETIME DEFAULT NULL COMMENT 'Stamped when status becomes DELIVERED — any channel; base for the 7-day website return window'");
+            addColumnIfMissing(conn, md, "orders", "is_pack_requested",
+                    "TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Lazada: pack request has been sent to the carrier'");
+            addColumnIfMissing(conn, md, "orders", "is_rts_pushed",
+                    "TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Lazada: Ready-To-Ship status has been pushed'");
+            addColumnIfMissing(conn, md, "orders", "is_label_printed",
+                    "TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Shipping label has been generated/printed'");
+            addColumnIfMissing(conn, md, "orders", "lazada_package_id",
+                    "VARCHAR(100) DEFAULT NULL COMMENT 'Lazada: package ID returned by Pack API'");
+            addColumnIfMissing(conn, md, "orders", "shipping_fee",
+                    "DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT 'Website mock shipping: fee for the carrier chosen at checkout, added to total_amount'");
             createIndexIfNotExists(conn, "orders", "uq_web_order_ref",
                     "CREATE UNIQUE INDEX uq_web_order_ref ON orders (web_order_ref)");
         }
@@ -627,6 +642,92 @@ public class SchemaInitListener implements ServletContextListener {
         try (Connection conn = DBConnection.getConnection()) {
             createTableIfNotExists(conn, "warehouse_receipts",
                 "CREATE TABLE warehouse_receipts (receipt_id INT AUTO_INCREMENT PRIMARY KEY, receipt_code VARCHAR(50) NOT NULL UNIQUE, warehouse_id INT NOT NULL, receipt_type ENUM('PURCHASE','RETURN','TRANSFER') NOT NULL DEFAULT 'PURCHASE', supplier_name VARCHAR(255), created_by INT NOT NULL, copied_from_id INT, status ENUM('DRAFT','APPROVED','CANCELLED') NOT NULL DEFAULT 'DRAFT', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            // SupplierDAO.buildCteDataSql/buildCteCountSql JOIN this table to compute supplier
+            // debt — it was defined only in the stale schema.sql, never created here, so the
+            // entire supplier list page threw SQLSyntaxErrorException on any fresh DB.
+            createTableIfNotExists(conn, "receipt_details",
+                "CREATE TABLE receipt_details (detail_id INT AUTO_INCREMENT PRIMARY KEY, receipt_id INT NOT NULL, product_id INT NOT NULL, quantity DECIMAL(12,3) NOT NULL, unit_cost DECIMAL(15,2) DEFAULT NULL, note VARCHAR(255), INDEX idx_rd_receipt (receipt_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    /**
+     * PricingConfigDAO reads/writes pricing-warning thresholds here. Table existed only in
+     * the stale schema.sql, never created by this listener — upsert()/getValue() always
+     * threw SQLSyntaxErrorException, so admin-configured thresholds silently never persisted
+     * and the UI always fell back to hardcoded defaults.
+     */
+    private void ensureSystemConfigTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "system_config",
+                "CREATE TABLE system_config (config_id INT AUTO_INCREMENT PRIMARY KEY, config_key VARCHAR(100) NOT NULL UNIQUE, config_value VARCHAR(500) NOT NULL, description VARCHAR(255) DEFAULT NULL, is_active TINYINT DEFAULT 1, updated_by INT DEFAULT NULL, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate(
+                    "INSERT IGNORE INTO system_config (config_key, config_value, description, is_active) VALUES " +
+                    "('pricing.warn_margin_low', '0.10', 'Margin duoi nguong nay duoc canh bao Lai it (mac dinh 10%)', 1), " +
+                    "('pricing.warn_margin_breakeven', '0.00', 'Margin duoi nguong nay duoc canh bao Hoa von/Lo nhe (mac dinh 0%)', 1), " +
+                    "('pricing.warn_margin_loss_threshold', '-0.05', 'Margin duoi nguong nay duoc canh bao Ban lo (mac dinh -5%)', 1)");
+            }
+        }
+    }
+
+    /**
+     * Backs com.wms.mockshipping — a self-contained module simulating a shipping carrier
+     * for Website-channel orders only (Lazada/Shopee/TikTok keep their real carrier
+     * integrations, untouched). Gated by system_config key 'website.mock_shipping.enabled'
+     * (default '0' — off until Admin turns it on in channel config). When on, customers pick
+     * a mock carrier + see its fee at checkout; the choice is stored on orders.shipment_provider
+     * + orders.shipping_fee (both pre-existing columns, reused rather than duplicated).
+     */
+    private void ensureMockShippingCarriersTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "mock_shipping_carriers",
+                "CREATE TABLE mock_shipping_carriers (carrier_id INT AUTO_INCREMENT PRIMARY KEY, carrier_name VARCHAR(100) NOT NULL, fee DECIMAL(12,2) NOT NULL DEFAULT 0, is_active TINYINT(1) NOT NULL DEFAULT 1, display_order INT DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate(
+                    "INSERT IGNORE INTO mock_shipping_carriers (carrier_name, fee, display_order) VALUES " +
+                    "('Giao Hang Tiet Kiem Mock', 15000, 1), " +
+                    "('Giao Hang Nhanh Mock', 20000, 2), " +
+                    "('Viettel Post Mock', 22000, 3), " +
+                    "('J&T Express Mock', 18000, 4)");
+                st.executeUpdate(
+                    "INSERT IGNORE INTO system_config (config_key, config_value, description, is_active) VALUES " +
+                    "('website.mock_shipping.enabled', '0', 'Bat/tat mo phong don vi van chuyen cho kenh Website (chon hang o checkout, tem van don gia)', 1)");
+            }
+        }
+    }
+
+    /**
+     * LazadaShipmentProviderDAO backs the carrier dropdown used by the Pack/RTS APIs. Table
+     * existed only in the stale schema.sql, never created by this listener — every DAO method
+     * threw SQLSyntaxErrorException, so the dropdown was always empty and CRUD silently no-op'd.
+     */
+    private void ensureLazadaShipmentProvidersTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "lazada_shipment_providers",
+                "CREATE TABLE lazada_shipment_providers (provider_id INT AUTO_INCREMENT PRIMARY KEY, region VARCHAR(10) NOT NULL DEFAULT 'VN', provider_code VARCHAR(32) NOT NULL, provider_name VARCHAR(100) NOT NULL, provider_name_vn VARCHAR(100), is_active TINYINT(1) NOT NULL DEFAULT 1, display_order INT DEFAULT 0, UNIQUE KEY uk_region_code (region, provider_code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate(
+                    "INSERT IGNORE INTO lazada_shipment_providers (region, provider_code, provider_name, provider_name_vn, display_order) VALUES " +
+                    "('VN', 'FM49', 'Flash Express', 'Flash Express', 1), " +
+                    "('VN', 'J&T', 'J&T Express', 'J&T Express', 2), " +
+                    "('VN', 'GHTK', 'Giao Hang Tiet Kiem', 'GHTK', 3), " +
+                    "('VN', 'GHN', 'Giao Hang Nhanh', 'GHN', 4), " +
+                    "('VN', 'NJV', 'NinjaVan', 'NinjaVan', 5), " +
+                    "('VN', 'SPX', 'SPX Express', 'SPX Express', 6)");
+            }
+        }
+    }
+
+    /**
+     * NotificationDAO backs the in-app notification badge/broadcast feature. Table existed
+     * only in the stale schema.sql, never created by this listener — insert/findForUser/
+     * countUnread/markAsRead/broadcastToRole all threw SQLSyntaxErrorException, so the entire
+     * feature was silently dead on any freshly-provisioned DB.
+     */
+    private void ensureNotificationsTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "notifications",
+                "CREATE TABLE notifications (id BIGINT AUTO_INCREMENT PRIMARY KEY, recipient_user_id INT NOT NULL DEFAULT 0, recipient_role VARCHAR(50) NOT NULL, warehouse_id INT DEFAULT NULL, notification_type VARCHAR(50) NOT NULL, title VARCHAR(255) NOT NULL, message TEXT NOT NULL, reference_type VARCHAR(50) DEFAULT NULL, reference_id BIGINT DEFAULT NULL, priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL', is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, read_at DATETIME DEFAULT NULL, INDEX idx_notif_recipient (recipient_user_id, recipient_role), INDEX idx_notif_warehouse (warehouse_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
 
@@ -674,12 +775,39 @@ public class SchemaInitListener implements ServletContextListener {
             createTableIfNotExists(conn, "issue_details",
                 "CREATE TABLE issue_details (detail_id INT AUTO_INCREMENT PRIMARY KEY, issue_id INT NOT NULL, product_id INT NOT NULL, quantity DECIMAL(12,3) NOT NULL, note VARCHAR(255)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             createTableIfNotExists(conn, "outbound_orders",
-                "CREATE TABLE outbound_orders (outbound_id INT AUTO_INCREMENT PRIMARY KEY, order_id INT NOT NULL, warehouse_id INT NOT NULL, status ENUM('PENDING','PICKING','PACKED','SHIPPED','DELIVERED','CANCELLED') NOT NULL DEFAULT 'PENDING', picked_by INT, shipped_at DATETIME, note TEXT, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                "CREATE TABLE outbound_orders (outbound_id INT AUTO_INCREMENT PRIMARY KEY, order_id INT NOT NULL, warehouse_id INT NOT NULL, status VARCHAR(50) NOT NULL DEFAULT 'PENDING_PACK', picked_by INT, shipped_at DATETIME, note TEXT, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            
+            // Migrate status column on existing table to support PENDING_PACK and HANDED_OVER, changing to VARCHAR(50)
+            try (Statement st = conn.createStatement()) {
+                try {
+                    st.executeUpdate("UPDATE outbound_orders SET status = 'PENDING_PACK' WHERE status = 'PENDING'");
+                    st.executeUpdate("UPDATE outbound_orders SET status = 'HANDED_OVER' WHERE status = 'DELIVERED'");
+                    st.executeUpdate("UPDATE outbound_orders SET status = 'PACKED' WHERE status = 'PICKING'");
+                } catch (Exception ex) {
+                    // Ignore if some values are already migrated or columns don't match yet
+                }
+                try {
+                    st.executeUpdate("ALTER TABLE outbound_orders MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'PENDING_PACK'");
+                } catch (SQLException ex) {
+                    LOGGER.log(Level.WARNING, "SchemaInitListener: Failed to alter outbound_orders status column: " + ex.getMessage());
+                }
+            }
+
             createTableIfNotExists(conn, "outbound_items",
                 "CREATE TABLE outbound_items (outbound_item_id INT AUTO_INCREMENT PRIMARY KEY, outbound_id INT NOT NULL, product_id INT NOT NULL, qty DECIMAL(12,3) NOT NULL DEFAULT 1, picked_qty DECIMAL(12,3) NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             DatabaseMetaData md = conn.getMetaData();
             addColumnIfMissing(conn, md, "outbound_items", "shelf_location", "VARCHAR(100) DEFAULT NULL");
             addColumnIfMissing(conn, md, "outbound_orders", "outbound_code", "VARCHAR(50) DEFAULT NULL");
+            addColumnIfMissing(conn, md, "outbound_orders", "version", "INT NOT NULL DEFAULT 0");
+            addColumnIfMissing(conn, md, "outbound_orders", "created_by", "INT DEFAULT NULL");
+            addColumnIfMissing(conn, md, "outbound_orders", "restocked_at",
+                    "DATETIME DEFAULT NULL COMMENT 'Stamped once released back to available stock after cancel — guards against releasing the same allocation twice'");
+            addColumnIfMissing(conn, md, "outbound_orders", "restocked_by", "INT DEFAULT NULL");
+            // NULL values don't collide under a MySQL UNIQUE index, so pre-existing rows with no
+            // code are unaffected. If duplicate non-null codes already exist on this DB, index
+            // creation fails silently (logged) — createOutbound()'s app-level retry is the real guard.
+            createIndexIfNotExists(conn, "outbound_orders", "uq_outbound_code",
+                    "CREATE UNIQUE INDEX uq_outbound_code ON outbound_orders (outbound_code)");
             createTableIfNotExists(conn, "picking_sheets",
                 "CREATE TABLE picking_sheets (sheet_id INT AUTO_INCREMENT PRIMARY KEY, outbound_id INT NOT NULL, picker_id INT, status ENUM('PENDING','IN_PROGRESS','COMPLETED') DEFAULT 'PENDING', started_at DATETIME, completed_at DATETIME) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             createTableIfNotExists(conn, "delivery_notes",
@@ -867,6 +995,25 @@ public class SchemaInitListener implements ServletContextListener {
                     + "rop_before DECIMAL(12,3) NOT NULL DEFAULT 0,"
                     + "rop_after DECIMAL(12,3) NOT NULL DEFAULT 0,"
                     + "triggered_by INT DEFAULT NULL COMMENT 'userId if manually triggered, 0 if scheduled'"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    private void ensureMappingExceptionsTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "mapping_exceptions",
+                "CREATE TABLE mapping_exceptions ("
+                + "exception_id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "channel_id INT NOT NULL, "
+                + "external_sku VARCHAR(100) NOT NULL, "
+                + "order_code VARCHAR(100), "
+                + "reason VARCHAR(255), "
+                + "resolved TINYINT(1) NOT NULL DEFAULT 0, "
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                + "resolved_at DATETIME, "
+                + "FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE, "
+                + "INDEX idx_me_channel (channel_id), "
+                + "INDEX idx_me_resolved (resolved)"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }

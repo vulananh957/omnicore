@@ -29,8 +29,16 @@ public class LoginServlet extends BaseController {
         if (isLoggedIn(req)) {
             User user = (User) req.getSession().getAttribute(AppConstants.SESSION_USER);
             String role = user != null ? user.getRole() : "";
-            redirect(res, req.getContextPath() + getDashboardTarget(role));
-            return;
+            String target = getDashboardTarget(role);
+            if (!"/login".equals(target)) {
+                redirect(res, req.getContextPath() + target);
+                return;
+            } else {
+                HttpSession session = req.getSession(false);
+                if (session != null) {
+                    session.invalidate();
+                }
+            }
         }
 
         HttpSession session = req.getSession(false);
@@ -71,12 +79,26 @@ public class LoginServlet extends BaseController {
             HttpSession session = req.getSession(true);
             clearPendingOtp(session);
 
+            // TEMPORARY BYPASS: Log in directly without OTP for development/testing
+            // Set skipOtp to false or uncomment the block below to restore OTP flow
+            boolean skipOtp = true;
+            if (skipOtp) {
+                session.setAttribute(AppConstants.SESSION_USER, user);
+                session.setAttribute(AppConstants.SESSION_ROLE, user.getRole());
+                session.setAttribute(AppConstants.SESSION_WAREHOUSE, user.getWarehouseId());
+                session.setMaxInactiveInterval(30 * 60);
+                redirect(res, req.getContextPath() + getDashboardTarget(user.getRole()));
+                return;
+            }
+
+            /* Original OTP Flow
             session.setAttribute(AppConstants.SESSION_PENDING_USER, user);
             session.setAttribute(AppConstants.SESSION_PENDING_OTP_TARGET, getDashboardTarget(user.getRole()));
             session.setMaxInactiveInterval(10 * 60); // 10 min limit to complete 2FA
 
             // Redirect to OTP verification page
             redirect(res, req.getContextPath() + "/otp");
+            */
 
         } catch (AuthException e) {
             switch (e.getReason()) {

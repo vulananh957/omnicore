@@ -238,9 +238,17 @@
 /* ── When any modal is open: push notification bell behind the overlay ── */
 body.modal-open .notif-btn,
 body.modal-open .notif-panel,
-body.modal-open .notif-backdrop {
+body.modal-open .notif-backdrop,
+body:has(.op-modal-overlay.open) .notif-btn,
+body:has(.op-modal-overlay.open) .notif-panel,
+body:has(.op-modal-overlay.open) .notif-backdrop,
+body:has(.modal-overlay.active) .notif-btn,
+body:has(.modal-overlay.active) .notif-panel,
+body:has(.modal-overlay.active) .notif-backdrop {
     z-index: 1 !important;
 }
-body.modal-open .notif-panel.open {
+body.modal-open .notif-panel.open,
+body:has(.op-modal-overlay.open) .notif-panel.open,
+body:has(.modal-overlay.active) .notif-panel.open {
     display: none !important;
 }

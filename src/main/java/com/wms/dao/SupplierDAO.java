@@ -66,6 +66,11 @@ public class SupplierDAO extends BaseDAO {
             String countSql = buildCteCountSql(searchPattern, effectiveDebtFilter);
 
             try (PreparedStatement psCount = conn.prepareStatement(countSql)) {
+                if (searchPattern != null) {
+                    psCount.setString(1, searchPattern);
+                    psCount.setString(2, searchPattern);
+                    psCount.setString(3, searchPattern);
+                }
                 try (ResultSet rs = psCount.executeQuery()) {
                     if (rs.next()) {
                         totalItems = rs.getInt("total_count");
@@ -126,22 +131,26 @@ public class SupplierDAO extends BaseDAO {
         }
     }
 
+    /**
+     * Count query mirrors buildCteDataSql's debt_cte + HAVING filter so totalItems matches
+     * the actual filtered row count (previously ignored debtFilter entirely, and built the
+     * WHERE clause via raw string concatenation — SQL injectable through the search keyword).
+     */
     private String buildCteCountSql(String searchPattern, String debtFilter) {
         return """
+            %s
             SELECT COUNT(*) AS total_count FROM (
-                SELECT s.supplier_id
+                SELECT s.supplier_id,
+                       COALESCE(dc.current_balance, 0) AS current_balance
                 FROM suppliers s
+                LEFT JOIN debt_cte dc ON s.name = dc.supplier_name
                 WHERE 1=1
                 %s
             ) AS filtered
             """.formatted(
-                searchWhereClauseCount(searchPattern)
+                debtCteSubquery(),
+                searchWhereClause(searchPattern, debtFilter, true)
             );
-    }
-
-    private String searchWhereClauseCount(String searchPattern) {
-        if (searchPattern == null) return "";
-        return " AND (s.name LIKE '" + searchPattern + "' OR s.supplier_code LIKE '" + searchPattern + "' OR s.phone LIKE '" + searchPattern + "')";
     }
 
     private String buildCteDataSql(String searchPattern, String debtFilter, String orderBy) {

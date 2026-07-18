@@ -48,6 +48,69 @@ public class SalesOrdersServlet extends BaseController {
             req.setAttribute("channels", channels);
             setJsonAttr(req, "channelsJson", channels);
 
+            // Serialize orders to JSON safely using Jackson to avoid parsing errors
+            List<Map<String, Object>> ordersJsonList = new java.util.ArrayList<>();
+            for (Order o : list) {
+                Map<String, Object> oMap = new java.util.HashMap<>();
+                oMap.put("id", o.getOrderCode());
+                oMap.put("channel", "ONLINE".equals(o.getChannel()) ? "Lazada" : o.getChannel());
+                oMap.put("customerName", o.getCustomerName());
+                oMap.put("customerPhone", o.getCustomerPhone());
+                oMap.put("customerAddress", o.getCustomerAddress());
+                oMap.put("shippingFee", o.getShippingFee());
+                
+                int tQty = 0;
+                List<Map<String, Object>> itemsList = new java.util.ArrayList<>();
+                for (com.wms.model.OrderItem item : o.getItems()) {
+                    tQty += item.getQuantity();
+                    Map<String, Object> iMap = new java.util.HashMap<>();
+                    iMap.put("sku", item.getSkuCode());
+                    iMap.put("name", item.getProductName());
+                    iMap.put("quantity", item.getQuantity());
+                    iMap.put("price", item.getUnitPrice());
+                    iMap.put("warehouseStocks", item.getWarehouseStocks());
+                    iMap.put("qtyAvailable", item.getQtyAvailable());
+                    itemsList.add(iMap);
+                }
+                oMap.put("totalItems", tQty);
+                oMap.put("totalAmount", o.getTotalAmount());
+                
+                String ws = o.getStatus();
+                String fs = "pending_review";
+                if (ws != null) {
+                    switch (ws.toUpperCase()) {
+                        case "PENDING": fs = "pending_review"; break;
+                        case "CONFIRMED": fs = "confirmed"; break;
+                        case "PACKING": fs = "packing"; break;
+                        case "PACKED": fs = "packed"; break;
+                        case "SHIPPED": fs = "shipping"; break;
+                        case "DELIVERED": fs = "delivered"; break;
+                        case "COMPLETED": fs = "completed"; break;
+                        case "RETURNED": fs = "returned"; break;
+                        case "DISPUTED": fs = "disputed"; break;
+                        case "DISPUTE_SUCCESS": fs = "dispute_success"; break;
+                        case "CANCELLED": fs = "cancelled"; break;
+                        default: fs = ws.toLowerCase();
+                    }
+                }
+                oMap.put("status", fs);
+                oMap.put("warehouse", o.getWarehouseName());
+                oMap.put("trackingNo", o.getTrackingNo());
+                oMap.put("reviewNote", o.getReviewNote());
+                oMap.put("rmaReason", o.getRmaReason());
+                oMap.put("rmaPhysicalStatus", o.getRmaPhysicalStatus());
+                oMap.put("rmaPlatformStatus", o.getRmaPlatformStatus());
+                oMap.put("disputeEvidenceVideo", o.getDisputeEvidenceVideo());
+                oMap.put("disputeNote", o.getDisputeNote());
+                oMap.put("createdAt", o.getCreatedAt() != null ? o.getCreatedAt().toString() : "");
+                oMap.put("items", itemsList);
+                ordersJsonList.add(oMap);
+            }
+            req.setAttribute("ordersJson", objectMapper.writeValueAsString(ordersJsonList));
+
+            List<com.wms.model.RmaRequest> pendingRmaList = new com.wms.dao.RmaDAO().findPendingForWebsite();
+            req.setAttribute("pendingRmaList", pendingRmaList);
+
             // Load Lazada orders with items + WMS stock for inventory table
             List<Map<String, Object>> lazadaOrders = lazadaOrderDAO.findAllWithItemsAndStock();
             req.setAttribute("lazadaOrdersJson", objectMapper.writeValueAsString(lazadaOrders));
@@ -64,6 +127,7 @@ public class SalesOrdersServlet extends BaseController {
             req.setAttribute("orderList", List.of());
             req.setAttribute("channels", List.<Channel>of());
             req.setAttribute("channelsJson", "[]");
+            req.setAttribute("ordersJson", "[]");
             req.setAttribute("lazadaOrdersJson", "[]");
             req.setAttribute("warehousesJson", "[]");
         }

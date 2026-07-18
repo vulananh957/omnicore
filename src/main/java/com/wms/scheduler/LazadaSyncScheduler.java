@@ -181,6 +181,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
 
             int newCount = 0;
             int updatedCount = 0;
+            List<String> newOrderCodes = new java.util.ArrayList<>();
             try (Connection conn = DBConnection.getConnection()) {
                 conn.setAutoCommit(false);
                 for (JsonNode orderNode : ordersArray) {
@@ -192,13 +193,18 @@ public class LazadaSyncScheduler implements ServletContextListener {
                         LOGGER.log(Level.FINE, "getOrderDetail failed for " + orderCode, e);
                     }
                     var result = syncService.saveOneOrder(conn, orderNode, detailJson);
-                    if (result == LazadaOrderSyncService.SyncResult.NEW) newCount++;
+                    if (result == LazadaOrderSyncService.SyncResult.NEW) {
+                        newCount++;
+                        newOrderCodes.add(orderCode);
+                    }
                     else if (result == LazadaOrderSyncService.SyncResult.UPDATED) updatedCount++;
                 }
                 conn.commit();
             } catch (SQLException sqle) {
                 throw new RuntimeException("DB error during sync for channel " + channel.getChannelId(), sqle);
             }
+
+            // Left in PENDING status with no warehouse assigned so Sales Staff can manually assign it on WMS.
 
             updateLastSyncAt(channel.getChannelId());
             LOGGER.info("LazadaSyncScheduler: Channel '" + channel.getChannelName()

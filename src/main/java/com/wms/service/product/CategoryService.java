@@ -6,6 +6,12 @@ import com.wms.model.Category;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.regex.Pattern;
+import com.wms.service.channel.WebsiteHttpClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class CategoryService {
 
@@ -70,7 +76,12 @@ public class CategoryService {
         // Ma dinh danh bi khoa vinh vien ngay khi tao, khong the sua bat ky luc nao.
         category.setImmutable(true);
 
-        return categoryDAO.insert(category);
+        boolean inserted = categoryDAO.insert(category);
+        if (inserted) {
+            Category insertedCategory = categoryDAO.findByCategoryCode(categoryCode);
+            syncToWebsite("POST", insertedCategory);
+        }
+        return inserted;
     }
 
     /**
@@ -117,7 +128,12 @@ public class CategoryService {
         }
         // Re-sync immutable flag in case DB row was migrated.
         category.setCategoryCode(existing.getCategoryCode());
-        return categoryDAO.update(category, false);
+        boolean updated = categoryDAO.update(category, false);
+        if (updated) {
+            Category updatedCategory = categoryDAO.findById(category.getCategoryId());
+            syncToWebsite("PUT", updatedCategory);
+        }
+        return updated;
     }
 
     public ValidationResult validateCategoryData(String name, Integer categoryId, Integer parentId) {
@@ -167,10 +183,17 @@ public class CategoryService {
         if (categoryDAO.hasProducts(categoryId)) {
             // Soft delete - cascade-deactivate root + descendants
             int affected = categoryDAO.deactivateWithDescendants(categoryId);
+            if (affected > 0) {
+                Category softDeleted = categoryDAO.findById(categoryId);
+                syncToWebsite("PUT", softDeleted);
+            }
             return new DeleteResult(affected > 0, true, "Danh muc da co san pham. Da ngung hoat dong (gom ca danh muc con).");
         } else {
             // Hard delete
             boolean deleted = categoryDAO.delete(categoryId);
+            if (deleted) {
+                syncDeleteToWebsite(categoryId);
+            }
             return new DeleteResult(deleted, false, deleted ? "Xoa danh muc thanh cong." : "Xoa danh muc that bai.");
         }
     }
@@ -248,7 +271,12 @@ public class CategoryService {
         if (existing.isActive()) {
             return true;
         }
-        return categoryDAO.activate(categoryId);
+        boolean activated = categoryDAO.activate(categoryId);
+        if (activated) {
+            Category newActive = categoryDAO.findById(categoryId);
+            syncToWebsite("PUT", newActive);
+        }
+        return activated;
     }
 
     public static class ValidationResult {
@@ -286,5 +314,38 @@ public class CategoryService {
         public boolean isSuccess() { return success; }
         public boolean isWasSoftDelete() { return wasSoftDelete; }
         public String getMessage() { return message; }
+    }
+
+    private void syncToWebsite(String method, Category c) {
+        if (c == null) return;
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("category_id", c.getCategoryId());
+            payload.put("category_name", c.getCategoryName());
+            payload.put("parent_id", c.getParentId());
+            payload.put("active", c.isActive() ? 1 : 0);
+            String json = mapper.writeValueAsString(payload);
+
+            WebsiteHttpClient client = new WebsiteHttpClient();
+            if ("POST".equalsIgnoreCase(method)) {
+                client.post("/api/v1/categories", json);
+            } else if ("PUT".equalsIgnoreCase(method)) {
+                client.put("/api/v1/categories/" + c.getCategoryId(), json);
+            }
+        } catch (Exception e) {
+            Logger.getLogger(CategoryService.class.getName())
+                  .log(Level.WARNING, "Failed to sync category to Website: " + c.getCategoryId(), e);
+        }
+    }
+
+    private void syncDeleteToWebsite(int categoryId) {
+        try {
+            WebsiteHttpClient client = new WebsiteHttpClient();
+            client.delete("/api/v1/categories/" + categoryId);
+        } catch (Exception e) {
+            Logger.getLogger(CategoryService.class.getName())
+                  .log(Level.WARNING, "Failed to sync category delete to Website: " + categoryId, e);
+        }
     }
 }

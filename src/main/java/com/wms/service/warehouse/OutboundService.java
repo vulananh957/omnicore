@@ -1,14 +1,16 @@
 package com.wms.service.warehouse;
 
 import com.wms.dao.InventoryDAO;
+import com.wms.dao.FulfillmentRequestDAO;
 import com.wms.dao.OutboundDAO;
 import com.wms.dao.OrderDAO;
 import com.wms.dao.ProductDAO;
 import com.wms.dao.UserDAO;
 import com.wms.dao.WarehouseIssueDAO;
+import com.wms.model.FulfillmentRequest;
+import com.wms.model.Order;
 import com.wms.model.Product;
 import com.wms.model.User;
-import com.wms.model.Order;
 import com.wms.model.OutboundOrder;
 import com.wms.model.OutboundItem;
 import com.wms.model.OrderItem;
@@ -19,11 +21,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.util.Map;
 import com.wms.dao.LedgerDAO;
-import com.wms.util.DBConnection;
+import com.wms.mockshipping.MockShippingService;
+import com.wms.service.channel.WebsiteHttpClient;
 
 public class OutboundService {
 
@@ -33,9 +34,11 @@ public class OutboundService {
     private final OutboundDAO outboundDAO = new OutboundDAO();
     private final OrderDAO orderDAO = new OrderDAO();
     private final InventoryDAO inventoryDAO = new InventoryDAO();
+    private final FulfillmentRequestDAO fulfillmentRequestDAO = new FulfillmentRequestDAO();
     private final ProductDAO productDAO = new ProductDAO();
     private final WarehouseIssueDAO warehouseIssueDAO = new WarehouseIssueDAO();
     private final UserDAO userDAO = new UserDAO();
+    private final MockShippingService mockShippingService = new MockShippingService();
 
     public List<OutboundOrder> findAll() {
         return outboundDAO.findAll();
@@ -43,6 +46,30 @@ public class OutboundService {
 
     public List<OutboundOrder> findByStatus(String status) {
         return outboundDAO.findByStatus(status.trim().toUpperCase());
+    }
+
+    /**
+     * Returns pending fulfillment requests scoped to a warehouse.
+     * Delegating method so controllers do not need a direct FulfillmentRequestDAO reference.
+     */
+    public List<FulfillmentRequest> findPendingFulfillmentsByWarehouse(int warehouseId) {
+        return fulfillmentRequestDAO.findPendingByWarehouse(warehouseId);
+    }
+
+    /**
+     * Returns the inventory stock summary for a warehouse.
+     * Delegating method so controllers do not need a direct InventoryDAO reference.
+     */
+    public List<Map<String, Object>> findInventorySummaryByWarehouse(int warehouseId) {
+        return inventoryDAO.findInventorySummaryByWarehouse(warehouseId);
+    }
+
+    /**
+     * Looks up an Order by its order code.
+     * Delegating method so controllers do not need a direct OrderDAO reference.
+     */
+    public Order findOrderByCode(String orderCode) {
+        return orderDAO.findByOrderCode(orderCode);
     }
 
     /** Outbound orders for one warehouse (warehouse-scoped list). */
@@ -79,11 +106,15 @@ public class OutboundService {
                                     targetStatus = "CANCELLED";
                                 }
                             } else if ("PACKED".equals(normalized)) {
-                                if (!"PACKED".equals(currentOutboundStatus) && !"SHIPPED".equals(currentOutboundStatus) && !"DELIVERED".equals(currentOutboundStatus)) {
+                                if (!"PACKED".equals(currentOutboundStatus) && !"HANDED_OVER".equals(currentOutboundStatus) && !"SHIPPED".equals(currentOutboundStatus)) {
                                     targetStatus = "PACKED";
                                 }
-                            } else if ("SHIPPED".equals(normalized) || "DELIVERED".equals(normalized) || "COMPLETED".equals(normalized) || "HANDED_OVER".equals(normalized)) {
-                                if (!"SHIPPED".equals(currentOutboundStatus) && !"DELIVERED".equals(currentOutboundStatus)) {
+                            } else if ("READY_TO_SHIP".equals(normalized) || "HANDED_OVER".equals(normalized)) {
+                                if (!"HANDED_OVER".equals(currentOutboundStatus) && !"SHIPPED".equals(currentOutboundStatus)) {
+                                    targetStatus = "HANDED_OVER";
+                                }
+                            } else if ("SHIPPED".equals(normalized) || "DELIVERED".equals(normalized) || "COMPLETED".equals(normalized)) {
+                                if (!"SHIPPED".equals(currentOutboundStatus)) {
                                     targetStatus = "SHIPPED";
                                 }
                             }
@@ -94,8 +125,8 @@ public class OutboundService {
                                 outboundDAO.updateStatus(oo.getOutboundId(), targetStatus);
                                 oo.setStatus(targetStatus); // update local object too
                                 
-                                // Additional lifecycle updates if transitioning to PACKED
-                                if ("PACKED".equals(targetStatus)) {
+                                // Additional lifecycle updates if transitioning to HANDED_OVER
+                                if ("HANDED_OVER".equals(targetStatus)) {
                                     outboundDAO.markAllPicked(oo.getOutboundId());
                                     outboundDAO.completePickingSheet(oo.getOutboundId());
                                     outboundDAO.createShippingLabel(oo.getOutboundId());
@@ -120,6 +151,28 @@ public class OutboundService {
         return "SOUT-" + today + "-" + String.format("%03d", seq);
     }
 
+    private static final int MAX_CODE_ATTEMPTS = 5;
+
+    /**
+     * Inserts an outbound order, generating a fresh outbound_code on each attempt.
+     * generateOutboundCode()'s 3-digit random suffix collides often enough on busy days
+     * (uq_outbound_code enforces it at the DB level) — retry instead of failing the create.
+     */
+    private int insertWithRetry(OutboundOrder order) {
+        for (int attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+            order.setOutboundCode(generateOutboundCode());
+            int result = outboundDAO.insert(order);
+            if (result != OutboundDAO.DUPLICATE_CODE) {
+                return result;
+            }
+            log.warn("insertWithRetry: outbound_code collision on attempt {}/{}, retrying",
+                    attempt, MAX_CODE_ATTEMPTS);
+        }
+        log.error("insertWithRetry: failed after {} attempts due to repeated outbound_code collisions",
+                MAX_CODE_ATTEMPTS);
+        return -1;
+    }
+
     public ValidationResult validateForCreate(Integer orderId, Integer warehouseId) {
         if (orderId == null || orderId <= 0) {
             return ValidationResult.failure("Thiếu thông tin bắt buộc: orderId.");
@@ -131,16 +184,14 @@ public class OutboundService {
     }
 
     public int createOutbound(int orderId, int warehouseId, String notes, Integer userId) {
-        String outboundCode = generateOutboundCode();
         OutboundOrder order = new OutboundOrder();
-        order.setOutboundCode(outboundCode);
         order.setOrderId(orderId);
         order.setWarehouseId(warehouseId);
         order.setCreatedBy(userId);
         order.setStatus(OutboundOrder.STATUS_PENDING);
         order.setNotes(notes != null ? notes.trim() : null);
         order.setCreatedAt(LocalDateTime.now());
-        return outboundDAO.insert(order);
+        return insertWithRetry(order);
     }
 
     /**
@@ -167,6 +218,10 @@ public class OutboundService {
         return StatusUpdateResult.success("Đã lưu phiếu xuất huỷ " + code + " (chờ duyệt, chưa trừ tồn).");
     }
 
+    public List<Map<String, Object>> findScrapProductsWithQty(int warehouseId) {
+        return warehouseIssueDAO.findScrapProductsWithQty(warehouseId);
+    }
+
     public StatusUpdateResult updateStatus(int outboundId, String newStatus) {
         return updateStatus(outboundId, newStatus, null);
     }
@@ -176,14 +231,30 @@ public class OutboundService {
         return outboundDAO.updateItemPicked(outboundId, productId, picked);
     }
 
+    /** Updates the note/comment on an outbound order. */
+    public boolean updateNote(int outboundId, String note) {
+        return outboundDAO.updateNote(outboundId, note);
+    }
+
+    /** Updates the quantity of a single line item on an outbound order. */
+    public boolean updateItemQty(int outboundId, int productId, java.math.BigDecimal qty) {
+        return outboundDAO.updateItemQty(outboundId, productId, qty);
+    }
+
     public StatusUpdateResult updateStatus(int outboundId, String newStatus, Integer userId) {
         if (!isValidStatus(newStatus)) {
             log.warn("Outbound status update rejected: invalid status outboundId={} status={}", outboundId, newStatus);
             return StatusUpdateResult.failure("Trạng thái '" + newStatus + "' không hợp lệ hoặc không thể chuyển đổi.");
         }
 
+        OutboundOrder current = outboundDAO.findById(outboundId);
+        if (current == null) {
+            log.warn("Outbound status update rejected: not found outboundId={}", outboundId);
+            return StatusUpdateResult.failure("Phiếu xuất không tồn tại.");
+        }
+
         String normalized = newStatus.trim().toUpperCase();
-        if ("PACKED".equals(normalized) || "SHIPPED".equals(normalized)) {
+        if ("HANDED_OVER".equals(normalized) || "SHIPPED".equals(normalized)) {
             OutboundOrder outbound = outboundDAO.findById(outboundId);
             if (outbound != null && outbound.getOrderCode() != null) {
                 Order order = orderDAO.findByOrderCode(outbound.getOrderCode());
@@ -197,48 +268,50 @@ public class OutboundService {
             }
         }
 
-        if ("SHIPPED".equalsIgnoreCase(newStatus)) {
-            if (isOmnichannelOutbound(outboundId)) {
-                OutboundOrder order = outboundDAO.findById(outboundId);
-                if (order != null) {
-                    // Guard: LedgerDAO.approveDocument has its own SHIPPED/DELIVERED guard,
-                    // but if it was called before (e.g. via LedgerServlet), the ledger entry
-                    // already exists with full qty — calling again would duplicate the entry.
-                    if ("SHIPPED".equalsIgnoreCase(order.getStatus())
-                        || "DELIVERED".equalsIgnoreCase(order.getStatus())) {
-                        log.info("Omnichannel outbound already shipped, skipping duplicate LedgerDAO call: outboundId={}", outboundId);
-                        outboundDAO.createDeliveryNote(outboundId, userId);
-                        return StatusUpdateResult.success("Đơn đã xuất kho trước đó.");
-                    }
-                    String outboundCode = order.getOutboundCode();
-                    if (outboundCode == null) {
-                        outboundCode = "SOUT-OUT-" + outboundId;
-                    }
-                    boolean ok = new LedgerDAO().approveDocument(outboundCode, "Phiếu Xuất Kho", 1);
-                    if (ok) {
-                        outboundDAO.createDeliveryNote(outboundId, userId);
-                        log.info("Omnichannel outbound auto-approved and processed: outboundId={} code={}", outboundId, outboundCode);
-                        return StatusUpdateResult.success("Cập nhật trạng thái phiếu xuất thành '" + newStatus + "' thành công!");
-                    } else {
-                        log.error("Omnichannel outbound auto-approve failed: outboundId={} code={}", outboundId, outboundCode);
-                        return StatusUpdateResult.failure("Không thể hoàn tất xuất kho tự động cho đơn bán lẻ.");
-                    }
-                }
-            }
+        // Idempotency: repeat SHIPPED call (double-click, retried request) on an outbound
+        // already shipped must no-op instead of re-deducting inventory / re-pushing to Website.
+        if ("SHIPPED".equals(normalized) && OutboundOrder.STATUS_SHIPPED.equals(current.getStatus())) {
+            outboundDAO.createDeliveryNote(outboundId, userId);
+            return StatusUpdateResult.success("Đơn đã xuất kho trước đó.");
         }
 
-        normalized = newStatus.trim().toUpperCase();
-        boolean updated = outboundDAO.updateStatus(outboundId, normalized);
+        // Atomic transition — the ONLY place outbound_orders.status changes for this call.
+        // Previously, SHIPPED for an omnichannel order (Website/Lazada/Shopee/TikTok/retail —
+        // isOmnichannelOutbound() returns true for all of these) took an early-return branch
+        // that called LedgerDAO.approveDocument(), which did its own UNGUARDED
+        // "UPDATE outbound_orders SET status='SHIPPED'" bypassing this optimistic lock
+        // entirely (two concurrent SHIPPED calls could both pass, both deduct inventory via
+        // the ledger, double-counting it) — and then returned immediately, so the order-status
+        // sync / Website push / stock sync below never ran for these orders at all.
+        boolean updated = outboundDAO.compareAndSetStatus(outboundId, normalized, current.getVersion());
         if (!updated) {
-            log.error("Outbound status update failed: DAO returned false outboundId={} status={}", outboundId, newStatus);
-            return StatusUpdateResult.failure("Không thể cập nhật trạng thái. Phiếu xuất có thể không tồn tại.");
+            log.warn("Outbound status update rejected: version conflict (concurrent update) outboundId={} status={} expectedVersion={}",
+                outboundId, newStatus, current.getVersion());
+            return StatusUpdateResult.failure("Phiếu xuất vừa được cập nhật bởi người khác. Vui lòng tải lại trang và thử lại.");
         }
 
-        // Picking-sheet lifecycle: start sheet + assign picker on PICKING; complete on PACKED.
-        if (OutboundOrder.STATUS_PICKING.equals(normalized)) {
+        // Picking-sheet lifecycle: start sheet + assign picker on PACKED; complete on HANDED_OVER.
+        if (OutboundOrder.STATUS_PACKED.equals(normalized)) {
             if (userId != null) outboundDAO.assignPicker(outboundId, userId);
             outboundDAO.createPickingSheet(outboundId, userId);
-        } else if (OutboundOrder.STATUS_PACKED.equals(normalized)) {
+
+            // Generate a mock waybill for the carrier the CUSTOMER already chose at checkout
+            // (com.wms.mockshipping — orders.shipment_provider). Warehouse doesn't pick a
+            // carrier here anymore; if the order has none (mock was off at checkout, or this
+            // is an order from before this feature existed), leave tracking empty — mock is
+            // opt-in, not force-applied.
+            OutboundOrder oo = outboundDAO.findById(outboundId);
+            if (oo != null && oo.getOrderCode() != null) {
+                Order order = orderDAO.findByOrderCode(oo.getOrderCode());
+                if (order != null && "WEBSITE".equalsIgnoreCase(order.getChannel())
+                        && order.getShipmentProvider() != null && !order.getShipmentProvider().isBlank()
+                        && (order.getTrackingNo() == null || order.getTrackingNo().trim().isEmpty())) {
+                    String mockTracking = mockShippingService.generateWaybillCode(order.getShipmentProvider());
+                    orderDAO.updateOrderTrackingNo(order.getOrderCode(), mockTracking);
+                    updateMockWaybillCode(order.getOrderId(), mockTracking, order.getShipmentProvider());
+                }
+            }
+        } else if (OutboundOrder.STATUS_HANDED_OVER.equals(normalized)) {
             outboundDAO.markAllPicked(outboundId);
             outboundDAO.completePickingSheet(outboundId);
             outboundDAO.createShippingLabel(outboundId);
@@ -246,17 +319,33 @@ public class OutboundService {
             OutboundOrder order = outboundDAO.findById(outboundId);
             if (order != null && order.getOrderCode() != null) {
                 new com.wms.dao.OrderDAO().updateOrderStatus(order.getOrderCode(), "PACKED");
+
+                // Push to Website storefront too — previously only SHIPPED pushed, so a
+                // customer looking at their order-history list (which doesn't live-refresh,
+                // unlike the order-detail page) never saw the "đang đóng gói" transition.
+                Order salesOrder = orderDAO.findByOrderCode(order.getOrderCode());
+                if (salesOrder != null && "WEBSITE".equalsIgnoreCase(salesOrder.getChannel())) {
+                    syncOrderStatusToWebsite(salesOrder.getOrderCode(), "PACKED", salesOrder.getTrackingNo());
+                }
             }
         } else if (OutboundOrder.STATUS_SHIPPED.equals(normalized)) {
-            // On SHIPPED, deduct actual on-hand stock.
-            // Previously only the status was updated, so on_hand stayed inflated.
+            // On SHIPPED, deduct actual on-hand stock. Two mutually-exclusive deduction paths
+            // (never both, to avoid double-deducting): omnichannel orders (Website/Lazada/
+            // Shopee/TikTok/retail — see isOmnichannelOutbound) go through LedgerDAO so the
+            // deduction is paired with a proper inventory_ledger entry; anything else uses the
+            // plain deductShippedInventory path that existed before.
             OutboundOrder order = outboundDAO.findById(outboundId);
             if (order != null) {
-                // Sync sales order status to SHIPPED
-                if (order.getOrderCode() != null) {
-                    new com.wms.dao.OrderDAO().updateOrderStatus(order.getOrderCode(), "SHIPPED");
-                }
-                if (order.getItems() != null) {
+                boolean isOmni = isOmnichannelOutbound(outboundId);
+                if (isOmni) {
+                    String outboundCode = order.getOutboundCode() != null ? order.getOutboundCode() : "SOUT-OUT-" + outboundId;
+                    boolean ledgerOk = new LedgerDAO().approveDocument(outboundCode, "Phiếu Xuất Kho", 1);
+                    if (!ledgerOk) {
+                        log.error("SHIPPED: LedgerDAO.approveDocument failed outboundId={} code={} — status already SHIPPED, "
+                            + "inventory/ledger entry NOT recorded, needs manual reconciliation via /business/ledger",
+                            outboundId, outboundCode);
+                    }
+                } else if (order.getItems() != null) {
                     for (OutboundItem item : order.getItems()) {
                         java.math.BigDecimal qty = item.getQty();
                         if (qty != null && qty.compareTo(java.math.BigDecimal.ZERO) > 0) {
@@ -269,6 +358,29 @@ public class OutboundService {
                         }
                     }
                 }
+
+                // Sync sales order status to SHIPPED
+                if (order.getOrderCode() != null) {
+                    new com.wms.dao.OrderDAO().updateOrderStatus(order.getOrderCode(), "SHIPPED");
+
+                    // Sync status and stock to Website storefront — previously unreachable for
+                    // Website orders because isOmnichannelOutbound() short-circuited this whole
+                    // method into an early return before it ever got here (see compareAndSetStatus
+                    // comment above).
+                    Order salesOrder = orderDAO.findByOrderCode(order.getOrderCode());
+                    if (salesOrder != null && "WEBSITE".equalsIgnoreCase(salesOrder.getChannel())) {
+                        syncOrderStatusToWebsite(salesOrder.getOrderCode(), "SHIPPED", salesOrder.getTrackingNo());
+
+                        com.wms.service.website.WebsiteProductService webProdService = new com.wms.service.website.WebsiteProductService();
+                        com.wms.model.Channel webChannel = new com.wms.dao.ChannelDAO().findByPlatform("Website");
+                        if (webChannel != null && webChannel.isActive() && order.getItems() != null) {
+                            for (OutboundItem item : order.getItems()) {
+                                int currentStock = inventoryDAO.getTotalAvailableStock(item.getProductId());
+                                webProdService.syncStock(webChannel, item.getProductId(), currentStock);
+                            }
+                        }
+                    }
+                }
             }
             outboundDAO.createDeliveryNote(outboundId, userId);
         }
@@ -277,53 +389,18 @@ public class OutboundService {
         return StatusUpdateResult.success("Cập nhật trạng thái phiếu xuất thành '" + newStatus + "' thành công!");
     }
 
+    /**
+     * Delegates to OutboundDAO to check whether the outbound order's associated
+     * sales channel is an omni-channel platform (Lazada, Shopee, TikTok, Website).
+     * Used to decide whether to auto-approve the ledger entry on SHIPPED.
+     */
     public boolean isOmnichannelOutbound(int outboundId) {
-        String sql =
-            "SELECT c.channel_name, o.channel, o.note, o.tracking_no " +
-            "FROM outbound_orders oo " +
-            "LEFT JOIN orders o ON oo.order_id = o.order_id " +
-            "LEFT JOIN channels c ON o.channel_id = c.channel_id " +
-            "WHERE oo.outbound_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, outboundId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    String channelName = rs.getString("channel_name");
-                    String rawChannel = rs.getString("channel");
-                    String note = rs.getString("note");
-
-                    if (channelName == null) {
-                        channelName = "Khách mua lẻ";
-                    }
-                    String lowerName = channelName.toLowerCase();
-                    if (lowerName.contains("shopee") || lowerName.contains("tiktok") ||
-                        lowerName.contains("lazada") || lowerName.contains("website") ||
-                        lowerName.contains("online") || lowerName.contains("khách mua lẻ") ||
-                        lowerName.contains("retail")) {
-                        return true;
-                    }
-                    if (rawChannel != null) {
-                        String lowerRaw = rawChannel.toLowerCase();
-                        if (lowerRaw.contains("shopee") || lowerRaw.contains("tiktok") ||
-                            lowerRaw.contains("lazada") || lowerRaw.contains("website") ||
-                            lowerRaw.contains("online") || lowerRaw.contains("retail")) {
-                            return true;
-                        }
-                    }
-                    if (note != null) {
-                        String lowerNote = note.toLowerCase();
-                        if (lowerNote.contains("shopee") || lowerNote.contains("tiktok") ||
-                            lowerNote.contains("lazada") || lowerNote.contains("website")) {
-                            return true;
-                        }
-                    }
-                }
-            }
+        try {
+            return outboundDAO.isOmnichannelOutbound(outboundId);
         } catch (Exception e) {
-            log.warn("Failed to check if outbound is omnichannel: {}", e.getMessage());
+            log.warn("isOmnichannelOutbound check failed for outboundId={}: {}", outboundId, e.getMessage());
+            return false;
         }
-        return false;
     }
 
     public CancelResult cancel(int outboundId) {
@@ -356,18 +433,48 @@ public class OutboundService {
         }
 
         boolean cancelled = outboundDAO.updateStatus(outboundId, OutboundOrder.STATUS_CANCELLED);
-        if (!cancelled) {
-            log.error("Outbound cancel failed: DAO returned false outboundId={}", outboundId);
-            return CancelResult.failure("Không thể hủy phiếu xuất. Vui lòng thử lại.");
+        return cancelled ? CancelResult.success("Đã hủy phiếu xuất kho.") : CancelResult.failure("Không thể cập nhật trạng thái hủy.");
+    }
+
+    private void updateMockWaybillCode(int orderId, String trackingNo, String carrierName) {
+        String sql = "UPDATE order_shipping_details SET waybill_code = ?, courier_name = ?, shipping_status = 'PENDING', updated_at = CURRENT_TIMESTAMP WHERE order_id = ?";
+        try (java.sql.Connection conn = com.wms.util.DBConnection.getConnection();
+             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, trackingNo);
+            ps.setString(2, carrierName);
+            ps.setInt(3, orderId);
+            ps.executeUpdate();
+        } catch (java.sql.SQLException e) {
+            log.error("Failed to update waybill_code in order_shipping_details for orderId=" + orderId, e);
         }
-        log.info("Outbound cancelled: outboundId={} code={}", outboundId, existing.getOutboundCode());
-        return CancelResult.success("Đã hủy phiếu xuất " + existing.getOutboundCode() + " thành công.");
+    }
+
+    /**
+     * Pushes an order status change to the Website storefront (PUT /api/v1/orders/{ref}/status).
+     * Called at every outbound transition that changes the sales order's status for a
+     * WEBSITE-channel order (HANDED_OVER → "PACKED", SHIPPED → "SHIPPED") — previously only
+     * SHIPPED pushed, so the customer's order-history list (which reads a local cache and
+     * doesn't live-refresh, unlike the order-detail page) never reflected "đang đóng gói".
+     */
+    private void syncOrderStatusToWebsite(String orderCode, String status, String trackingNo) {
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("status", status);
+            payload.put("tracking_number", trackingNo);
+            String json = mapper.writeValueAsString(payload);
+
+            WebsiteHttpClient client = new WebsiteHttpClient();
+            client.put("/api/v1/orders/" + orderCode + "/status", json);
+        } catch (Exception e) {
+            log.error("Failed to sync order status '" + status + "' to Website for orderCode=" + orderCode, e);
+        }
     }
 
     public boolean isValidStatus(String status) {
         return OutboundOrder.STATUS_PENDING.equals(status)
-            || OutboundOrder.STATUS_PICKING.equals(status)
             || OutboundOrder.STATUS_PACKED.equals(status)
+            || OutboundOrder.STATUS_HANDED_OVER.equals(status)
             || OutboundOrder.STATUS_SHIPPED.equals(status)
             || OutboundOrder.STATUS_CANCELLED.equals(status);
     }
@@ -423,7 +530,6 @@ public class OutboundService {
         }
 
         OutboundOrder outbound = new OutboundOrder();
-        outbound.setOutboundCode(generateOutboundCode());
         outbound.setOrderId(order.getOrderId());
         outbound.setWarehouseId(warehouseId);
         outbound.setStatus(OutboundOrder.STATUS_PENDING);
@@ -431,7 +537,7 @@ public class OutboundService {
         outbound.setCreatedAt(java.time.LocalDateTime.now());
 
         outbound.setCreatedBy(resolvedUserId);
-        int outboundId = outboundDAO.insert(outbound);
+        int outboundId = insertWithRetry(outbound);
         if (outboundId <= 0) {
             log.error("autoCreateFromOrder: failed to insert outbound for orderCode={}", orderCode);
             return;
@@ -521,12 +627,21 @@ public class OutboundService {
     /**
      * Releases inventory allocations for a cancelled outbound order.
      * This restores the temporarily held stock back to available inventory.
+     *
+     * Idempotent: claimRestock() atomically claims the restock (restocked_at NULL -> set).
+     * A repeat call (stale UI, cleared localStorage, another browser) finds it already claimed
+     * and returns false instead of releasing the same allocation a second time.
      */
-    public boolean releaseAllocationsForOutbound(int outboundId) {
+    public boolean releaseAllocationsForOutbound(int outboundId, Integer userId) {
         try {
             OutboundOrder outbound = outboundDAO.findById(outboundId);
             if (outbound == null) {
                 log.warn("releaseAllocationsForOutbound: outbound not found: {}", outboundId);
+                return false;
+            }
+
+            if (!outboundDAO.claimRestock(outboundId, userId)) {
+                log.info("releaseAllocationsForOutbound: already restocked, skipping duplicate release outboundId={}", outboundId);
                 return false;
             }
 

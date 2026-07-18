@@ -12,6 +12,10 @@
 
 <%-- ── ENTERPRISE TAB SWITCHER BAR ── --%>
 <div class="op-tab-bar">
+    <button class="op-tab tab-all" id="tabAll" onclick="switchTab('all')">
+        Tất cả đơn hàng
+        <span class="op-tab-badge" id="badgeAll">0</span>
+    </button>
     <button class="op-tab tab-review" id="tabReview" onclick="switchTab('pending_review')">
         Đơn cần duyệt
         <span class="op-tab-badge" id="badgeReview">0</span>
@@ -55,8 +59,6 @@
         </button>
         <div id="ddChannel" class="op-dropdown">
             <button class="selected" onclick="selectChannel('all')">Tất cả các kênh</button>
-            <button onclick="selectChannel('Shopee')">Shopee</button>
-            <button onclick="selectChannel('TikTok')">TikTok</button>
             <button onclick="selectChannel('Lazada')">Lazada</button>
             <button onclick="selectChannel('Website')">Website</button>
         </div>
@@ -217,6 +219,59 @@
     </div>
 </div>
 
+<%-- ── WEBSITE RMA APPROVAL MODAL ── --%>
+<div class="op-modal-overlay" id="websiteRmaModalOverlay" onclick="closeWebsiteRmaModal()">
+    <div class="op-modal" onclick="event.stopPropagation()" style="max-width:550px;">
+        <div class="op-modal-header">
+            <div style="display:flex;align-items:center;gap:12px">
+                <span class="op-modal-title">DUYỆT YÊU CẦU HOÀN TRẢ</span>
+                <span class="badge-channel" style="background:#2563eb">Website</span>
+            </div>
+            <button class="op-modal-close" onclick="closeWebsiteRmaModal()">&times;</button>
+        </div>
+
+        <form method="POST" action="${pageContext.request.contextPath}/sales/rma-approval" style="margin:0;">
+            <div class="op-modal-body" style="padding:1.25rem;">
+                <input type="hidden" name="rmaId" id="rmaModalRmaId" />
+                <input type="hidden" name="orderId" id="rmaModalOrderId" />
+                <input type="hidden" name="redirect" value="${pageContext.request.contextPath}/sales/order-processing?tab=rma_dispute" />
+                
+                <div style="background:var(--alice);border-radius:6px;padding:12px;margin-bottom:12px;">
+                    <div style="font-weight:700;font-size:13px;color:var(--navy);margin-bottom:4px;" id="rmaModalOrderCode">Đơn #...</div>
+                    <div style="font-size:11px;color:rgba(16,55,92,.6);" id="rmaModalRmaCode">Mã yêu cầu: ...</div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <span style="font-size:11px;font-weight:700;color:rgba(16,55,92,0.4);text-transform:uppercase;display:block;margin-bottom:4px;">Lý do trả hàng</span>
+                    <p style="margin:0;font-size:13px;color:var(--navy);font-weight:500;" id="rmaModalReason"></p>
+                </div>
+
+                <div style="margin-bottom:12px;display:none;" id="rmaModalEvidencePhotosGroup">
+                    <span style="font-size:11px;font-weight:700;color:rgba(16,55,92,0.4);text-transform:uppercase;display:block;margin-bottom:6px;">Ảnh bằng chứng</span>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;" id="rmaModalEvidencePhotos"></div>
+                </div>
+
+                <div style="margin-bottom:12px;display:none;" id="rmaModalEvidenceVideoGroup">
+                    <span style="font-size:11px;font-weight:700;color:rgba(16,55,92,0.4);text-transform:uppercase;display:block;margin-bottom:6px;">Video bằng chứng</span>
+                    <div id="rmaModalEvidenceVideo"></div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;color:rgba(16,55,92,0.7);font-size:12px;font-weight:600;margin-bottom:6px;">Ghi chú duyệt / từ chối *</label>
+                    <textarea name="note" id="rmaModalNote" rows="3" placeholder="Ví dụ: Sản phẩm lỗi hoặc giao sai SKU, đồng ý hoàn trả..." required
+                              style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--alice);border:1px solid #E5EAF3;color:var(--navy);font-size:13px;outline:none;border-radius:6px;resize:vertical;"></textarea>
+                </div>
+            </div>
+
+            <div class="op-modal-footer" style="display:flex;justify-content:flex-end;gap:12px;">
+                <button type="button" class="op-btn" style="background:#fff;border-color:#E5EAF3;color:rgba(16,55,92,.6)" onclick="closeWebsiteRmaModal()">Đóng</button>
+                <button type="submit" name="action" value="reject" class="op-btn danger" style="padding:0.5rem 1.25rem;font-size:13px;font-weight:600;">Từ chối</button>
+                <button type="submit" name="action" value="approve" class="op-btn success" style="padding:0.5rem 1.25rem;font-size:13px;font-weight:600;">Duyệt hoàn trả</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 
 
 <%-- ── TOAST NOTIFICATIONS POPUP ── --%>
@@ -267,6 +322,23 @@
     </c:forEach>
 ]</div>
 
+<%-- Hidden container for Website RMA requests --%>
+<div id="rmaDataContainer" style="display:none;">[
+    <c:forEach var="rma" items="${pendingRmaList}" varStatus="status">
+    {
+        "rmaId": ${rma.rmaId},
+        "orderId": ${rma.orderId},
+        "orderCode": "${fn:escapeXml(rma.orderCode)}",
+        "rmaCode": "${fn:escapeXml(rma.rmaCode)}",
+        "returnReason": "${fn:escapeXml(rma.returnReason)}",
+        "evidencePhotos": "${fn:escapeXml(rma.evidencePhotos)}",
+        "evidenceVideo": "${fn:escapeXml(rma.evidenceVideo)}",
+        "status": "${fn:escapeXml(rma.status)}",
+        "requestedAt": "${rma.requestedAt}"
+    }${!status.last ? ',' : ''}
+    </c:forEach>
+]</div>
+
 <script>
 // ── CONSTANTS & GLOBALS ──────────────────────────────────────────────
 const WAREHOUSES = [];
@@ -313,7 +385,23 @@ if (orderDataElem) {
         console.error("Failed to parse orders data:", e);
     }
 }
-let activeTab = "pending_review";
+
+// Parse Website RMA Requests
+let pendingRmas = [];
+const rmaDataElem = document.getElementById("rmaDataContainer");
+if (rmaDataElem) {
+    try {
+        pendingRmas = JSON.parse(rmaDataElem.textContent.trim());
+    } catch(e) {
+        console.error("Failed to parse RMA data:", e);
+    }
+}
+
+const websiteRmaMap = {};
+pendingRmas.forEach(rma => {
+    websiteRmaMap[rma.orderCode] = rma;
+});
+let activeTab = "all";
 let searchQuery = "";
 let selectedChannel = "all";
 let selectedProduct = "all";
@@ -346,7 +434,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Check initial search params
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get("tab");
-    if (tabParam && ["pending_review", "pending_waybill", "pending_rts", "rma_dispute", "cancelled"].includes(tabParam)) {
+    if (tabParam && ["all", "pending_review", "pending_waybill", "pending_rts", "rma_dispute", "cancelled"].includes(tabParam)) {
         activeTab = tabParam;
     }
 
@@ -575,9 +663,11 @@ function getShippingCarrierOfOrder(order) {
         return sp;
     }
     // Fallback: derive from channel
-    if (order.channel === 'Lazada') return 'Lazada Express';
-    if (order.channel === 'Shopee') return 'SPX Express';
-    if (order.channel === 'TikTok') return 'TikTok Express';
+    var ch = (order.channel || '').toUpperCase();
+    if (ch === 'LAZADA') return 'Lazada Express';
+    if (ch === 'SHOPEE') return 'SPX Express';
+    if (ch === 'TIKTOK') return 'TikTok Express';
+    if (ch === 'WEBSITE') return 'Chưa chỉ định';
     return 'Viettel Post';
 }
 
@@ -621,6 +711,7 @@ function switchTab(tabId) {
     
     // Toggle active tab class
     document.querySelectorAll(".op-tab").forEach(btn => btn.classList.remove("active"));
+    if (tabId === "all") document.getElementById("tabAll").classList.add("active");
     if (tabId === "pending_review") document.getElementById("tabReview").classList.add("active");
     if (tabId === "pending_waybill") document.getElementById("tabWaybill").classList.add("active");
     if (tabId === "pending_rts") document.getElementById("tabRTS").classList.add("active");
@@ -647,15 +738,17 @@ function renderAll() {
 }
 
 function renderTabBadges() {
+    const allCnt = allOrders.length;
     const reviewCnt = allOrders.filter(o => o.status === "pending_review").length;
     const waybillCnt = allOrders.filter(o => o.status === "confirmed").length;
     const rtsCnt = allOrders.filter(o => o.status === "packed").length;
     const rmaCnt = allOrders.filter(o => {
         return (o.status === "returned" || o.status === "disputed" || o.status === "dispute_success") 
-            && o.rmaPhysicalStatus === "Đã nhập Zone Khiếu Nại";
+            || (websiteRmaMap[o.id] !== undefined);
     }).length;
     const cancelledCnt = allOrders.filter(o => o.status === "cancelled").length;
     
+    if (document.getElementById("badgeAll")) document.getElementById("badgeAll").textContent = allCnt;
     document.getElementById("badgeReview").textContent = reviewCnt;
     document.getElementById("badgeWaybill").textContent = waybillCnt;
     document.getElementById("badgeRTS").textContent = rtsCnt;
@@ -763,7 +856,9 @@ function getFilteredOrders() {
     return allOrders.filter(order => {
         // Tab mapping filter
         let matchTab = false;
-        if (activeTab === "pending_review") {
+        if (activeTab === "all") {
+            matchTab = true;
+        } else if (activeTab === "pending_review") {
             matchTab = order.status === "pending_review";
         } else if (activeTab === "pending_waybill") {
             matchTab = order.status === "confirmed";
@@ -771,7 +866,7 @@ function getFilteredOrders() {
             matchTab = order.status === "packed";
         } else if (activeTab === "rma_dispute") {
             matchTab = (order.status === "returned" || order.status === "disputed" || order.status === "dispute_success") 
-                && order.rmaPhysicalStatus === "Đã nhập Zone Khiếu Nại";
+                || (websiteRmaMap[order.id] !== undefined);
         } else if (activeTab === "cancelled") {
             matchTab = order.status === "cancelled";
         }
@@ -852,8 +947,8 @@ function renderTableHeader() {
         <th style="width: 144px">Trạng thái</th>`;
     }
     
-    html += `<th style="width: 160px">Kho xử lý</th>
-    <th style="width: 96px; text-align: center">Chi tiết</th>`;
+    html += '<th style="width: 160px">Kho xử lý</th>' +
+    '<th style="width: ' + (activeTab === 'rma_dispute' ? '116' : '96') + 'px; text-align: center">' + (activeTab === 'rma_dispute' ? 'Thao tác' : 'Chi tiết') + '</th>';
     
     header.innerHTML = html;
 }
@@ -952,13 +1047,29 @@ function renderTableBody() {
              : 
                 '<span style="color:#d97706;font-style:italic;font-weight:600">Chưa chỉ định</span>'
             ) +
-        '</td>' +
-        '<td onclick="event.stopPropagation()">' +
-            '<button class="op-btn-detail" onclick="openDetailModal(\'' + order.id + '\')" title="Xem chi tiết">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>' +
-            '</button>' +
-        '</td>' +
-        '</tr>';
+        '</td>';
+        
+        if (activeTab === "rma_dispute") {
+            const rma = websiteRmaMap[order.id];
+            html += '<td onclick="event.stopPropagation()">' +
+                '<div style="display:flex;gap:6px;justify-content:center;">' +
+                    '<button class="op-btn-detail" onclick="openDetailModal(\'' + order.id + '\')" title="Xem chi tiết đơn hàng" style="margin:0;padding:4px 8px;display:flex;align-items:center;justify-content:center;">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>' +
+                    '</button>';
+            if (rma) {
+                html += '<button class="op-btn-detail" onclick="openWebsiteRmaModal(' + rma.rmaId + ')" title="Duyệt / Từ chối hoàn trả" style="margin:0;padding:4px 8px;background:#fef3c7;border-color:#fcd34d;color:#d97706;display:flex;align-items:center;justify-content:center;">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+                        '</button>';
+            }
+            html += '</div></td>';
+        } else {
+            html += '<td onclick="event.stopPropagation()">' +
+                '<button class="op-btn-detail" onclick="openDetailModal(\'' + order.id + '\')" title="Xem chi tiết">' +
+                    '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>' +
+                '</button>' +
+            '</td>';
+        }
+        html += '</tr>';
     });
     
     tbody.innerHTML = html;
@@ -978,6 +1089,65 @@ function openDetailModal(id) {
 function closeDetailModal() {
     document.getElementById("opDetailModalOverlay").classList.remove("open");
     activeDetailOrder = null;
+}
+
+function openWebsiteRmaModal(rmaId) {
+    const rma = pendingRmas.find(r => r.rmaId === rmaId);
+    if (!rma) return;
+
+    document.getElementById("rmaModalRmaId").value = rma.rmaId;
+    document.getElementById("rmaModalOrderId").value = rma.orderId;
+    document.getElementById("rmaModalOrderCode").textContent = "Đơn #" + rma.orderCode;
+    document.getElementById("rmaModalRmaCode").textContent = "Mã yêu cầu: " + rma.rmaCode;
+    document.getElementById("rmaModalReason").textContent = rma.returnReason;
+    document.getElementById("rmaModalNote").value = "";
+
+    // Photos Group
+    const photosGroup = document.getElementById("rmaModalEvidencePhotosGroup");
+    const photosContainer = document.getElementById("rmaModalEvidencePhotos");
+    photosContainer.innerHTML = "";
+    if (rma.evidencePhotos && rma.evidencePhotos.trim() !== "") {
+        const photoUrls = rma.evidencePhotos.split(",");
+        photoUrls.forEach(url => {
+            if (url.trim() !== "") {
+                const img = document.createElement("img");
+                img.src = "${pageContext.request.contextPath}" + url.trim();
+                img.style.width = "90px";
+                img.style.height = "90px";
+                img.style.objectFit = "cover";
+                img.style.border = "1px solid #E5EAF3";
+                img.style.borderRadius = "4px";
+                img.style.cursor = "zoom-in";
+                img.onclick = function() { window.open(img.src, "_blank"); };
+                photosContainer.appendChild(img);
+            }
+        });
+        photosGroup.style.display = "block";
+    } else {
+        photosGroup.style.display = "none";
+    }
+
+    // Video Group
+    const videoGroup = document.getElementById("rmaModalEvidenceVideoGroup");
+    const videoContainer = document.getElementById("rmaModalEvidenceVideo");
+    videoContainer.innerHTML = "";
+    if (rma.evidenceVideo && rma.evidenceVideo.trim() !== "") {
+        const video = document.createElement("video");
+        video.src = "${pageContext.request.contextPath}" + rma.evidenceVideo.trim();
+        video.controls = true;
+        video.style.maxWidth = "100%";
+        video.style.borderRadius = "4px";
+        videoContainer.appendChild(video);
+        videoGroup.style.display = "block";
+    } else {
+        videoGroup.style.display = "none";
+    }
+
+    document.getElementById("websiteRmaModalOverlay").classList.add("open");
+}
+
+function closeWebsiteRmaModal() {
+    document.getElementById("websiteRmaModalOverlay").classList.remove("open");
 }
 
 function renderModal(order) {
@@ -1080,56 +1250,61 @@ function renderModal(order) {
     // Timeline Action list
     const timeline = document.getElementById("mdTimeline");
     let timeHtml = "";
+    const st = (order.status || "").toLowerCase();
     
-    // Dot Step 1: Synced
+    // Step 1: Chờ xác nhận (Order Synced)
     timeHtml += '<div class="op-timeline-step">' +
         '<div class="op-timeline-step-dot active-ok">' +
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
         '</div>' +
-        '<div class="op-timeline-title">Đơn hàng ghi nhận từ sàn (Order Synced)</div>' +
-        '<div class="op-timeline-desc">Đồng bộ thành công từ hệ thống kênh bán của ' + order.channel + '. Thời gian: ' + order.createdAt + '</div>' +
+        '<div class="op-timeline-title">Chờ xác nhận (Order Synced)</div>' +
+        '<div class="op-timeline-desc">Đơn hàng được ghi nhận từ sàn đa kênh. Kênh bán: ' + order.channel + '. Thời gian tạo: ' + order.createdAt + '</div>' +
     '</div>';
     
-    // Dot Step 2: Phê duyệt
-    let dot2 = "inactive";
-    let statusTitle = "Chờ phê duyệt và chỉ định kho (Duyệt tay)";
-    let statusDesc = "Yêu cầu Sales Staff kiểm tra tồn kho chéo nhánh bên trên và chọn kho duyệt đơn";
-    let dot2Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-    
-    if (order.status !== "pending_review") {
-        if (order.status === "cancelled") {
-            dot2 = "active-err";
-            statusTitle = "Đơn hàng bị từ chối / Hủy duyệt";
-            statusDesc = 'Từ chối bởi Sales Staff lúc ' + order.updatedAt + '. Ghi chú: ' + (order.reviewNote || "Không có lý do");
-            dot2Icon = '&times;';
-        } else {
+    // Step 2: Chuẩn bị hàng (Warehouse Packed)
+    if (st === "cancelled") {
+        timeHtml += '<div class="op-timeline-step">' +
+            '<div class="op-timeline-step-dot active-err">&times;</div>' +
+            '<div class="op-timeline-title error">Đơn hàng bị từ chối / Hủy duyệt</div>' +
+            '<div class="op-timeline-desc">Từ chối bởi Sales Staff lúc ' + order.updatedAt + '. Ghi chú: ' + (order.reviewNote || "Không có lý do") + '</div>' +
+        '</div>';
+    } else {
+        let dot2 = "inactive";
+        let title2 = "Chuẩn bị hàng (Warehouse Packed)";
+        let desc2 = "Chờ Sales Staff phê duyệt thủ công và phân bổ tồn kho.";
+        let dot2Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+        
+        if (st === "pending_review") {
+            dot2 = "active-warn";
+        } else if (st === "confirmed") {
+            dot2 = "active-warn";
+            desc2 = "Đã phê duyệt thủ công, phân bổ tồn kho. Đang chờ nhân viên kho nhặt hàng và đóng gói.";
+        } else if (["packing", "packed", "shipping", "shipped", "delivered", "completed", "returned", "disputed", "dispute_success"].indexOf(st) > -1) {
             dot2 = "active-ok";
-            statusTitle = 'Đã duyệt & Phân bổ tồn kho tại ' + (order.warehouse || "Kho xuất hàng");
-            statusDesc = 'Phê duyệt bởi Sales Staff lúc ' + order.updatedAt + '. Ghi chú: ' + (order.reviewNote || "Tự động phân bổ tồn kho thành công");
+            desc2 = "Đã phê duyệt thủ công, phân bổ tồn kho và đóng gói hoàn tất tại: " + (order.warehouse || "Kho Hà Nội");
             dot2Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
         }
+        
+        timeHtml += '<div class="op-timeline-step">' +
+            '<div class="op-timeline-step-dot ' + dot2 + '">' + dot2Icon + '</div>' +
+            '<div class="op-timeline-title">' + title2 + '</div>' +
+            '<div class="op-timeline-desc">' + desc2 + '</div>' +
+        '</div>';
     }
     
-    timeHtml += '<div class="op-timeline-step">' +
-        '<div class="op-timeline-step-dot ' + dot2 + '">' + dot2Icon + '</div>' +
-        '<div class="op-timeline-title ' + (order.status === 'cancelled' ? 'error' : '') + '">' + statusTitle + '</div>' +
-        '<div class="op-timeline-desc">' + statusDesc + '</div>' +
-    '</div>';
-    
-    // Dot Step 3: Đóng gói
-    if (order.status !== "cancelled") {
-        const st3 = (order.status || "").toLowerCase();
+    // Step 3: Đang giao hàng (In Transit)
+    if (st !== "cancelled") {
         let dot3 = "inactive";
-        let title3 = "Đóng gói hàng hóa (Pick & Pack)";
-        let desc3 = "Chờ duyệt đơn để chuyển lệnh xuống kho";
+        let title3 = "Đang giao hàng (In Transit)";
+        let desc3 = "Chờ chuẩn bị hàng xong để bàn giao cho hãng giao vận.";
         let dot3Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
         
-        if (st3 === "confirmed") {
+        if (st === "packed") {
             dot3 = "active-warn";
-            desc3 = "Đang chờ nhân viên kho nhặt hàng và đóng gói tem in";
-        } else if (["packing", "packed", "shipping", "shipped", "delivered", "completed", "returned", "disputed", "dispute_success"].indexOf(st3) > -1) {
+            desc3 = "Đã đóng gói hàng. Chờ bàn giao cho hãng giao vận.";
+        } else if (["shipping", "shipped", "delivered", "completed", "returned", "disputed", "dispute_success"].indexOf(st) > -1) {
             dot3 = "active-ok";
-            desc3 = 'Đóng gói hoàn tất lúc ' + order.updatedAt + ' tại ' + order.warehouse;
+            desc3 = "Bàn giao ĐVVC thành công. Shipper đã bốc hàng ra khỏi kho. Mã vận đơn: " + (order.trackingNo || "Chưa cấp");
             dot3Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
         }
         
@@ -1140,36 +1315,24 @@ function renderModal(order) {
         '</div>';
     }
     
-    // Dot Step 4: Giao hàng
-    if (order.status !== "cancelled") {
-        // Normalize status to lowercase so server-side ENUMs (SHIPPED, PACKED, PICKING...)
-        // match client-side webhook flow constants (shipping, packed, packing, delivered...)
-        const st = (order.status || "").toLowerCase();
+    // Step 4: Đã giao hàng thành công (Delivered)
+    if (st !== "cancelled") {
         let dot4 = "inactive";
-        let title4 = "Vận chuyển & Bàn giao";
-        let desc4 = "Chờ đóng gói xong bàn giao vận chuyển";
+        let title4 = "Đã giao hàng thành công (Delivered)";
+        let desc4 = "Bưu tá đang phát hàng.";
         let dot4Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
         
         if (st === "shipping" || st === "shipped") {
             dot4 = "active-warn";
-            title4 = "Đang giao hàng";
-            desc4 = 'Đơn vị vận chuyển đang phát hàng đến tay khách hàng. Mã vận đơn: ' + (order.trackingNo || '—');
+            desc4 = "ĐVVC đang phát hàng đến tay khách.";
         } else if (st === "delivered") {
             dot4 = "active-warn";
-            title4 = "Giao hàng thành công (Đang chờ đối soát ví)";
-            desc4 = 'Đơn hàng đã được bưu tá phát thành công. Đang chờ hết thời hạn 3 ngày khiếu nại.';
+            desc4 = "Bưu tá đã phát hàng và giao tận tay khách hàng thành công. Đang chờ 3 ngày khiếu nại trước khi đối soát ví.";
             dot4Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-            
-        } else if (st === "completed") {
+        } else if (["completed", "returned", "disputed", "dispute_success"].indexOf(st) > -1) {
             dot4 = "active-ok";
-            title4 = "Đơn hàng hoàn thành (Đã đối soát)";
-            desc4 = 'Đơn hàng chính thức hoàn thành. Tiền đã giải ngân thành công vào ví bán hàng của doanh nghiệp.';
+            desc4 = "Bưu tá đã phát hàng và giao tận tay khách hàng thành công.";
             dot4Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-        } else if (["returned", "disputed", "dispute_success"].indexOf(st) > -1) {
-            dot4 = "active-err";
-            title4 = "Đơn hàng bị hoàn trả (Return & Refund)";
-            desc4 = 'Hàng hoàn đã trả về kho. Trạng thái: "' + (order.rmaPhysicalStatus || 'Đã nhập Zone Khiếu Nại') + '". Lý do: "' + (order.rmaReason || 'Chưa rõ lý do') + '"';
-            dot4Icon = '&times;';
         }
         
         timeHtml += '<div class="op-timeline-step">' +
@@ -1179,24 +1342,124 @@ function renderModal(order) {
         '</div>';
     }
     
-    // Dot Step 5: RMA Dispute (Only for RMA/Disputed orders)
-    if (order.status === "disputed" || order.status === "dispute_success") {
-        timeHtml += '<div class="op-timeline-step">' +
-            '<div class="op-timeline-step-dot active-ok">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
-            '</div>' +
-            '<div class="op-timeline-title">Đã gửi hồ sơ khiếu nại lên Sàn</div>' +
-            '<div class="op-timeline-desc">Shop trích xuất video CCTCC đóng gói và gửi nội dung khiếu nại thành công.</div>' +
-        '</div>';
-    }
-    if (order.status === "dispute_success") {
-        timeHtml += '<div class="op-timeline-step">' +
-            '<div class="op-timeline-step-dot active-ok">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
-            '</div>' +
-            '<div class="op-timeline-title" style="color:#047857">Khiếu nại thành công (Sàn đền bù 100%)</div>' +
-            '<div class="op-timeline-desc">Sàn đối soát video và xác định lỗi do đơn vị vận chuyển. Tiền đền bù đã cộng vào ví người bán.</div>' +
-        '</div>';
+    // Step 5: Hoàn thành (Completed) / Hoàn hàng (Return & Disputes)
+    var isReturnFlow = (websiteRmaMap[order.id] !== undefined) || ["returned", "disputed", "dispute_success"].indexOf(st) > -1;
+    
+    if (st !== "cancelled") {
+        if (!isReturnFlow) {
+            // Normal path: Completed
+            let dot5 = "inactive";
+            let title5 = "Hoàn thành (Completed)";
+            let desc5 = "Hệ thống tự động chuyển sang hoàn thành sau 3 ngày đối soát.";
+            let dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+            
+            if (st === "completed") {
+                dot5 = "active-ok";
+                desc5 = "Đơn hàng hoàn thành. Tiền đã đối soát giải ngân vào ví người bán.";
+                dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            }
+            
+            timeHtml += '<div class="op-timeline-step">' +
+                '<div class="op-timeline-step-dot ' + dot5 + '">' + dot5Icon + '</div>' +
+                '<div class="op-timeline-title">' + title5 + '</div>' +
+                '<div class="op-timeline-desc">' + desc5 + '</div>' +
+            '</div>';
+        } else {
+            // Return flow: Hoàn hàng (Return & Disputes)
+            let dot5 = "active-warn";
+            let title5 = "Hoàn hàng (Return & Disputes)";
+            let desc5 = "Theo dõi hàng trả về và bồi thường nếu có sự cố.";
+            let dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+            
+            var isWebsite = order.channel === "WEBSITE" || order.channel === "Website" || order.channel === "website";
+            if (isWebsite) {
+                // Detailed Website Return Steps:
+                // 1. Chờ tiếp nhận (PENDING)
+                // 2. Chờ Warehouse Staff kiểm kho (APPROVED / status returned)
+                // 3. Đã nhập kho (Physical Status present)
+                var rmaReq = websiteRmaMap[order.id];
+                var rmaStatus = rmaReq ? rmaReq.status : "";
+                
+                if (st === "returned") {
+                    if (order.rmaPhysicalStatus && order.rmaPhysicalStatus.trim()) {
+                        dot5 = "active-ok";
+                        title5 = "Hoàn hàng — Đã nhận hàng hoàn & Nhập kho";
+                        desc5 = "Hàng hoàn đã về tới kho. Warehouse Staff đã mở kiện, kiểm tra thực tế (QC) và nhập vào: \"" + order.rmaPhysicalStatus + "\". Xử lý đơn hoàn hoàn tất.";
+                        dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    } else {
+                        dot5 = "active-warn";
+                        title5 = "Hoàn hàng — Đã tiếp nhận & Chờ kiểm kho (QC)";
+                        desc5 = "Sales Staff đã duyệt tiếp nhận yêu cầu. Đang theo dõi vận chuyển ngược về kho và chờ Warehouse Staff mở kiện, kiểm tra thực tế (QC).";
+                    }
+                } else if (st === "disputed") {
+                    dot5 = "active-warn";
+                    title5 = "Hoàn hàng — Đang giải quyết khiếu nại";
+                    desc5 = "Đơn hàng phát sinh khiếu nại hàng hoàn. Chờ Warehouse Staff kiểm tra tình trạng hàng và Sales Staff đưa ra phương án xử lý.";
+                } else if (st === "dispute_success") {
+                    dot5 = "active-ok";
+                    title5 = "Hoàn hàng — Đã giải quyết khiếu nại";
+                    desc5 = "Khiếu nại hàng hoàn đã được thống nhất phương án đền bù/hoàn tiền thành công.";
+                    dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                } else {
+                    // Pending RMA review from customer
+                    dot5 = "active-warn";
+                    title5 = "Hoàn hàng — Chờ tiếp nhận yêu cầu";
+                    desc5 = "Khách hàng gửi yêu cầu hoàn trả trực tuyến. Chờ Sales Staff bấm tiếp nhận yêu cầu và chuyển thông tin sang Warehouse Staff.";
+                }
+            } else {
+                // Marketplace Return (Lazada/Shopee/TikTok)
+                if (st === "returned") {
+                    if (order.rmaPhysicalStatus && order.rmaPhysicalStatus.trim()) {
+                        dot5 = "active-ok";
+                        title5 = "Hoàn hàng — Đã nhận hàng hoàn & Nhập kho";
+                        desc5 = "Hàng hoàn đã về tới kho. Warehouse Staff đã mở kiện, kiểm tra thực tế (QC) và nhập vào: \"" + order.rmaPhysicalStatus + "\".";
+                        dot5Icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    } else {
+                        dot5 = "active-warn";
+                        title5 = "Hoàn hàng — Chờ kiểm kho (QC)";
+                        desc5 = "Đơn hàng bị hoàn trả. Đang theo dõi vận chuyển ngược về kho và chờ Warehouse Staff nhận hàng, kiểm tra thực tế (QC).";
+                    }
+                } else if (st === "disputed" || st === "dispute_success") {
+                    // Marketplace Dispute flow
+                    var hasEvidence = order.disputeEvidenceVideo && order.disputeEvidenceVideo.trim();
+                    var dotClass5 = hasEvidence ? "active-ok" : "active-warn";
+                    var dotIcon5 = hasEvidence ? 
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' :
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+                    
+                    var titleMarket = hasEvidence ? "Hoàn hàng — Đã gửi hồ sơ khiếu nại lên Sàn" : "Hoàn hàng — Chờ gửi hồ sơ khiếu nại lên Sàn";
+                    var descMarket = hasEvidence ? 
+                        "Shop đã trích xuất video CCTV đóng gói và gửi hồ sơ khiếu nại thành công. Tệp: " + order.disputeEvidenceVideo :
+                        "Đơn hàng bị lỗi/hỏng do vận chuyển. Chờ Warehouse Staff trích xuất video CCTV đóng gói và Sales Staff gửi khiếu nại lên Sàn đối soát.";
+                    
+                    timeHtml += '<div class="op-timeline-step">' +
+                        '<div class="op-timeline-step-dot ' + dotClass5 + '">' + dotIcon5 + '</div>' +
+                        '<div class="op-timeline-title">' + titleMarket + '</div>' +
+                        '<div class="op-timeline-desc">' + descMarket + '</div>' +
+                    '</div>';
+                    
+                    // Show final settlement step if dispute_success
+                    if (st === "dispute_success") {
+                        timeHtml += '<div class="op-timeline-step">' +
+                            '<div class="op-timeline-step-dot active-ok">' +
+                                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+                            '</div>' +
+                            '<div class="op-timeline-title" style="color:#047857">Khiếu nại thành công (Sàn đền bù 100%)</div>' +
+                            '<div class="op-timeline-desc">Sàn đối soát video và xác định lỗi do đơn vị vận chuyển. Tiền đền bù đã cộng vào ví người bán.</div>' +
+                        '</div>';
+                    }
+                    dot5 = null; 
+                }
+            }
+            
+            if (dot5) {
+                timeHtml += '<div class="op-timeline-step">' +
+                    '<div class="op-timeline-step-dot ' + dot5 + '">' + dot5Icon + '</div>' +
+                    '<div class="op-timeline-title">' + title5 + '</div>' +
+                    '<div class="op-timeline-desc">' + desc5 + '</div>' +
+                '</div>';
+            }
+        }
     }
     
     // Realtime Webhook Logs (if any)

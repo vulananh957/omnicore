@@ -22,6 +22,8 @@ public class ReturnOrder {
     private LocalDateTime updatedAt;
     private String channel; // Joined from orders table
     private String returnCode;
+    private String evidencePhotos;
+    private String evidenceVideo;
     private List<ReturnItem> items = new ArrayList<>();
 
     public ReturnOrder() {}
@@ -137,5 +139,21 @@ public class ReturnOrder {
 
     public void setReturnCode(String returnCode) {
         this.returnCode = returnCode;
+    }
+
+    public String getEvidencePhotos() {
+        return evidencePhotos;
+    }
+
+    public void setEvidencePhotos(String evidencePhotos) {
+        this.evidencePhotos = evidencePhotos;
+    }
+
+    public String getEvidenceVideo() {
+        return evidenceVideo;
+    }
+
+    public void setEvidenceVideo(String evidenceVideo) {
+        this.evidenceVideo = evidenceVideo;
     }
 }

@@ -30,7 +30,27 @@ public class SalesSKUMappingServlet extends BaseController {
             req.setAttribute("skuMappings", skuMappingService.findAllMappings());
             req.setAttribute("channels", skuMappingService.findAllChannels());
             req.setAttribute("products", skuMappingService.findAllSkus());
-            req.setAttribute("unresolvedExceptions", new SkuMappingExceptionDAO().findUnresolved());
+
+            // Merge 1: mapping_exceptions (Lazada scheduler ghi khi gặp SKU lạ)
+            SkuMappingExceptionDAO exceptionDAO = new SkuMappingExceptionDAO();
+            List<java.util.Map<String, Object>> merged = new java.util.ArrayList<>(exceptionDAO.findUnresolved());
+
+            // Build deduplicated key set từ exceptions đã có (tránh hiện trùng)
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (java.util.Map<String, Object> ex : merged) {
+                seen.add(ex.get("channelId") + ":" + ex.get("externalSku"));
+            }
+
+            // Merge 2: channel_products chưa ánh xạ (Website và các kênh không qua scheduler)
+            for (java.util.Map<String, Object> cp : exceptionDAO.findUnmappedChannelProducts()) {
+                String key = cp.get("channelId") + ":" + cp.get("externalSku");
+                if (!seen.contains(key)) {
+                    merged.add(cp);
+                    seen.add(key);
+                }
+            }
+
+            req.setAttribute("unresolvedExceptions", merged);
 
             var allMappings = skuMappingService.findAllMappings();
             req.setAttribute("totalMappings", allMappings.size());
@@ -51,6 +71,7 @@ public class SalesSKUMappingServlet extends BaseController {
             req.setAttribute("pendingMappings", 0);
             req.setAttribute("syncedMappings", 0);
         }
+
 
         req.setAttribute("pageTitle",    "Trung Tâm Ánh Xạ SKU Đa Sàn");
         req.setAttribute("pageSubtitle", "Kết nối Master SKU nội bộ kho hàng với Channel SKU trên các sàn TMĐT");
@@ -82,7 +103,10 @@ public class SalesSKUMappingServlet extends BaseController {
                 if (success && exceptionIdStr != null && !exceptionIdStr.trim().isEmpty()) {
                     try {
                         int exceptionId = Integer.parseInt(exceptionIdStr.trim());
-                        new SkuMappingExceptionDAO().markResolved(exceptionId);
+                        // exceptionId < 0 → synthetic channel_products entry, không cần DB call
+                        if (exceptionId > 0) {
+                            new SkuMappingExceptionDAO().markResolved(exceptionId);
+                        }
                     } catch (Exception ignored) {}
                 }
                 
@@ -132,7 +156,11 @@ public class SalesSKUMappingServlet extends BaseController {
 
             } else if ("resolveException".equals(action)) {
                 int exceptionId = Integer.parseInt(req.getParameter("exceptionId"));
-                boolean resolved = new SkuMappingExceptionDAO().markResolved(exceptionId);
+                // exceptionId < 0 → synthetic entry từ channel_products (không có trong mapping_exceptions)
+                // Trả về success ngay; drawer tự biến mất sau khi sku_mappings được tạo
+                boolean resolved = exceptionId < 0
+                        ? true
+                        : new SkuMappingExceptionDAO().markResolved(exceptionId);
                 resp.setContentType("application/json;charset=UTF-8");
                 try (PrintWriter out = resp.getWriter()) {
                     out.print("{\"success\":" + resolved + "}");

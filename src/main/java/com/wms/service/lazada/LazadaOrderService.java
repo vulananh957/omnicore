@@ -39,6 +39,13 @@ public class LazadaOrderService {
     }
 
     /**
+     * Fetches canceled orders from Lazada (last 30 days).
+     */
+    public String getCanceledOrders(Channel channel) {
+        return getOrders(channel, "canceled", null, null);
+    }
+
+    /**
      * Fetches orders updated after a given timestamp (for incremental sync).
      *
      * @param channel       Channel credentials

@@ -162,19 +162,9 @@ public class LazadaOrderProcessingService {
                 continue;
             }
 
-            // Soft-allocate
-            boolean ok = inventoryDAO.softAllocateInventory(
-                    productId, warehouseId, item.getQuantity());
-            if (ok) {
-                allocatedCount++;
-                // Update reserved_qty on the item row
-                orderDAO.updateItemReservedQty(lazadaOrderIdStr, item.getQuantity());
-            } else {
-                insufficientItems.append("- SKU ")
-                        .append(item.getSku())
-                        .append(": không thể giữ chỗ tồn kho (lỗi hệ thống).\n");
-                insufficientCount++;
-            }
+            // Update reserved_qty on the item row (actual soft-allocation is handled by OutboundService)
+            orderDAO.updateItemReservedQty(lazadaOrderIdStr, item.getQuantity());
+            allocatedCount++;
         }
 
         if (insufficientCount > 0) {
@@ -219,17 +209,7 @@ public class LazadaOrderProcessingService {
     }
 
     private void rollbackAllocations(List<LazadaOrderItem> items, int warehouseId) {
-        for (LazadaOrderItem item : items) {
-            if (item.getProductId() <= 0 || item.getReservedQty() <= 0) continue;
-            try {
-                inventoryDAO.releaseSoftAllocateInventory(
-                        item.getProductId(), warehouseId,
-                        BigDecimal.valueOf(item.getReservedQty()));
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "rollbackAllocations: failed for productId=" + item.getProductId(), e);
-            }
-        }
+        // No-op: soft-allocation lifecycle is managed by OutboundService / WMS workflow
     }
 
     /**
@@ -618,8 +598,43 @@ public class LazadaOrderProcessingService {
                 return ProcessingResult.fail("Không tìm được Lazada gateway.");
             }
 
+            // Step 1: Validate cancel eligibility and get dynamic reason options from Lazada
+            List<LazadaOrderItem> items = orderDAO.findItemsByLazadaOrderIdStr(lazadaOrderIdStr);
+            if (items != null && !items.isEmpty()) {
+                java.util.List<String> itemIds = new java.util.ArrayList<>();
+                for (LazadaOrderItem item : items) {
+                    if (item.getOrderItemId() != null && !item.getOrderItemId().isEmpty()) {
+                        itemIds.add(item.getOrderItemId());
+                    }
+                }
+                if (!itemIds.isEmpty()) {
+                    String orderItemIdListJson = MAPPER.writeValueAsString(itemIds);
+                    String valBody = lcg.cancelValidate(channel, lazadaOrderIdStr, orderItemIdListJson);
+                    LOGGER.info("Lazada cancelValidate response: " + valBody);
+                    JsonNode valRoot = MAPPER.readTree(valBody);
+                    String valCode = valRoot.path("code").asText();
+                    if (!"0".equals(valCode)) {
+                        String valMsg = valRoot.path("message").asText();
+                        if (valMsg.isEmpty()) valMsg = "Lazada không cho phép hủy đơn này (Lỗi validate).";
+                        ChannelSyncAudit.logFailure(channel.getChannelId(), "CANCEL_VALIDATE",
+                                lazadaOrderIdStr, 200, "reasonText=" + reasonText, valMsg);
+                        return ProcessingResult.fail("Lazada từ chối yêu cầu hủy (Validate): " + valMsg);
+                    }
+                    
+                    JsonNode reasonOptions = valRoot.path("data").path("reason_options");
+                    if (reasonOptions.isArray() && reasonOptions.size() > 0) {
+                        String firstReasonId = reasonOptions.get(0).path("reason_id").asText();
+                        if (firstReasonId != null && !firstReasonId.isEmpty()) {
+                            reasonId = firstReasonId;
+                            LOGGER.info("Using Lazada validated reason_id: " + reasonId);
+                        }
+                    }
+                }
+            }
+
             // Call Lazada cancel API
             String body = lcg.cancelOrder(channel, lazadaOrderIdStr, reasonId);
+
 
             JsonNode root = MAPPER.readTree(body);
             String code = root.path("code").asText();
@@ -798,5 +813,320 @@ public class LazadaOrderProcessingService {
         result.put("order", order);
         result.put("items", order != null ? order.getItems() : List.of());
         return result;
+    }
+
+    /**
+     * Initializes a synced Lazada order in the database (WMS PENDING status / PENDING_PACK),
+     * performs warehouse matching, WMS approval, and creates a WMS Outbound Order in status PENDING.
+     * (Part of Step 1 of the Lazada outbound SOP).
+     */
+    public ProcessingResult syncInitializeLazadaOrder(String lazadaOrderIdStr, Channel channel) {
+        LOGGER.info("syncInitializeLazadaOrder: starting for orderId=" + lazadaOrderIdStr + " channel=" + channel.getChannelName());
+        
+        // 1. Load order
+        LazadaOrder order = orderDAO.findByLazadaOrderIdStr(lazadaOrderIdStr);
+        if (order == null) {
+            return ProcessingResult.fail("Không tìm thấy đơn hàng Lazada: " + lazadaOrderIdStr);
+        }
+        
+        // Ensure status is NEW
+        if (!"NEW".equals(order.getWmsStatus())) {
+            return ProcessingResult.fail("Đơn hàng đã được xử lý từ trước. Trạng thái hiện tại: " + order.getWmsStatus());
+        }
+        
+        // 2. Load order items
+        List<LazadaOrderItem> items = orderDAO.findItemsByLazadaOrderIdStr(lazadaOrderIdStr);
+        if (items.isEmpty()) {
+            return ProcessingResult.fail("Đơn hàng không có sản phẩm nào.");
+        }
+        
+        // 3. Determine warehouse: check if main orders table already has an assigned warehouse first
+        int selectedWarehouseId = -1;
+        com.wms.model.Order mainOrder = new com.wms.dao.OrderDAO().findByOrderCode(lazadaOrderIdStr);
+        if (mainOrder != null && mainOrder.getWarehouseId() > 0) {
+            selectedWarehouseId = mainOrder.getWarehouseId();
+        } else {
+            List<com.wms.model.Warehouse> warehouses = new com.wms.dao.WarehouseDAO().findAll();
+            for (com.wms.model.Warehouse wh : warehouses) {
+                boolean allInStock = true;
+                for (LazadaOrderItem item : items) {
+                    int productId = resolveProductId(item, order.getChannelId());
+                    if (productId <= 0) {
+                        allInStock = false;
+                        break;
+                    }
+                    int available = inventoryDAO.getAvailableStock(productId, wh.getWarehouseId());
+                    if (available < item.getQuantity()) {
+                        allInStock = false;
+                        break;
+                    }
+                }
+                if (allInStock) {
+                    selectedWarehouseId = wh.getWarehouseId();
+                    break;
+                }
+            }
+            
+            // Fallback to first active warehouse if none matches
+            if (selectedWarehouseId <= 0) {
+                if (!warehouses.isEmpty()) {
+                    selectedWarehouseId = warehouses.get(0).getWarehouseId();
+                    LOGGER.info("syncInitializeLazadaOrder: Không có kho nào đủ toàn bộ tồn kho. Dự phòng chọn kho: " + selectedWarehouseId);
+                } else {
+                    return ProcessingResult.fail("Không tìm thấy kho hàng nào hoạt động để xử lý đơn.");
+                }
+            }
+        }
+        
+        // 4. Approve order on Lazada table & soft-allocate inventory
+        ProcessingResult approveResult = approveOrder(lazadaOrderIdStr, selectedWarehouseId, 1, null);
+        if (!approveResult.success) {
+            LOGGER.warning("syncInitializeLazadaOrder: approveOrder failed: " + approveResult.message);
+            return approveResult;
+        }
+        
+        // 5. Update main WMS orders table status to PENDING and set warehouse
+        com.wms.dao.OrderDAO mainOrderDAO = new com.wms.dao.OrderDAO();
+        mainOrderDAO.updateOrderStatusAndWarehouse(lazadaOrderIdStr, "PENDING", selectedWarehouseId, "Auto-prepared by background sync");
+        
+        // 6. Auto-create WMS Outbound Order (status becomes PENDING)
+        com.wms.service.warehouse.OutboundService outboundService = new com.wms.service.warehouse.OutboundService();
+        outboundService.autoCreateFromOrder(lazadaOrderIdStr, selectedWarehouseId, 1, "SYSTEM");
+        
+        LOGGER.info("syncInitializeLazadaOrder: successfully initialized outbound order for " + lazadaOrderIdStr);
+        return ProcessingResult.ok("Đơn hàng khởi tạo thành công.");
+    }
+
+    public ProcessingResult autoPackLazadaOrder(String lazadaOrderIdStr, Channel channel) {
+        try {
+            ProcessingResult res = autoPackLazadaOrderInner(lazadaOrderIdStr, channel);
+            if (!res.success) {
+                new com.wms.dao.OrderDAO().updateLazadaPackError(lazadaOrderIdStr, res.message);
+            }
+            return res;
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "Lỗi hệ thống";
+            new com.wms.dao.OrderDAO().updateLazadaPackError(lazadaOrderIdStr, msg);
+            return ProcessingResult.fail("Lỗi: " + msg);
+        }
+    }
+
+    private ProcessingResult autoPackLazadaOrderInner(String lazadaOrderIdStr, Channel channel) {
+        LOGGER.info("autoPackLazadaOrderInner: starting for orderId=" + lazadaOrderIdStr + " channel=" + channel.getChannelName());
+        
+        // 1. Load order
+        LazadaOrder order = orderDAO.findByLazadaOrderIdStr(lazadaOrderIdStr);
+        if (order == null) {
+            return ProcessingResult.fail("Không tìm thấy đơn hàng Lazada: " + lazadaOrderIdStr);
+        }
+        
+        // Ensure status is NEW or APPROVED
+        if (!"NEW".equals(order.getWmsStatus()) && !"APPROVED".equals(order.getWmsStatus())) {
+            return ProcessingResult.fail("Đơn hàng đã được xử lý từ trước. Trạng thái hiện tại: " + order.getWmsStatus());
+        }
+        
+        // 2. Load order items
+        List<LazadaOrderItem> items = orderDAO.findItemsByLazadaOrderIdStr(lazadaOrderIdStr);
+        if (items.isEmpty()) {
+            return ProcessingResult.fail("Đơn hàng không có sản phẩm nào.");
+        }
+        
+        // 3. Determine warehouse: check if main orders table already has an assigned warehouse first
+        int selectedWarehouseId = -1;
+        com.wms.model.Order mainOrder = new com.wms.dao.OrderDAO().findByOrderCode(lazadaOrderIdStr);
+        if (mainOrder != null && mainOrder.getWarehouseId() > 0) {
+            selectedWarehouseId = mainOrder.getWarehouseId();
+        } else {
+            List<com.wms.model.Warehouse> warehouses = new com.wms.dao.WarehouseDAO().findAll();
+            for (com.wms.model.Warehouse wh : warehouses) {
+                boolean allInStock = true;
+                for (LazadaOrderItem item : items) {
+                    int productId = resolveProductId(item, order.getChannelId());
+                    if (productId <= 0) {
+                        allInStock = false;
+                        break;
+                    }
+                    int available = inventoryDAO.getAvailableStock(productId, wh.getWarehouseId());
+                    if (available < item.getQuantity()) {
+                        allInStock = false;
+                        break;
+                    }
+                }
+                if (allInStock) {
+                    selectedWarehouseId = wh.getWarehouseId();
+                    break;
+                }
+            }
+            
+            // Fallback to first active warehouse if none matches
+            if (selectedWarehouseId <= 0) {
+                if (!warehouses.isEmpty()) {
+                    selectedWarehouseId = warehouses.get(0).getWarehouseId();
+                    LOGGER.info("autoPackLazadaOrder: Không có kho nào đủ toàn bộ tồn kho. Dự phòng chọn kho: " + selectedWarehouseId);
+                } else {
+                    return ProcessingResult.fail("Không tìm thấy kho hàng nào hoạt động để xử lý đơn.");
+                }
+            }
+        }
+        
+        // 4. Approve order on Lazada table & soft-allocate inventory
+        if ("NEW".equals(order.getWmsStatus())) {
+            ProcessingResult approveResult = approveOrder(lazadaOrderIdStr, selectedWarehouseId, 1, null);
+            if (!approveResult.success) {
+                LOGGER.warning("autoPackLazadaOrder: approveOrder failed: " + approveResult.message);
+                return approveResult;
+            }
+        }
+        
+        // 5. Update main WMS orders table status to PICKING (equivalent to approval) and set warehouse
+        com.wms.dao.OrderDAO mainOrderDAO = new com.wms.dao.OrderDAO();
+        mainOrderDAO.updateOrderStatusAndWarehouse(lazadaOrderIdStr, "PICKING", selectedWarehouseId, "Auto-approved by background sync");
+        
+        // 6. Auto-create WMS Outbound Order (status becomes PENDING)
+        com.wms.service.warehouse.OutboundService outboundService = new com.wms.service.warehouse.OutboundService();
+        outboundService.autoCreateFromOrder(lazadaOrderIdStr, selectedWarehouseId, 1, "SYSTEM");
+        
+        // Find WMS Outbound order ID
+        com.wms.dao.OutboundDAO outboundDAO = new com.wms.dao.OutboundDAO();
+        int outboundId = outboundDAO.findActiveOutboundIdByOrderCode(lazadaOrderIdStr);
+        if (outboundId <= 0) {
+            return ProcessingResult.fail("Không tạo được phiếu xuất kho WMS.");
+        }
+        
+        // 7. Get Shipment Provider from Lazada
+        List<String> orderItemIds = new java.util.ArrayList<>();
+        for (LazadaOrderItem item : items) {
+            orderItemIds.add(item.getOrderItemId());
+        }
+        
+        ChannelGateway gateway = com.wms.service.channel.ChannelRegistry.get("Lazada");
+        if (gateway == null) {
+            return ProcessingResult.fail("Không tìm được Lazada gateway.");
+        }
+        
+        String providersJson;
+        try {
+            providersJson = gateway.getShipmentProviders(channel, lazadaOrderIdStr, orderItemIds);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "autoPackLazadaOrder: getShipmentProviders failed", e);
+            providersJson = "";
+        }
+        
+        String providerCode = null;
+        String shippingAllocateType = "TFS";
+        if (providersJson != null && !providersJson.isEmpty()) {
+            try {
+                JsonNode root = MAPPER.readTree(providersJson);
+                JsonNode dataNode = root.path("result").path("data");
+                if (dataNode.isMissingNode()) {
+                    dataNode = root.path("data");
+                }
+                JsonNode providersNode = dataNode.path("shipment_providers");
+                if (providersNode.isArray() && providersNode.size() > 0) {
+                    JsonNode firstProvider = providersNode.get(0);
+                    providerCode = firstProvider.path("provider_code").asText();
+                }
+                shippingAllocateType = dataNode.path("shipping_allocate_type").asText("TFS");
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "autoPackLazadaOrder: failed to parse shipment providers", e);
+            }
+        }
+        
+        // Fallback if providerCode is not resolved
+        if (providerCode == null || providerCode.isEmpty()) {
+            List<LazadaShipmentProvider> activeProviders = providerDAO.findAllActive();
+            if (!activeProviders.isEmpty()) {
+                providerCode = activeProviders.get(0).getProviderCode();
+            }
+        }
+        
+        // 8. Call Pack API on Lazada
+        Map<String, String> packParams = new HashMap<>();
+        packParams.put("order_id", lazadaOrderIdStr);
+        packParams.put("delivery_type", "dropship");
+        packParams.put("shipping_allocate_type", shippingAllocateType);
+        
+        StringBuilder itemListJson = new StringBuilder("[");
+        for (int i = 0; i < orderItemIds.size(); i++) {
+            if (i > 0) itemListJson.append(',');
+            itemListJson.append('"').append(orderItemIds.get(i)).append('"');
+        }
+        itemListJson.append(']');
+        packParams.put("order_item_list", itemListJson.toString());
+        
+        if (providerCode != null && !providerCode.isEmpty()) {
+            packParams.put("shipment_provider_code", providerCode);
+        }
+        
+        try {
+            String packResultJson;
+            if (gateway instanceof com.wms.service.channel.LazadaChannelGateway lcg) {
+                packResultJson = lcg.packOrderWithParams(channel, packParams);
+            } else {
+                packResultJson = gateway.packOrder(channel, lazadaOrderIdStr, "dropship");
+            }
+            
+            JsonNode root = MAPPER.readTree(packResultJson);
+            JsonNode resultNode = root.path("result");
+            boolean requestOk = "0".equals(root.path("code").asText());
+            boolean resultSuccess = resultNode.path("success").asBoolean(false);
+            
+            if (!requestOk || !resultSuccess) {
+                String errMsg = resultNode.path("error_msg").asText();
+                if (errMsg.isEmpty()) errMsg = root.path("message").asText();
+                return ProcessingResult.fail("Gọi API Pack của Lazada thất bại: " + errMsg);
+            }
+            
+            // Extract tracking and package_id
+            JsonNode dataNode = resultNode.path("data");
+            if (dataNode.isMissingNode()) {
+                dataNode = root.path("data");
+            }
+            JsonNode packOrderList = dataNode.path("pack_order_list");
+            String packageId = "";
+            String trackingNumber = "";
+            
+            if (packOrderList.isArray() && packOrderList.size() > 0) {
+                for (JsonNode orderNode : packOrderList) {
+                    JsonNode itemList = orderNode.path("order_item_list");
+                    if (itemList.isArray()) {
+                        for (JsonNode item : itemList) {
+                            String errCode = item.path("item_err_code").asText("0");
+                            if ("0".equals(errCode)) {
+                                if (packageId.isEmpty()) {
+                                    packageId = item.path("package_id").asText();
+                                    trackingNumber = item.path("tracking_number").asText();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!packageId.isEmpty()) break;
+                }
+            }
+            
+            if (packageId.isEmpty() || trackingNumber.isEmpty()) {
+                return ProcessingResult.fail("Không lấy được package_id/tracking_number từ Lazada.");
+            }
+            
+            // Save package info and update status to PACKED
+            orderDAO.updateTrackingInfo(lazadaOrderIdStr, packageId, trackingNumber, providerCode);
+            orderDAO.updateStatus(lazadaOrderIdStr, "PACKED");
+            
+            // Update WMS orders table
+            mainOrderDAO.updateOrderTrackingNo(lazadaOrderIdStr, trackingNumber);
+            mainOrderDAO.updateLazadaPackage(lazadaOrderIdStr, packageId, true, false);
+            
+            // 9. Call OutboundService to update outbound order status to PACKED (pushes WMS to PACKED state)
+            outboundService.updateStatus(outboundId, "PACKED", 1);
+            
+            LOGGER.info("autoPackLazadaOrder: success for orderId=" + lazadaOrderIdStr + " packageId=" + packageId + " tracking=" + trackingNumber);
+            return ProcessingResult.ok("Tự động đóng gói đơn hàng thành công.", 
+                    Map.of("packageId", packageId, "trackingNumber", trackingNumber));
+            
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "autoPackLazadaOrder: failed with exception", e);
+            return ProcessingResult.fail("Lỗi hệ thống khi tự động đóng gói đơn hàng: " + e.getMessage());
+        }
     }
 }

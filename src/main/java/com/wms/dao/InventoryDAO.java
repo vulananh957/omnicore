@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -102,6 +103,30 @@ public class InventoryDAO {
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "getAvailableStock failed productId=" + productId + " warehouseId=" + warehouseId, e);
+        }
+        return 0;
+    }
+
+    /**
+     * Returns the physical stock (qty_on_hand) for a given product/warehouse pair.
+     * Returns 0 if no inventory row exists.
+     */
+    public int getPhysicalStock(int productId, int warehouseId) {
+        String sql = "SELECT qty_on_hand FROM inventory "
+                   + "WHERE product_id = ? AND warehouse_id = ? "
+                   + "  AND (stock_type IS NULL OR stock_type = 'NORMAL')";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            ps.setInt(2, warehouseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING,
+                "getPhysicalStock failed productId=" + productId + " warehouseId=" + warehouseId, e);
         }
         return 0;
     }
@@ -552,7 +577,7 @@ public class InventoryDAO {
         }
 
         String sql = "UPDATE inventory "
-                   + "SET qty_available = qty_available + ?, "
+                   + "SET qty_available = qty_available + LEAST(holding, ?), "
                    + "    holding = GREATEST(holding - ?, 0) "
                    + "WHERE product_id = ? AND warehouse_id = ?";
 
@@ -606,8 +631,8 @@ public class InventoryDAO {
         }
 
         String sqlRelease = "UPDATE inventory "
-                          + "SET holding = GREATEST(holding - ?, 0), "
-                          + "    qty_available = qty_available + ? "
+                          + "SET qty_available = qty_available + LEAST(holding, ?), "
+                          + "    holding = GREATEST(holding - ?, 0) "
                           + "WHERE product_id = ? AND warehouse_id = ?";
         String sqlDeduct = "UPDATE inventory "
                           + "SET qty_on_hand = qty_on_hand - ?, "
@@ -847,5 +872,183 @@ public class InventoryDAO {
             LOGGER.log(Level.WARNING, "countLowStockByWarehouse failed whId=" + warehouseId, e);
         }
         return 0;
+    }
+
+    /**
+     * Atomic inventory deduction with lock for Website orders (Phase 3 — Hybrid Sync).
+     * Ensures exactly 1 order per product can deduct stock, preventing double-deduction.
+     *
+     * Algorithm:
+     * 1. Check if deduction_lock = 0 AND qty_available >= qty (atomic check-and-set)
+     * 2. If true: SET deduction_lock = 1, UPDATE qty_available -= qty, log to inventory_deduction_log, UNLOCK
+     * 3. If false: return false (stock became unavailable or already locked)
+     *
+     * @param productId  The product being deducted
+     * @param orderId    The order ID (for audit log)
+     * @param orderRef   The order reference code
+     * @param channel    Channel name: WEB|LAZADA|SHOPEE
+     * @param qty        Quantity to deduct
+     * @param warehouseId Warehouse ID (if null, use primary warehouse)
+     * @return true if deducted; false if stock unavailable or lock failed
+     */
+    public boolean deductWithLock(int productId, int orderId, String orderRef, String channel, int qty, Integer warehouseId) {
+        if (qty <= 0) return false;
+        if (channel == null || channel.isBlank()) channel = "WEB";
+
+        String sqlDeduct = "UPDATE inventory SET deduction_lock = 1, qty_available = qty_available - ?, "
+                         + "last_deducted_at = NOW() "
+                         + "WHERE product_id = ? AND deduction_lock = 0 AND qty_available >= ?";
+
+        String sqlLog = "INSERT INTO inventory_deduction_log "
+                      + "(product_id, warehouse_id, order_id, order_ref, channel, qty_deducted, "
+                      + "qty_available_before, qty_available_after, deducted_at) "
+                      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+
+        String sqlGetInventory = "SELECT warehouse_id, qty_available FROM inventory "
+                               + "WHERE product_id = ? AND deduction_lock = 1 "
+                               + "ORDER BY warehouse_id LIMIT 1";
+
+        // Get current qty_available for audit log
+        int qtyAvailableNow = getAvailableStock(productId, warehouseId != null ? warehouseId : 1);
+
+        try (Connection conn = DBConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement psDeduct = conn.prepareStatement(sqlDeduct)) {
+                // Attempt atomic deduction
+                psDeduct.setInt(1, qty);
+                psDeduct.setInt(2, productId);
+                psDeduct.setInt(3, qty);
+
+                int rowsUpdated = psDeduct.executeUpdate();
+                if (rowsUpdated == 0) {
+                    conn.rollback();
+                    // Audit log: deduction failed
+                    AuditLogDAO auditLog = new AuditLogDAO();
+                    auditLog.logDeductionAttempt(orderId, orderRef, productId, channel, qty, qtyAvailableNow, false,
+                            "Insufficient stock or lock held by another order");
+                    LOGGER.warning("deductWithLock: failed (stock unavailable or locked) for product " + productId
+                            + " order " + orderRef);
+                    return false;
+                }
+
+                // Get updated values for logging
+                int actualWarehouse = warehouseId != null ? warehouseId : 1; // Default to warehouse 1 if not specified
+                int qtyBefore = 0;
+                String sqlGetBefore = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+                try (PreparedStatement psGet = conn.prepareStatement(sqlGetBefore)) {
+                    psGet.setInt(1, productId);
+                    psGet.setInt(2, actualWarehouse);
+                    try (ResultSet rs = psGet.executeQuery()) {
+                        if (rs.next()) {
+                            // qty_available AFTER deduction (since we already updated it)
+                            qtyBefore = rs.getInt(1) + qty; // Add back qty to get "before" value
+                        }
+                    }
+                }
+
+                // Log deduction
+                try (PreparedStatement psLog = conn.prepareStatement(sqlLog)) {
+                    psLog.setInt(1, productId);
+                    psLog.setInt(2, actualWarehouse);
+                    psLog.setInt(3, orderId);
+                    psLog.setString(4, orderRef);
+                    psLog.setString(5, channel);
+                    psLog.setInt(6, qty);
+                    psLog.setInt(7, qtyBefore);
+                    psLog.setInt(8, qtyBefore - qty); // qty_available_after
+                    psLog.executeUpdate();
+                }
+
+                // Release lock
+                String sqlUnlock = "UPDATE inventory SET deduction_lock = 0 WHERE product_id = ? AND deduction_lock = 1";
+                try (PreparedStatement psUnlock = conn.prepareStatement(sqlUnlock)) {
+                    psUnlock.setInt(1, productId);
+                    psUnlock.executeUpdate();
+                }
+
+                conn.commit();
+                // Audit log: deduction succeeded
+                AuditLogDAO auditLog = new AuditLogDAO();
+                auditLog.logDeductionAttempt(orderId, orderRef, productId, channel, qty, qtyAvailableNow, true, null);
+                LOGGER.info("deductWithLock: successfully deducted " + qty + " units of product " + productId
+                        + " for order " + orderRef + " (channel=" + channel + ")");
+                return true;
+
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                LOGGER.log(Level.SEVERE, "Database error during deductWithLock for order " + orderRef, e);
+                return false;
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "DB connection failed for deductWithLock order " + orderRef, e);
+            return false;
+        }
+    }
+
+    /**
+     * Tracks inventory changes for realtime push batch collection.
+     * Called after each deduction to log what changed.
+     *
+     * @param productId Product ID
+     * @param qtyBefore Quantity before deduction
+     * @param qtyAfter  Quantity after deduction
+     */
+    public void logDeductionForPush(int productId, int qtyBefore, int qtyAfter) {
+        // This method is optional for now; can be used later to track push queue
+        // For now, we rely on getTotalAvailableStock() which queries DB directly
+        LOGGER.finest("Tracked deduction for push: product=" + productId + " before=" + qtyBefore + " after=" + qtyAfter);
+    }
+
+    /**
+     * Retrieves total available inventory (sum across all warehouses) for a product.
+     * Used by realtime push scheduler to batch inventory updates.
+     *
+     * @param productId Product ID
+     * @return Total qty_available across all active warehouses
+     */
+    public int getTotalAvailableStockInt(int productId) {
+        BigDecimal result = sumAvailableByProductId(productId);
+        return result != null ? result.intValue() : 0;
+    }
+
+    /**
+     * Retrieves list of all products that have changed (deducted) since given timestamp.
+     * Used by realtime push scheduler to batch collect changes every 5s.
+     *
+     * Note: For Phase 1 simplicity, we return all products with current inventory.
+     * In Phase 2, can add a changelog table for precise change tracking.
+     *
+     * @return List of InventoryUpdate objects
+     */
+    public List<com.wms.model.InventoryUpdate> getChangesSince() {
+        List<com.wms.model.InventoryUpdate> updates = new ArrayList<>();
+
+        String sql = "SELECT i.product_id, COALESCE(SUM(i.qty_available), 0) AS total_qty " +
+                     "FROM inventory i " +
+                     "JOIN warehouses w ON i.warehouse_id = w.warehouse_id " +
+                     "WHERE w.active = 1 AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL') " +
+                     "GROUP BY i.product_id " +
+                     "ORDER BY i.product_id";
+
+        try (Connection conn = DBConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                String productId = String.valueOf(rs.getInt("product_id"));
+                int qtyAvailable = rs.getInt("total_qty");
+
+                // qtyBefore is not tracked in current schema, so we use 0 as placeholder
+                // In production, this should come from a changelog table
+                updates.add(new com.wms.model.InventoryUpdate(productId, qtyAvailable, 0));
+            }
+
+            LOGGER.log(Level.INFO, "Collected {0} products for inventory push", updates.size());
+            return updates;
+
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "Error collecting changes for push: " + e.getMessage(), e);
+            return new ArrayList<>();
+        }
     }
 }

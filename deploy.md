@@ -12,14 +12,27 @@ mvn package -q
 scp -i ~/.ssh/id_ed25519 target/ROOT.war opc@161.118.245.162:/tmp/ROOT.war
 ```
 
-### Bước 2 — Restart Tomcat (trên Server qua SSH)
+### Bước 2 — Cập nhật & Khởi động lại Tomcat (trên Server qua SSH)
 Kết nối SSH tới server:
 ```bash
 ssh -i ~/.ssh/id_ed25519 opc@161.118.245.162
 ```
-Sau đó, chạy lệnh sau trên server để tắt Tomcat, giải phóng thư mục cũ, copy file WAR mới vào và khởi động lại:
+Sau đó, chạy các lệnh sau trên server. Việc sử dụng `systemctl` giúp quản lý Tomcat như một dịch vụ hệ thống chạy dưới quyền user `tomcat`, tránh được hoàn toàn các lỗi phân quyền (permission denied):
 ```bash
-sudo bash -c '/opt/tomcat10/bin/shutdown.sh && sleep 3 && rm -rf /opt/tomcat10/webapps/ROOT && cp /tmp/ROOT.war /opt/tomcat10/webapps/ROOT.war && /opt/tomcat10/bin/startup.sh'
+# 1. Dừng dịch vụ Tomcat 10
+sudo systemctl stop tomcat10
+
+# 2. Dọn dẹp thư mục ROOT cũ
+sudo rm -rf /opt/tomcat10/webapps/ROOT /opt/tomcat10/webapps/ROOT.war
+
+# 3. Sao chép file WAR mới vào thư mục webapps
+sudo cp /tmp/ROOT.war /opt/tomcat10/webapps/ROOT.war
+
+# 4. Gán lại quyền sở hữu cho user tomcat (QUAN TRỌNG)
+sudo chown tomcat:tomcat /opt/tomcat10/webapps/ROOT.war
+
+# 5. Khởi động lại dịch vụ
+sudo systemctl start tomcat10
 ```
 
 ### Bước 3 — Đợi ~15-20 giây
@@ -41,9 +54,13 @@ Truy cập trang web và thực hiện làm mới hoàn toàn bộ nhớ cache c
   Tên file WAR tải lên bắt buộc phải là `ROOT.war` để ứng dụng được phân phối tại root URL (không có tiền tố path, truy cập qua `isp392.click/`).
 
 * **Khắc phục lỗi treo Tomcat**:
-  Nếu tiến trình tắt Tomcat bị treo hoặc không phản hồi, thực hiện cưỡng bức dừng tiến trình Java chạy Tomcat bằng lệnh:
+  Vì Tomcat đã được thiết lập thành dịch vụ hệ thống `tomcat10`, nếu gặp lỗi đơ/treo bạn chỉ cần chạy lệnh sau để khởi động lại sạch sẽ:
   ```bash
-  sudo pkill -9 -f tomcat
+  sudo systemctl restart tomcat10
+  ```
+  Hoặc dừng hẳn dịch vụ:
+  ```bash
+  sudo systemctl stop tomcat10
   ```
 
 ---

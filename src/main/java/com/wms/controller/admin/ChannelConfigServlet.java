@@ -1,6 +1,7 @@
 package com.wms.controller.admin;
 
 import com.wms.controller.BaseController;
+import com.wms.mockshipping.MockShippingService;
 import com.wms.model.Channel;
 import com.wms.service.sales.ChannelService;
 
@@ -22,6 +23,7 @@ import java.io.IOException;
 public class ChannelConfigServlet extends BaseController {
 
     private final ChannelService channelService = new ChannelService();
+    private final MockShippingService mockShippingService = new MockShippingService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -53,6 +55,7 @@ public class ChannelConfigServlet extends BaseController {
             req.setAttribute("pageSubtitle", "Thiết lập kết nối API, Xác thực và Đồng bộ tồn kho với Sàn TMĐT");
         }
 
+        req.setAttribute("mockShippingEnabled", mockShippingService.isEnabled());
         req.setAttribute("currentPage", "admin-channels-create");
         req.setAttribute("contentPage", "/WEB-INF/views/admin/channel-create.jsp");
         req.getRequestDispatcher("/WEB-INF/views/layout/admin-layout.jsp").forward(req, resp);
@@ -65,6 +68,14 @@ public class ChannelConfigServlet extends BaseController {
         String action = req.getParameter("action");
         if ("testConnection".equals(action)) {
             handleTestConnection(req, resp);
+            return;
+        }
+        if ("generateKey".equals(action)) {
+            handleGenerateKey(req, resp);
+            return;
+        }
+        if ("toggleMockShipping".equals(action)) {
+            handleToggleMockShipping(req, resp);
             return;
         }
 
@@ -97,6 +108,34 @@ public class ChannelConfigServlet extends BaseController {
             req.setAttribute("errorMessage", "Không thể lưu cấu hình kênh bán hàng vào cơ sở dữ liệu.");
             doGet(req, resp);
         }
+    }
+
+    /**
+     * Generates a cryptographically secure random token for api_key or app_secret.
+     * Called via AJAX from channel-create.jsp when platform = Website.
+     */
+    private void handleGenerateKey(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String type = req.getParameter("type"); // "apiKey" | "appSecret"
+        String value = generateSecureToken(type);
+        writeJson(resp, "{\"success\":true,\"value\":\"" + value + "\"}");
+    }
+
+    private String generateSecureToken(String type) {
+        byte[] bytes = new byte[24];
+        new java.security.SecureRandom().nextBytes(bytes);
+        String hex = java.util.HexFormat.of().formatHex(bytes).toUpperCase();
+        String prefix = "appSecret".equals(type) ? "OCW-SEC-" : "OCW-KEY-";
+        return prefix + hex;
+    }
+
+    /**
+     * Toggles website.mock_shipping.enabled — a system_config value, not a column on the
+     * channel row, so this is a standalone AJAX action independent of the channel save form.
+     */
+    private void handleToggleMockShipping(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        boolean enabled = "true".equals(req.getParameter("enabled"));
+        boolean ok = mockShippingService.setEnabled(enabled);
+        writeJson(resp, "{\"success\":" + ok + "}");
     }
 
     private void handleTestConnection(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -157,6 +196,9 @@ public class ChannelConfigServlet extends BaseController {
         if (refreshTokenParam != null && !refreshTokenParam.trim().isEmpty()) {
             channel.setRefreshToken(refreshTokenParam);
         }
+
+        // Apply platform-specific normalization (business rule belongs in service)
+        channelService.normalizeChannel(channel);
 
         return channel;
     }

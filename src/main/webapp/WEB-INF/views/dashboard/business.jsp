@@ -132,10 +132,8 @@
             <div class="chart-card__title">Xu hướng doanh thu bán hàng theo kênh</div>
             <div class="chart-card__sub" id="chartSubLabel">Doanh thu (nghìn VNĐ) — 30 ngày gần nhất</div>
         </div>
-        <div class="legend">
-            <c:forEach var="ch" items="${channels}">
-                <div class="legend-item"><div class="legend-dot" style="background:#69C9D0"></div><span class="legend-label">${ch.channelName}</span></div>
-            </c:forEach>
+        <div class="legend" id="lineChartLegend">
+            <%-- Dots rendered by JS after CHANNEL_COLORS is initialised --%>
         </div>
     </div>
     <div class="chart-wrap" id="lineChartWrap">
@@ -252,7 +250,16 @@
     };
 
 /* ─── Config ─────────────────────────────────────────────── */
-var CHANNEL_COLORS = { Shopee:'#EE4D2D', TikTok:'#69C9D0', Lazada:'#0F146D', Website:'#EB8317', ONLINE:'#10B981', STORE:'#F59E0B', B2B:'#8B5CF6', 'Khác':'#6B7280' };
+var CHANNEL_COLORS = {
+    Shopee:'#EE4D2D', TikTok:'#69C9D0', Lazada:'#0F146D',
+    Website:'#EB8317', ONLINE:'#10B981', STORE:'#F59E0B',
+    B2B:'#8B5CF6', 'Khác':'#6B7280',
+    /* Tên kênh thực tế trong DB */
+    'Own Website':'#10B981',
+    'Shop Xiang':'#A855F7'
+};
+var _FALLBACK_PALETTE = ['#3B82F6','#F59E0B','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16','#0EA5E9'];
+var _fallbackIdx = 0;
 var CHANNELS = [];
 try {
     var rawChJson = '<c:out value="${channelsJson}" escapeXml="false"/>';
@@ -261,7 +268,7 @@ try {
         CHANNELS = chData.map(function(c) { return c.channelName; });
         chData.forEach(function(c) {
             if (!CHANNEL_COLORS[c.channelName]) {
-                CHANNEL_COLORS[c.channelName] = '#69C9D0';
+                CHANNEL_COLORS[c.channelName] = _FALLBACK_PALETTE[_fallbackIdx++ % _FALLBACK_PALETTE.length];
             }
         });
     }
@@ -549,6 +556,7 @@ function updateAll() {
     updateBadge('kpi-return-badge', retGrowth);
 
     /* Charts */
+    renderLineLegend();
     renderLineChart(periodData, TICK_INTERVALS[currentPeriod]);
     renderPieChart(categoryList);
     renderDonut(statusList, totalOrd);
@@ -572,6 +580,19 @@ function updateBadge(id, growth) {
     var downIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>';
     
     badge.innerHTML = (isUp ? upIcon : downIcon) + '<span class="badge-val">' + (isUp ? '+' : '') + growth.toFixed(1) + '%</span>';
+}
+
+/* ══ LINE CHART LEGEND ══════════════════════════════════ */
+function renderLineLegend() {
+    var el = document.getElementById('lineChartLegend');
+    if (!el) return;
+    el.innerHTML = CHANNELS.map(function(ch) {
+        var color = CHANNEL_COLORS[ch] || '#6B7280';
+        return '<div class="legend-item">' +
+            '<div class="legend-dot" style="background:' + color + '"></div>' +
+            '<span class="legend-label">' + ch + '</span>' +
+            '</div>';
+    }).join('');
 }
 
 /* ══ LINE CHART ═════════════════════════════════════════ */

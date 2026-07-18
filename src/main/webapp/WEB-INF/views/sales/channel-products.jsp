@@ -277,7 +277,7 @@
                 </div>
 
                 <label class="cp-form-label" style="font-weight:700;margin-bottom:0.75rem">Chọn sàn thương mại điện tử đích *</label>
-                <div class="cp-platforms-grid">
+                <div class="cp-platforms-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
                     <div class="cp-platform-card lazada" onclick="toggleWizChannel('lazada')" id="pCardLazada">
                         <div class="cp-platform-header">
                             <span class="cp-platform-badge" style="background:#0F146D">Lazada</span>
@@ -286,6 +286,15 @@
                             </div>
                         </div>
                         <p class="cp-platform-desc">Kết nối cổng Lazada Sandbox Open Platform. Đồng bộ giá sàn bán lẻ tùy biến.</p>
+                    </div>
+                    <div class="cp-platform-card website" onclick="toggleWizChannel('website')" id="pCardWebsite">
+                        <div class="cp-platform-header">
+                            <span class="cp-platform-badge" style="background:#EB8317">Website</span>
+                            <div class="cp-platform-chk">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                        </div>
+                        <p class="cp-platform-desc">Đồng bộ sản phẩm, tồn kho và hình ảnh sang hệ thống Website bán hàng Storefront.</p>
                     </div>
                 </div>
             </div>
@@ -939,105 +948,129 @@ function syncInventoryToChannel() {
 // ── PRODUCT PUBLISH ────────────────────────────────────────────────────
 function executePublishProduct() {
     console.log("[executePublishProduct] CALLED at", new Date().toISOString());
-    console.log("[executePublishProduct] wizChannelConfigs:", JSON.stringify(wizChannelConfigs));
-    console.log("[executePublishProduct] wizChannelImages:", JSON.stringify(wizChannelImages));
-    // Lazada channels selected in the wizard — extract real channelId from DB data
-    const lazadaChan = wizSelectedChannels.find(c => c.platform && c.platform.toLowerCase() === "lazada");
-    console.log("[executePublishProduct] lazadaChan:", JSON.stringify(lazadaChan));
-    const channelId = lazadaChan ? lazadaChan.channelId : null;
+    console.log("[executePublishProduct] wizSelectedChannels:", JSON.stringify(wizSelectedChannels));
 
-    // Disable the wizard's Next/Publish button so double-clicks don't
-    // create duplicate items on Lazada. Use id, not a non-existent class.
-    const pushBtn = document.getElementById("btnWizNext");
-
-    if (!channelId) {
-        console.log("[executePublishProduct] BLOCKED: no channelId");
-        showToast("Vui lòng chọn kênh Lazada trước khi đẩy sản phẩm.", "error");
-        if (pushBtn) pushBtn.disabled = false;
+    if (wizSelectedChannels.length === 0) {
+        showToast("Vui lòng chọn ít nhất một kênh bán hàng để đẩy sản phẩm.", "error");
         return;
     }
 
     const productId = wizSelectedMasterSKU
         ? (wizSelectedMasterSKU.productId || wizSelectedMasterSKU.id)
         : null;
-    console.log("[executePublishProduct] productId:", productId);
     if (productId === null || productId === undefined || productId === "" || Number.isNaN(Number(productId))) {
-        console.error("[executePublishProduct] bad productId. wizSelectedMasterSKU:", JSON.stringify(wizSelectedMasterSKU),
-            " wizStep:", wizStep, "wmsSKUs count:", wmsSKUs.length);
-        showToast("Không xác định được sản phẩm cần đẩy. Hãy F5 trang rồi chọn lại SKU.", "error");
-        if (pushBtn) pushBtn.disabled = false;
+        showToast("Không xác định được sản phẩm cần đẩy. Hãy chọn lại SKU.", "error");
         return;
     }
 
+    const pushBtn = document.getElementById("btnWizNext");
     if (pushBtn) {
         pushBtn.disabled = true;
-        pushBtn.textContent = "Đang đẩy lên Lazada...";
+        pushBtn.textContent = "Đang đẩy sản phẩm...";
     }
 
-    // Validate images: server URLs must be ready (no data:image URIs pending upload).
-    // wizChannelImages entries are now {url, base64} objects.
-    const imgs = wizChannelImages.lazada || [];
-    const pending = imgs.filter(function(img) {
-        const url = (img && typeof img === "object") ? img.url : img;
-        return url && typeof url === "string" && url.startsWith("data:");
+    // Validate images and description for each selected channel
+    for (const ch of wizSelectedChannels) {
+        const platform = ch.platform.toLowerCase();
+        const cfg = wizChannelConfigs[platform] || {};
+        const imgs = wizChannelImages[platform] || [];
+        
+        // 1. Pending images validation
+        const pending = imgs.filter(img => {
+            const url = (img && typeof img === "object") ? img.url : img;
+            return url && typeof url === "string" && url.startsWith("data:");
+        });
+        if (pending.length > 0) {
+            showToast(`Vui lòng chờ ảnh của kênh \${ch.channelName} upload xong rồi thử lại.`, "error");
+            if (pushBtn) { pushBtn.disabled = false; renderWizProgress(); }
+            return;
+        }
+
+        // 2. Description validation
+        const desc = (cfg.description || "").trim();
+        if (desc.length < 5) {
+            showToast(`Vui lòng nhập mô tả sản phẩm (tối thiểu 5 ký tự) cho kênh \${ch.channelName}.`, "error");
+            if (pushBtn) { pushBtn.disabled = false; renderWizProgress(); }
+            return;
+        }
+    }
+
+    // Run parallel pushes for all selected channels
+    const promises = wizSelectedChannels.map(ch => {
+        const platform = ch.platform.toLowerCase();
+        if (platform === "lazada") {
+            return pushToLazada(ch.channelId, productId).then(res => ({ channel: ch, result: res }));
+        } else if (platform === "website") {
+            return pushToWebsite(ch.channelId, productId).then(res => ({ channel: ch, result: res }));
+        }
+        return Promise.resolve({ channel: ch, result: { success: false, message: "Kênh chưa hỗ trợ." } });
     });
-    console.log("[executePublishProduct] imgs:", imgs.length, "pending:", pending.length);
-    if (pending.length > 0) {
-        console.log("[executePublishProduct] BLOCKED: pending images");
-        showToast("Vui lòng chờ ảnh upload xong rồi thử lại.", "error");
-        if (pushBtn) { pushBtn.disabled = false; renderWizProgress(); }
-        return;
-    }
 
-    const cfg = wizChannelConfigs.lazada || {};
-    const enteredPrice = Number(cfg.price) || 0;
-    const macPrice = cfg.macPrice || 0;
-    if (macPrice > 0 && enteredPrice > 0 && enteredPrice < macPrice) {
-        showToast("Cảnh báo: Giá bán thấp hơn giá vốn (bán lỗ). Vẫn cho lưu, vui lòng kiểm tra lại.", "info");
-    }
+    Promise.all(promises).then(outcomes => {
+        let successCount = 0;
+        let errors = [];
+        let realLazadaItemId = null;
+        let realLazadaSkuId = null;
 
-    const desc = (cfg.description || "").trim();
-    if (desc.length < 5) {
-        console.log("[executePublishProduct] BLOCKED: desc too short");
-        showToast("Vui lòng nhập mô tả sản phẩm (tối thiểu 5 ký tự) ở Bước 3 trước khi đẩy.", "error", 6000);
-        if (pushBtn) { pushBtn.disabled = false; renderWizProgress(); }
-        return;
-    }
-    if (desc.length > 5000) {
-        console.log("[executePublishProduct] BLOCKED: desc too long");
-        showToast("Mô tả vượt quá 5000 ký tự. Vui lòng rút gọn.", "error", 6000);
-        if (pushBtn) { pushBtn.disabled = false; renderWizProgress(); }
-        return;
-    }
+        outcomes.forEach(o => {
+            const res = o.result;
+            const ch = o.channel;
+            if (res.success) {
+                successCount++;
+                if (ch.platform.toLowerCase() === "lazada") {
+                    realLazadaItemId = res.itemId;
+                    realLazadaSkuId = res.skuId;
+                }
+            } else {
+                const msg = res.message || res.code || "Lỗi không xác định";
+                errors.push(`[\${ch.channelName}] \${msg}`);
+            }
+        });
 
-    console.log("[executePublishProduct] PROCEEDING to pushToLazada");
-    pushToLazada(channelId, productId).then(result => {
-        console.log("[executePublishProduct] server result:", JSON.stringify(result));
-        if (result.success) {
-            showToast(`Đẩy lên Lazada thành công! item_id=${result.itemId}`, "success");
-            finalizePublishData(result.itemId, result.skuId);
-        } else if (result.validationErrors && result.validationErrors.length) {
-            showValidationErrors(result.validationErrors);
-            wizStep = 2;
-            renderWizStep2();
-            renderWizProgress();
-        } else if (result.fieldErrors && result.fieldErrors.length) {
-            showFieldErrors(result.fieldErrors);
+        if (successCount === outcomes.length) {
+            showToast("Đồng bộ sản phẩm lên tất cả các kênh thành công!", "success");
+            finalizePublishData(realLazadaItemId, realLazadaSkuId);
+        } else if (successCount > 0) {
+            showToast(`Đồng bộ thành công \${successCount}/\${outcomes.length} kênh. Lỗi:\n\${errors.join('\n')}`, "warning", 8000);
+            finalizePublishData(realLazadaItemId, realLazadaSkuId);
         } else {
-            const reason = (result.message || result.code)
-                ? `${result.message || result.code}`
-                : "Không rõ lý do (server không trả message). Xem Console log.";
-            showToast(`Lỗi Lazada: ${reason}`, "error", 8000);
+            showToast(`Đồng bộ thất bại:\n\${errors.join('\n')}`, "error", 8000);
         }
     }).catch(err => {
         console.error("[executePublishProduct] fetch error:", err);
-        if (/HTML|hết hạn/i.test(err.message)) showSessionExpired();
-        else showToast("Lỗi kết nối: " + err.message, "error");
+        showToast("Lỗi kết nối: " + err.message, "error");
     }).finally(() => {
         if (pushBtn) {
             pushBtn.disabled = false;
             renderWizProgress();
         }
+    });
+}
+
+function pushToWebsite(channelId, productId) {
+    const cfg = wizChannelConfigs.website || {};
+    const imgs = wizChannelImages.website || [];
+    const params = new URLSearchParams();
+    params.set("action", "push");
+    params.set("channelId", String(channelId));
+    params.set("productId", String(productId));
+    params.set("price", String(cfg.price || 0));
+    params.set("quantity", String(cfg.quantity || 0));
+    params.set("description", cfg.description || "");
+    if (imgs.length > 0) {
+        const urls = [];
+        imgs.forEach(function(img) {
+            const itemUrl = (img && typeof img === "object") ? img.url : (typeof img === "string" ? img : "");
+            if (itemUrl && !itemUrl.startsWith("data:")) {
+                urls.push(itemUrl);
+            }
+        });
+        params.set("imageUrls", urls.join("|"));
+    }
+    return fetchJson(window.location.pathname, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString()
     });
 }
 
@@ -1279,11 +1312,12 @@ function openPublishWizard() {
     wizMasterSearchQuery = "";
     const defaultCat = (DB_CATEGORIES.length > 0) ? DB_CATEGORIES[0].categoryName : "General";
     wizChannelConfigs = {
-        lazada: { category: defaultCat, lazadaCategoryId: null, lazadaCategoryName: "", price: 0, brand: "No Brand", brandId: "30768" }
+        lazada: { category: defaultCat, lazadaCategoryId: null, lazadaCategoryName: "", price: 0, brand: "No Brand", brandId: "30768" },
+        website: { price: 0, quantity: 0, description: "" }
     };
 
     // Clear wizard image states
-    wizChannelImages = { lazada: [] };
+    wizChannelImages = { lazada: [], website: [] };
 
     document.getElementById("publishWizardOverlay").classList.add("open");
     document.getElementById("wizStep1SearchInp").value = "";
@@ -1389,12 +1423,14 @@ function selectWizMasterSKU(sku) {
     wizChannelConfigs.lazada.weight = parseFloat(String(sku.weightKg || sku.weight || 0.2).replace(/[^0-9.]/g, '')) || 0.2;
     wizChannelConfigs.lazada.dimensions = sku.dimensions || "10x10x10";
     wizChannelConfigs.lazada.sellerSku = (sku.sku || "").trim();
-    // Description is intentionally left blank — the operator MUST type the actual
-    // Lazada description in step 3. Auto-filling from shortDescription previously
-    // caused Lazada to display the product name + a stale template instead of the
-    // operator's real copy. Validation in executePublishProduct() blocks empty desc.
     wizChannelConfigs.lazada.description = "";
     wizChannelConfigs.lazada.shortDescription = "";
+
+    wizChannelConfigs.website = {
+        price: defaultPrice,
+        quantity: qty,
+        description: sku.description || "Sản phẩm chất lượng cao chính hãng."
+    };
 
     // Fill specifications details card
     document.getElementById("wizSpecName").textContent = sku.name;
@@ -1406,7 +1442,8 @@ function selectWizMasterSKU(sku) {
     // Set default covers in Step 3 based on name mapping
     const defaultImg = getDynamicCover(sku.name);
     wizChannelImages = {
-        lazada: [{ url: defaultImg, base64: defaultImg }]
+        lazada: [{ url: defaultImg, base64: defaultImg }],
+        website: [{ url: defaultImg, base64: defaultImg }]
     };
 
     // Auto-fill Lazada category from WMS → Lazada mapping (UC-B2C09).
@@ -1437,9 +1474,10 @@ function renderWizStep2() {
     `;
 
     // Highlight selected platform cards — check by platform name
-    const chs = ["lazada"];
+    const chs = ["lazada", "website"];
     chs.forEach(ch => {
         const card = document.getElementById("pCard" + ch.charAt(0).toUpperCase() + ch.slice(1));
+        if (!card) return;
         card.classList.remove("selected");
         if (wizSelectedChannels.some(c => c.platform && c.platform.toLowerCase() === ch)) {
             card.classList.add("selected");
@@ -1627,7 +1665,7 @@ function renderWizStep3() {
                     </div>
                     <div class="cp-form-group">
                         <label class="cp-form-label">Số lượng tồn (Quantity) *</label>
-                        <input type="number" class="cp-input-text" style="padding:0.5rem; text-align:right; background:#f0f0f0; color:#555" value="\${wizChannelConfigs.lazada.quantity || 0}" readonly />
+                        <input type="number" class="cp-input-text" style="padding:0.5rem; text-align:right" value="\${wizChannelConfigs.lazada.quantity || 0}" oninput="wizChannelConfigs.lazada.quantity = Math.max(0, Number(this.value) || 0);" />
                     </div>
                     <div class="cp-form-group" style="grid-column: 1 / -1">
                         <label class="cp-form-label">Mô tả sàn (Description) *</label>
@@ -1658,6 +1696,43 @@ function renderWizStep3() {
         container.appendChild(box);
         renderWizUploader("lazada");
         tryAutoFillLazadaLeaf(lazadaChan.channelId);
+    }
+
+    // Website section — check by platform name in the object array
+    if (wizSelectedChannels.some(c => c.platform && c.platform.toLowerCase() === "website")) {
+        const websiteChan = wizSelectedChannels.find(c => c.platform && c.platform.toLowerCase() === "website");
+
+        const box = document.createElement("div");
+        box.className = "cp-platform-config-box website";
+        box.style.borderColor = "#EB8317";
+        box.style.marginTop = "1rem";
+        box.innerHTML = `
+            <div class="cp-platform-config-hdr website" style="background:#EB8317">
+                <span>CẤU HÌNH TRÊN KÊNH: WEBSITE STOREFRONT</span>
+                <span>REST API Sync</span>
+            </div>
+            <div class="cp-platform-config-body">
+                <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem">
+                    <div class="cp-form-group">
+                        <label class="cp-form-label">Giá bán lẻ Website (Retail Price) *</label>
+                        <input type="number" class="cp-input-text" style="padding:0.5rem; text-align:right" value="\${wizChannelConfigs.website.price}" oninput="wizChannelConfigs.website.price = Math.max(0, Number(this.value) || 0);" />
+                    </div>
+                    <div class="cp-form-group">
+                        <label class="cp-form-label">Số lượng tồn Website (Quantity) *</label>
+                        <input type="number" class="cp-input-text" style="padding:0.5rem; text-align:right" value="\${wizChannelConfigs.website.quantity || 0}" oninput="wizChannelConfigs.website.quantity = Math.max(0, Number(this.value) || 0);" />
+                    </div>
+                    <div class="cp-form-group" style="grid-column: 1 / -1">
+                        <label class="cp-form-label">Mô tả sản phẩm (Description) *</label>
+                        <textarea class="cp-input-text" style="padding:0.5rem; min-height:80px" oninput="wizChannelConfigs.website.description = this.value">\${wizChannelConfigs.website.description || ""}</textarea>
+                    </div>
+                </div>
+                <div style="margin-top: 0.5rem" id="uploaderWizWebsite">
+                    <%-- Render image uploader dynamically --%>
+                </div>
+            </div>
+        `;
+        container.appendChild(box);
+        renderWizUploader("website");
     }
 }
 
@@ -1811,7 +1886,7 @@ function wizNavigate(dir) {
 
 function finalizePublishData(realLazadaItemId, realLazadaSkuId) {
     const today = new Date().toISOString().slice(0, 10);
-    const hasRealLazadaId = realLazadaItemId && realLazadaItemId.trim().length > 0;
+    const hasRealLazadaId = realLazadaItemId ? String(realLazadaItemId).trim().length > 0 : false;
 
     // Many-to-many list update helper matching React's updateSKUMappings logic
     let storedMapList = [];

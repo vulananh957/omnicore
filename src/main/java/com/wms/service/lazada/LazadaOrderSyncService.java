@@ -47,6 +47,7 @@ public class LazadaOrderSyncService {
 
     public LazadaOrderSyncService() {}
 
+
     public void setChannel(Channel channel) {
         this.currentChannel = channel;
     }
@@ -82,8 +83,13 @@ public class LazadaOrderSyncService {
                 firstNonEmpty(detailData.path("created_at").asText(),
                         orderNode.path("created_at").asText(), ""));
         String feeBreakdown = buildFeeBreakdownJson(detailData);
+        // Extract status from detail or order node (Lazada returns array of statuses)
+        String lazadaStatus = orderService.extractStatus(detailData);
+        if (lazadaStatus.isEmpty() || lazadaStatus.equals("pending")) {
+            lazadaStatus = orderService.extractStatus(orderNode);
+        }
 
-        int generatedId = upsertOrder(conn, orderCode, channelId, totalAmount, feeBreakdown, createdAt);
+        int generatedId = upsertOrder(conn, orderCode, channelId, totalAmount, feeBreakdown, createdAt, lazadaStatus);
         if (generatedId <= 0) {
             return SyncResult.SKIPPED;
         }
@@ -110,7 +116,10 @@ public class LazadaOrderSyncService {
     }
 
     private int upsertOrder(Connection conn, String orderCode, int channelId,
-                            BigDecimal totalAmount, String feeBreakdown, Timestamp createdAt) throws SQLException {
+                            BigDecimal totalAmount, String feeBreakdown, Timestamp createdAt,
+                            String lazadaStatus) throws SQLException {
+        // Map Lazada status → WMS status for the orders table
+        String wmsStatus = orderService.mapLazadaStatus(lazadaStatus);
         String sql = "INSERT INTO orders "
                 + "(order_code, channel_id, channel_order_id, warehouse_id, channel, status, "
                 + " total_amount, fee_breakdown_json, sync_status, created_at) "
@@ -118,7 +127,7 @@ public class LazadaOrderSyncService {
                 + "ON DUPLICATE KEY UPDATE "
                 + "  channel_id = VALUES(channel_id), "
                 + "  channel_order_id = VALUES(channel_order_id), "
-                + "  status = IF(status = 'PENDING', VALUES(status), status), "
+                + "  status = VALUES(status), "
                 + "  total_amount = VALUES(total_amount), "
                 + "  fee_breakdown_json = VALUES(fee_breakdown_json), "
                 + "  sync_status = 'SYNCED', "
@@ -130,7 +139,7 @@ public class LazadaOrderSyncService {
             ps.setString(3, orderCode);
             ps.setNull(4, java.sql.Types.INTEGER); // warehouse_id=null until Sales approves
             ps.setString(5, "ONLINE");
-            ps.setString(6, "PENDING");
+            ps.setString(6, wmsStatus);
             ps.setBigDecimal(7, totalAmount);
             ps.setString(8, feeBreakdown);
             ps.setTimestamp(9, createdAt);
@@ -298,12 +307,15 @@ public class LazadaOrderSyncService {
             lo.setLazadaOrderNumber(orderNum.isEmpty() ? orderCode : orderNum);
             lo.setChannelId(channelId);
             
-            String status = detailData.path("status").asText("pending");
+            // Lazada returns status as an array "statuses": ["canceled"] — use extractStatus()
+            String status = orderService.extractStatus(detailData);
+            if (status.isEmpty()) status = "pending";
             lo.setStatus(status);
             if (isCancelledStatus(status)) {
                 lo.setWmsStatus("CANCELLED");
             } else {
                 lo.setWmsStatus("NEW");
+
             }
             
             String firstName = detailData.path("address_shipping").path("first_name").asText();
@@ -456,13 +468,22 @@ public class LazadaOrderSyncService {
      * @return number of new orders inserted
      */
     public int syncNewOrdersFromApi(Channel channel, int limit) {
+        int total = 0;
+        // Fetch pending orders
         try {
             String json = orderService.getPendingOrders(channel);
-            return parseAndUpsertOrders(channel, json, limit);
+            total += parseAndUpsertOrders(channel, json, limit);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "syncNewOrdersFromApi failed: " + e.getMessage(), e);
-            return 0;
+            LOGGER.log(Level.WARNING, "syncNewOrdersFromApi (pending) failed: " + e.getMessage(), e);
         }
+        // Also fetch canceled orders so they appear in the system with correct status
+        try {
+            String json = orderService.getCanceledOrders(channel);
+            total += parseAndUpsertOrders(channel, json, limit);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "syncNewOrdersFromApi (canceled) failed: " + e.getMessage(), e);
+        }
+        return total;
     }
 
     /**
@@ -576,58 +597,25 @@ public class LazadaOrderSyncService {
                 continue;
             }
 
-            LazadaOrder order = new LazadaOrder();
-            order.setLazadaOrderIdStr(orderCode);
-            String orderNum = orderNode.path("order_number").asText();
-            order.setLazadaOrderNumber(orderNum.isEmpty() ? orderCode : orderNum);
-            order.setChannelId(channelId);
-            order.setStatus(lazadaStatus.isEmpty() ? "pending" : lazadaStatus);
-            // If cancelled, set wms_status directly
-            if (isCancelledStatus(lazadaStatus)) {
-                order.setWmsStatus("CANCELLED");
-            } else {
-                order.setWmsStatus("NEW");
+            // For new orders, save to BOTH orders and lazada_orders tables using saveOneOrder
+            String detailJson = null;
+            try {
+                detailJson = orderService.getOrderDetail(channel, orderCode);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "parseAndUpsertOrders: getOrderDetail failed for " + orderCode, e);
             }
-
-            // Extract customer & shipping info
-            String firstName = orderNode.path("address_shipping").path("first_name").asText();
-            String lastName = orderNode.path("address_shipping").path("last_name").asText();
-            String recipientName = (firstName + " " + lastName).trim();
-            if (recipientName.isEmpty()) recipientName = "Lazada Customer";
-            order.setCustomerName(recipientName);
-
-            order.setCustomerPhone(orderNode.path("address_shipping").path("phone").asText());
-
-            String addr1 = orderNode.path("address_shipping").path("address1").asText();
-            String addr2 = orderNode.path("address_shipping").path("address2").asText();
-            String addr3 = orderNode.path("address_shipping").path("address3").asText();
-            java.util.List<String> addrParts = new java.util.ArrayList<>();
-            if (!addr1.trim().isEmpty()) addrParts.add(addr1);
-            if (!addr2.trim().isEmpty()) addrParts.add(addr2);
-            if (!addr3.trim().isEmpty()) addrParts.add(addr3);
-            String address = String.join(", ", addrParts);
-            order.setShippingAddress(address.isEmpty() ? "Lazada Address" : address);
-            order.setShippingCity(orderNode.path("address_shipping").path("city").asText());
-
-            order.setPrice(BigDecimal.valueOf(orderNode.path("price").asDouble(0.0)));
-            order.setShippingFee(BigDecimal.valueOf(orderNode.path("shipping_fee").asDouble(0.0)));
-            order.setVoucherSeller(BigDecimal.valueOf(orderNode.path("voucher_seller").asDouble(0.0)));
-            order.setVoucherPlatform(BigDecimal.valueOf(orderNode.path("voucher_platform").asDouble(0.0)));
-            order.setPaymentMethod(orderNode.path("payment_method").asText("COD"));
-            order.setBuyerNote(orderNode.path("buyer_note").asText(""));
-
-            String createdAtStr = orderNode.path("created_at").asText();
-            String updatedAtStr = orderNode.path("updated_at").asText();
-            if (!createdAtStr.isEmpty()) {
-                order.setLazadaCreatedAt(parseTimestamp(createdAtStr).toLocalDateTime());
+            
+            try (Connection conn = com.wms.util.DBConnection.getConnection()) {
+                conn.setAutoCommit(false);
+                setChannel(channel);
+                saveOneOrder(conn, orderNode, detailJson);
+                conn.commit();
+                count++;
+            } catch (Exception e) {
+                LOGGER.log(Level.SEVERE, "parseAndUpsertOrders: saveOneOrder failed for orderCode=" + orderCode, e);
             }
-            if (!updatedAtStr.isEmpty()) {
-                order.setLazadaUpdatedAt(parseTimestamp(updatedAtStr).toLocalDateTime());
-            }
-
-            order.setSyncedAt(java.time.LocalDateTime.now());
-            lazadaOrderDAO.upsertFromApi(order);
-            count++;
+            
+            // Left in PENDING status with no warehouse assigned so Sales Staff can manually assign it on WMS.
         }
         return count;
     }

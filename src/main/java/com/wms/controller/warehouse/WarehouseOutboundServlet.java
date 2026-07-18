@@ -1,18 +1,14 @@
 package com.wms.controller.warehouse;
 
 import com.wms.controller.BaseController;
-import com.wms.dao.FulfillmentRequestDAO;
-import com.wms.dao.InventoryDAO;
 import com.wms.model.FulfillmentRequest;
 import com.wms.model.OutboundOrder;
 import com.wms.model.User;
 import com.wms.model.Warehouse;
-import com.wms.model.RtvOrder;
 import com.wms.service.product.ProductService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.wms.service.warehouse.InboundService;
 import com.wms.service.warehouse.OutboundService;
-import com.wms.service.warehouse.RtvService;
 import com.wms.service.warehouse.WarehouseService;
 import com.wms.util.AppConstants;
 import com.wms.util.JsonUtil;
@@ -38,11 +34,8 @@ public class WarehouseOutboundServlet extends BaseController {
     private static final String CONTEXT_PATH = "/warehouse/outbound";
     private final OutboundService outboundService = new OutboundService();
     private final WarehouseService warehouseService = new WarehouseService();
-    private final InventoryDAO inventoryDAO = new InventoryDAO();
-    private final FulfillmentRequestDAO fulfillmentDAO = new FulfillmentRequestDAO();
     private final ProductService productService = new ProductService();
     private final InboundService inboundService = new InboundService();
-    private final RtvService rtvService = new RtvService();
     private final com.wms.service.sales.OrderService orderService = new com.wms.service.sales.OrderService();
 
     @Override
@@ -66,15 +59,16 @@ public class WarehouseOutboundServlet extends BaseController {
             req.setAttribute("warehouses", warehouses);
             setJsonAttr(req, "warehousesJson", warehouses);
 
-            List<FulfillmentRequest> fulfillmentRequests = fulfillmentDAO.findPendingByWarehouse(myWarehouseId);
+            List<FulfillmentRequest> fulfillmentRequests = outboundService.findPendingFulfillmentsByWarehouse(myWarehouseId);
             req.setAttribute("fulfillmentRequests", fulfillmentRequests);
             setJsonAttr(req, "fulfillmentRequestsJson", fulfillmentRequests);
 
             setJsonAttr(req, "productsJson", productService.findAll());
+            setJsonAttr(req, "scrapProductsJson", outboundService.findScrapProductsWithQty(myWarehouseId));
 
             // Real-time inventory stock for stock validation on dispatch
             try {
-                var stockRows = inventoryDAO.findInventorySummaryByWarehouse(myWarehouseId);
+                var stockRows = outboundService.findInventorySummaryByWarehouse(myWarehouseId);
                 setJsonAttr(req, "inventoryStockJson", stockRows);
             } catch (Exception ex) {
                 setJsonAttr(req, "inventoryStockJson", List.of());
@@ -82,10 +76,6 @@ public class WarehouseOutboundServlet extends BaseController {
 
             List<com.wms.model.InboundOrder> inboundList = inboundService.findByWarehouse(myWarehouseId);
             req.setAttribute("inboundList", inboundList);
-
-            List<?> rtvList = rtvService.findByWarehouse(myWarehouseId);
-            req.setAttribute("rtvList", rtvList);
-            setJsonAttr(req, "rtvListJson", rtvList);
         } catch (Exception e) {
             outboundOrders = List.of();
             req.setAttribute("warehouses", List.<Warehouse>of());
@@ -93,10 +83,9 @@ public class WarehouseOutboundServlet extends BaseController {
             req.setAttribute("fulfillmentRequests", List.<FulfillmentRequest>of());
             req.setAttribute("fulfillmentRequestsJson", "[]");
             req.setAttribute("productsJson", "[]");
+            req.setAttribute("scrapProductsJson", "[]");
             req.setAttribute("inventoryStockJson", "[]");
             req.setAttribute("inboundList", List.of());
-            req.setAttribute("rtvList", List.of());
-            setJsonAttr(req, "rtvListJson", "[]");
         }
 
         req.setAttribute("outboundOrders", outboundOrders);
@@ -148,26 +137,6 @@ public class WarehouseOutboundServlet extends BaseController {
 
         if ("restock".equals(action)) {
             handleRestock(req, resp);
-            return;
-        }
-
-        if ("createRtv".equals(action)) {
-            handleCreateRtv(req, resp);
-            return;
-        }
-
-        if ("approveRtv".equals(action)) {
-            handleApproveRtv(req, resp);
-            return;
-        }
-
-        if ("completeRtv".equals(action)) {
-            handleCompleteRtv(req, resp);
-            return;
-        }
-
-        if ("cancelRtv".equals(action)) {
-            handleCancelRtv(req, resp);
             return;
         }
 
@@ -230,6 +199,30 @@ public class WarehouseOutboundServlet extends BaseController {
                 redirect(resp, req.getContextPath() + CONTEXT_PATH);
                 return;
             }
+            // Update note if present
+            String note = req.getParameter("note");
+            if (note != null) {
+                outboundService.updateNote(outboundId, note.trim());
+            }
+
+            // Update item quantities if present (e.g. qty_productId)
+            if (oo.getItems() != null) {
+                for (com.wms.model.OutboundItem item : oo.getItems()) {
+                    String paramName = "qty_" + item.getProductId();
+                    String qtyStr = req.getParameter(paramName);
+                    if (qtyStr != null) {
+                        try {
+                            java.math.BigDecimal qty = new java.math.BigDecimal(qtyStr.trim());
+                            if (qty.compareTo(java.math.BigDecimal.ZERO) >= 0) {
+                                outboundService.updateItemQty(outboundId, item.getProductId(), qty);
+                            }
+                        } catch (Exception ex) {
+                            // ignore malformed quantities
+                        }
+                    }
+                }
+            }
+
             OutboundService.StatusUpdateResult result = outboundService.updateStatus(outboundId, newStatus, currentUserId(req));
             if (result.isSuccess()) {
                 setFlashSuccess(req, result.getMessage());
@@ -254,8 +247,7 @@ public class WarehouseOutboundServlet extends BaseController {
 
         int myWarehouseId = currentWarehouseId(req);
 
-        com.wms.dao.OrderDAO orderDAO = new com.wms.dao.OrderDAO();
-        com.wms.model.Order order = orderDAO.findByOrderCode(orderCode);
+        com.wms.model.Order order = outboundService.findOrderByCode(orderCode);
         if (order == null) {
             resp.getWriter().write("{\"success\":false,\"message\":\"Không tìm thấy đơn hàng: " + escapeJson(orderCode) + "\"}");
             return;
@@ -303,12 +295,6 @@ public class WarehouseOutboundServlet extends BaseController {
         }
     }
 
-    @Override
-    protected String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "");
-    }
 
     private void handleCancel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String outboundIdStr = req.getParameter("outboundId");
@@ -365,7 +351,7 @@ public class WarehouseOutboundServlet extends BaseController {
             }
 
             // Release inventory allocation for this outbound
-            boolean released = outboundService.releaseAllocationsForOutbound(outboundId);
+            boolean released = outboundService.releaseAllocationsForOutbound(outboundId, currentUserId(req));
             if (released) {
                 setFlashSuccess(req, "Đã hoàn kệ thành công. Tồn kho đã được giải phóng.");
             } else {
@@ -419,129 +405,5 @@ public class WarehouseOutboundServlet extends BaseController {
             setFlashError(req, r.getMessage());
         }
         redirect(resp, req.getContextPath() + CONTEXT_PATH);
-    }
-
-    private void handleCreateRtv(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=UTF-8");
-        try {
-            int inboundId = Integer.parseInt(req.getParameter("inboundId"));
-            com.wms.model.InboundOrder io = inboundService.findById(inboundId);
-            int myWarehouseId = currentWarehouseId(req);
-            if (io == null || io.getWarehouseId() != myWarehouseId) {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Bạn không có quyền tạo phiếu trả hàng NCC từ phiếu nhập thuộc kho khác.\"}");
-                return;
-            }
-            String reason = req.getParameter("reason");
-            String note = req.getParameter("note");
-            String poCode = req.getParameter("poCode");
-            String supplierCode = req.getParameter("supplierCode");
-            String contactPerson = req.getParameter("contactPerson");
-            String proposal = req.getParameter("proposal");
-            String itemsJson = req.getParameter("itemsJson");
-            List<RtvService.RtvItemRequest> itemRequests = null;
-            if (itemsJson != null && !itemsJson.trim().isEmpty()) {
-                itemRequests = JsonUtil.getMapper().readValue(itemsJson,
-                        new TypeReference<List<RtvService.RtvItemRequest>>() {});
-            }
-            Integer currentUserId = currentUserId(req);
-            int uid = currentUserId != null ? currentUserId : 1;
-            RtvService.RtvResult result = rtvService.createRtv(inboundId, itemRequests, reason, note, uid, poCode, supplierCode, contactPerson, proposal);
-            resp.getWriter().write("{\"success\":" + result.isSuccess()
-                    + ",\"message\":\"" + rtvEscapeJson(result.getMessage()) + "\"}");
-        } catch (Exception e) {
-            resp.getWriter().write("{\"success\":false,\"message\":\"Lỗi: " + rtvEscapeJson(e.getMessage()) + "\"}");
-        }
-    }
-
-    private void handleApproveRtv(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=UTF-8");
-        try {
-            int rtvId = Integer.parseInt(req.getParameter("rtvId"));
-            RtvOrder rtv = rtvService.findById(rtvId);
-            int myWarehouseId = currentWarehouseId(req);
-            if (rtv == null || rtv.getWarehouseId() != myWarehouseId) {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Bạn không có quyền duyệt phiếu trả hàng NCC thuộc kho khác.\"}");
-                return;
-            }
-            Integer currentUserId = currentUserId(req);
-            int uid = currentUserId != null ? currentUserId : 1;
-
-            Object u = req.getSession().getAttribute(AppConstants.SESSION_USER);
-            if (u instanceof User) {
-                User user = (User) u;
-                if (!"MANAGER".equals(user.getRole())) {
-                    resp.getWriter().write("{\"success\":false,\"message\":\"Chỉ cấp quản lý (Manager) mới có quyền duyệt phiếu trả hàng NCC.\"}");
-                    return;
-                }
-            } else {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Yêu cầu đăng nhập.\"}");
-                return;
-            }
-
-            RtvService.RtvResult result = rtvService.approveRtv(rtvId, uid);
-            resp.getWriter().write("{\"success\":" + result.isSuccess()
-                    + ",\"message\":\"" + rtvEscapeJson(result.getMessage()) + "\"}");
-        } catch (Exception e) {
-            resp.getWriter().write("{\"success\":false,\"message\":\"Lỗi: " + rtvEscapeJson(e.getMessage()) + "\"}");
-        }
-    }
-
-    private void handleCompleteRtv(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=UTF-8");
-        try {
-            int rtvId = Integer.parseInt(req.getParameter("rtvId"));
-            RtvOrder rtv = rtvService.findById(rtvId);
-            int myWarehouseId = currentWarehouseId(req);
-            if (rtv == null || rtv.getWarehouseId() != myWarehouseId) {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Bạn không có quyền hoàn thành phiếu trả hàng NCC thuộc kho khác.\"}");
-                return;
-            }
-            Integer currentUserId = currentUserId(req);
-            int uid = currentUserId != null ? currentUserId : 1;
-            RtvService.RtvResult result = rtvService.completeRtv(rtvId, uid);
-            resp.getWriter().write("{\"success\":" + result.isSuccess()
-                    + ",\"message\":\"" + rtvEscapeJson(result.getMessage()) + "\"}");
-        } catch (Exception e) {
-            resp.getWriter().write("{\"success\":false,\"message\":\"Lỗi: " + rtvEscapeJson(e.getMessage()) + "\"}");
-        }
-    }
-
-    private void handleCancelRtv(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=UTF-8");
-        try {
-            int rtvId = Integer.parseInt(req.getParameter("rtvId"));
-            RtvOrder rtv = rtvService.findById(rtvId);
-            int myWarehouseId = currentWarehouseId(req);
-            if (rtv == null || rtv.getWarehouseId() != myWarehouseId) {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Bạn không có quyền hủy phiếu trả hàng NCC thuộc kho khác.\"}");
-                return;
-            }
-            Integer currentUserId = currentUserId(req);
-            int uid = currentUserId != null ? currentUserId : 1;
-
-            Object u = req.getSession().getAttribute(AppConstants.SESSION_USER);
-            if (u instanceof User) {
-                User user = (User) u;
-                if (!"MANAGER".equals(user.getRole())) {
-                    resp.getWriter().write("{\"success\":false,\"message\":\"Chỉ cấp quản lý (Manager) mới có quyền hủy phiếu trả hàng NCC.\"}");
-                    return;
-                }
-            } else {
-                resp.getWriter().write("{\"success\":false,\"message\":\"Yêu cầu đăng nhập.\"}");
-                return;
-            }
-
-            RtvService.RtvResult result = rtvService.cancelRtv(rtvId, uid);
-            resp.getWriter().write("{\"success\":" + result.isSuccess()
-                    + ",\"message\":\"" + rtvEscapeJson(result.getMessage()) + "\"}");
-        } catch (Exception e) {
-            resp.getWriter().write("{\"success\":false,\"message\":\"Lỗi: " + rtvEscapeJson(e.getMessage()) + "\"}");
-        }
-    }
-
-    private String rtvEscapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "");
     }
 }

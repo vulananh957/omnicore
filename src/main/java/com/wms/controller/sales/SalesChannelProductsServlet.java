@@ -10,6 +10,7 @@ import com.wms.service.lazada.LazadaProductService;
 import com.wms.service.lazada.LazadaProductService.PushResult;
 import com.wms.service.sales.ChannelService;
 import com.wms.service.product.ProductService;
+import com.wms.service.website.WebsiteProductService;
 import com.wms.util.JsonUtil;
 import java.util.Map;
 
@@ -43,6 +44,13 @@ public class SalesChannelProductsServlet extends BaseController {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
+        // ── AJAX GET actions (return JSON) — check BEFORE loading heavy DB data ──
+        String action = req.getParameter("action");
+        if ("getProductDetail".equals(action)) {
+            handleGetProductDetail(req, resp);
+            return;
+        }
+
         try {
             List<?> channels = channelService.findAll();
             req.setAttribute("channelsList", channels);
@@ -74,13 +82,6 @@ public class SalesChannelProductsServlet extends BaseController {
         } catch (Exception e) {
             req.setAttribute("channelProductsList", List.of());
             req.setAttribute("channelProductsJson", "[]");
-        }
-
-        // ── AJAX GET actions (return JSON, do not forward to JSP) ──────────────
-        String action = req.getParameter("action");
-        if ("getProductDetail".equals(action)) {
-            handleGetProductDetail(req, resp);
-            return;
         }
 
         req.setAttribute("pageTitle",    "Sản Phẩm Theo Kênh");
@@ -127,7 +128,12 @@ public class SalesChannelProductsServlet extends BaseController {
                 return;
             }
             try {
-                LazadaProductService.PullResult r = new LazadaProductService().pullProducts(ch);
+                LazadaProductService.PullResult r;
+                if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                    r = new WebsiteProductService().pullProducts(ch);
+                } else {
+                    r = new LazadaProductService().pullProducts(ch);
+                }
                 if (r.ok) {
                     writeJson(resp, "{\"success\":true,\"message\":\"Kéo sản phẩm thành công! Đã tải " + r.pulled + " sản phẩm từ sàn, phát hiện " + r.unmapped + " sản phẩm chưa ánh xạ.\"}");
                 } else {
@@ -256,8 +262,18 @@ public class SalesChannelProductsServlet extends BaseController {
                 try {
                     LOGGER.info("pushProduct START: channelId=" + channelId + " productId=" + productId);
                     long t0 = System.currentTimeMillis();
-                    r = new LazadaProductService().pushProduct(
-                            ch, productId, customImageUrls, customImageBase64s, cp);
+                    if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                        com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                        boolean ok = wps.pushProduct(ch, productId, customImageUrls);
+                        if (ok) {
+                            r = PushResult.success(String.valueOf(productId), null, null);
+                        } else {
+                            r = PushResult.failure("PUSH_FAILED", "Không thể kết nối hoặc đẩy sản phẩm sang Website.");
+                        }
+                    } else {
+                        r = new LazadaProductService().pushProduct(
+                                ch, productId, customImageUrls, customImageBase64s, cp);
+                    }
                     long elapsed = System.currentTimeMillis() - t0;
                     LOGGER.info("pushProduct DONE in " + elapsed + "ms: success=" + r.success + " code=" + r.code);
                 } catch (Exception ex) {
@@ -291,7 +307,18 @@ public class SalesChannelProductsServlet extends BaseController {
                     writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy kênh cấu hình.\"}");
                     return;
                 }
-                LazadaProductService.DeleteResult r = new LazadaProductService().deleteProduct(ch, id);
+                LazadaProductService.DeleteResult r;
+                if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    boolean ok = wps.deleteProduct(ch, id);
+                    if (ok) {
+                        r = new LazadaProductService.DeleteResult(true, "0", "Xóa sản phẩm khỏi Website thành công!");
+                    } else {
+                        r = new LazadaProductService.DeleteResult(false, "DELETE_FAILED", "Không thể gỡ sản phẩm khỏi Website.");
+                    }
+                } else {
+                    r = new LazadaProductService().deleteProduct(ch, id);
+                }
                 if (r.success) {
                     writeJson(resp, "{\"success\":true,\"message\":\"" + esc(r.message) + "\"}");
                 } else {
@@ -357,7 +384,10 @@ public class SalesChannelProductsServlet extends BaseController {
                 if (shortDescParam != null && !shortDescParam.isBlank()) cp.setShortDescription(shortDescParam);
                 // description: set last so the service reads the right value
                 if (description != null) cp.setDescription(description);
-                cp.setShortDescription(description != null ? description : (shortDescParam != null ? shortDescParam : null));
+                // Only use description as fallback for shortDescription if no explicit shortDescription was provided
+                if (shortDescParam == null || shortDescParam.isBlank()) {
+                    cp.setShortDescription(description);
+                }
                 if (price != null) cp.setChannelPrice(price);
 
                 // ── 3. Persist to DB before Lazada call ──────────────────────
@@ -398,8 +428,19 @@ public class SalesChannelProductsServlet extends BaseController {
                 // Pass null for cpFromServlet — all fields already persisted to DB.
                 // Passing price/description separately is redundant since cpFromServlet
                 // was the source, and the service will reload from DB anyway.
-                PushResult r = new LazadaProductService().updateProduct(
-                        ch, id, null, null, null, imageUrls, imageBase64s);
+                PushResult r;
+                if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    boolean ok = wps.updateProduct(ch, id, cp != null ? cp.getChannelPrice() : null, cp != null ? cp.getDescription() : null);
+                    if (ok) {
+                        r = PushResult.success(cp != null ? cp.getChannelItemId() : "", null, null);
+                    } else {
+                        r = PushResult.failure("UPDATE_FAILED", "Không thể cập nhật sản phẩm lên Website storefront.");
+                    }
+                } else {
+                    r = new LazadaProductService().updateProduct(
+                            ch, id, null, null, null, imageUrls, imageBase64s);
+                }
                 String rendered = renderPushResultJson(r);
                 LOGGER.info("=== PUSH RESPONSE === " + rendered);
                 writeJson(resp, rendered);
@@ -545,7 +586,18 @@ public class SalesChannelProductsServlet extends BaseController {
                     return;
                 }
                 LOGGER.info("=== DEBUG PUSH START channel=" + channelId + " product=" + productId + " ===");
-                PushResult r = new LazadaProductService().pushProduct(ch, productId);
+                PushResult r;
+                if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    boolean ok = wps.pushProduct(ch, productId);
+                    if (ok) {
+                        r = PushResult.success(String.valueOf(productId), null, null);
+                    } else {
+                        r = PushResult.failure("PUSH_FAILED", "Không thể đẩy sản phẩm lên Website.");
+                    }
+                } else {
+                    r = new LazadaProductService().pushProduct(ch, productId);
+                }
                 LOGGER.info("=== DEBUG PUSH END success=" + r.success + " code=" + r.code
                         + " msg=" + r.message + " ===");
                 writeJson(resp, renderPushResultJson(r));

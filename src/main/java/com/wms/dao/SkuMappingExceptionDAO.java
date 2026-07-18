@@ -74,6 +74,65 @@ public class SkuMappingExceptionDAO {
         return 0;
     }
 
+    /**
+     * Lấy danh sách sản phẩm trong channel_products chưa được ánh xạ vào bất kỳ
+     * sku_mappings nào. Dùng để bổ sung vào drawer "Hộp thư" cho các kênh không
+     * dùng exception log (ví dụ: Website/Own Website).
+     *
+     * Trả về cùng cấu trúc Map với findUnresolved() để JSP/JS xử lý đồng nhất.
+     * exceptionId = -cp.id (âm) để phân biệt với mapping_exceptions thật.
+     */
+    public List<Map<String, Object>> findUnmappedChannelProducts() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        String sql = "SELECT cp.id, cp.channel_id, cp.channel_sku_code, cp.channel_item_id, "
+                   + "cp.seller_sku, p.product_name AS cp_product_name, "
+                   + "c.channel_name, c.platform "
+                   + "FROM channel_products cp "
+                   + "JOIN channels c ON cp.channel_id = c.channel_id "
+                   + "LEFT JOIN products p ON cp.product_id = p.product_id "
+                   + "WHERE c.is_active = 1 "
+                   + "  AND NOT EXISTS ( "
+                   + "    SELECT 1 FROM sku_mappings sm "
+                   + "    WHERE sm.channel_id = cp.channel_id "
+                   + "      AND (sm.external_sku = cp.channel_sku_code "
+                   + "           OR sm.seller_sku = cp.channel_sku_code) "
+                   + "  ) "
+                   + "ORDER BY c.channel_name, cp.channel_sku_code";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                Map<String, Object> row = new HashMap<>();
+                // Dùng id âm để phân biệt với mapping_exceptions thật
+                row.put("exceptionId", -rs.getInt("id"));
+                row.put("channelId",   rs.getInt("channel_id"));
+                row.put("channelName", rs.getString("channel_name"));
+                row.put("platform",    rs.getString("platform"));
+
+                String sku = rs.getString("channel_sku_code");
+                row.put("externalSku",    sku);
+                row.put("channelItemId",  rs.getString("channel_item_id"));
+                row.put("channelSkuCode", sku);
+                row.put("sellerSku",      rs.getString("seller_sku") != null
+                                          ? rs.getString("seller_sku") : sku);
+
+                // Tên sản phẩm: ưu tiên tên từ products (nếu đã link product_id), fallback sku
+                String cpName = rs.getString("cp_product_name");
+                row.put("reason", cpName != null ? cpName : ("Sản phẩm kênh (" + sku + ")"));
+
+                row.put("orderCode", null);
+                row.put("createdAt", null);
+                row.put("resolved",  0);
+                list.add(row);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "SkuMappingExceptionDAO.findUnmappedChannelProducts: failed", e);
+        }
+        return list;
+    }
+
     /** Đánh dấu đã xử lý (resolved = 1, resolved_at = NOW). */
     public boolean markResolved(int exceptionId) {
         String sql = "UPDATE mapping_exceptions "

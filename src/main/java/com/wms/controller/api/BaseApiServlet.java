@@ -1,5 +1,6 @@
 package com.wms.controller.api;
 
+import com.wms.dao.AuditLogDAO;
 import com.wms.dao.ChannelDAO;
 import com.wms.model.Channel;
 import com.wms.util.JsonUtil;
@@ -37,6 +38,7 @@ public abstract class BaseApiServlet extends HttpServlet {
     private static final long MAX_CLOCK_SKEW_SECONDS = 300;
 
     private final ChannelDAO channelDAO = new ChannelDAO();
+    private final AuditLogDAO auditLogDAO = new AuditLogDAO();
 
     /**
      * Verifies X-Timestamp/X-Signature against the channel's app_secret. On success returns
@@ -90,9 +92,15 @@ public abstract class BaseApiServlet extends HttpServlet {
         }
 
         if (!constantTimeEquals(expected, signatureHeader)) {
+            auditLogDAO.logApiAuth(PLATFORM, req.getMethod(), pathWithQuery,
+                    req.getRemoteAddr(), false, "Invalid signature");
             sendError(resp, HttpServletResponse.SC_UNAUTHORIZED, "Invalid signature");
             return null;
         }
+
+        // Log successful authentication
+        auditLogDAO.logApiAuth(PLATFORM, req.getMethod(), pathWithQuery,
+                req.getRemoteAddr(), true, null);
 
         return body;
     }

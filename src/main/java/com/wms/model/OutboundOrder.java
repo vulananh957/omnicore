@@ -16,11 +16,12 @@ import java.util.List;
  */
 public class OutboundOrder {
 
-    public static final String STATUS_PENDING   = "PENDING";
-    public static final String STATUS_PICKING  = "PICKING";
-    public static final String STATUS_PACKED   = "PACKED";
-    public static final String STATUS_SHIPPED  = "SHIPPED";
-    public static final String STATUS_CANCELLED = "CANCELLED";
+    public static final String STATUS_PENDING      = "PENDING_PACK";
+    public static final String STATUS_PICKING      = "PACKED"; // compatibility alias
+    public static final String STATUS_PACKED       = "PACKED";
+    public static final String STATUS_HANDED_OVER  = "HANDED_OVER";
+    public static final String STATUS_SHIPPED      = "SHIPPED";
+    public static final String STATUS_CANCELLED    = "CANCELLED";
 
     @JsonProperty("id")
     private int outboundId;
@@ -54,6 +55,19 @@ public class OutboundOrder {
 
     @JsonProperty("labelPrinted")
     private boolean labelPrinted;
+
+    /** Optimistic-locking counter — prevents two concurrent status updates from both succeeding. */
+    private int version;
+
+    /** True once inventory allocation has been released back to available stock after cancel. */
+    @JsonProperty("restocked")
+    private boolean restocked;
+
+    @JsonProperty("rtsPushed")
+    private boolean rtsPushed;
+
+    @JsonProperty("reviewNote")
+    private String reviewNote;
 
     public OutboundOrder() {
     }
@@ -135,6 +149,22 @@ public class OutboundOrder {
 
     public void setLabelPrinted(boolean labelPrinted) {
         this.labelPrinted = labelPrinted;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public void setVersion(int version) {
+        this.version = version;
+    }
+
+    public boolean isRestocked() {
+        return restocked;
+    }
+
+    public void setRestocked(boolean restocked) {
+        this.restocked = restocked;
     }
 
     // ── Getters / Setters ─────────────────────────────────────
@@ -233,6 +263,22 @@ public class OutboundOrder {
 
     public void setWarehouseName(String warehouseName) {
         this.warehouseName = warehouseName;
+    }
+
+    public boolean isRtsPushed() {
+        return rtsPushed;
+    }
+
+    public void setRtsPushed(boolean rtsPushed) {
+        this.rtsPushed = rtsPushed;
+    }
+
+    public String getReviewNote() {
+        return reviewNote;
+    }
+
+    public void setReviewNote(String reviewNote) {
+        this.reviewNote = reviewNote;
     }
 
     @Override

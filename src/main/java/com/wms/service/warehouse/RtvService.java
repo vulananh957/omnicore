@@ -1,6 +1,7 @@
 package com.wms.service.warehouse;
 
 import com.wms.dao.InboundDAO;
+import com.wms.dao.InventoryDAO;
 import com.wms.dao.RtvDAO;
 import com.wms.model.InboundOrder;
 import com.wms.model.RtvItem;
@@ -23,6 +24,7 @@ public class RtvService {
 
     private final RtvDAO rtvDAO = new RtvDAO();
     private final InboundDAO inboundDAO = new InboundDAO();
+    private final InventoryDAO inventoryDAO = new InventoryDAO();
 
     // -----------------------------------------------------------------------
     // Queries
@@ -132,12 +134,11 @@ public class RtvService {
 
         // Deduct defective inventory
         if (rtv.getItems() != null) {
-            com.wms.dao.InventoryDAO inventoryDAO = new com.wms.dao.InventoryDAO();
             for (RtvItem item : rtv.getItems()) {
                 boolean deducted = inventoryDAO.deductDefectiveInventory(
                     item.getProductId(), rtv.getWarehouseId(), item.getQtyReturn(), userId, "Xuất trả NCC (" + rtv.getCode() + ")");
                 if (!deducted) {
-                    log.warn("Failed to deduct defective inventory for product ID={} in warehouse ID={}", 
+                    log.warn("Failed to deduct defective inventory for product ID={} in warehouse ID={}",
                         item.getProductId(), rtv.getWarehouseId());
                 }
             }

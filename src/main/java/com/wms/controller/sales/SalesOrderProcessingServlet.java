@@ -50,6 +50,9 @@ public class SalesOrderProcessingServlet extends BaseController {
             setJsonAttr(req, "warehousesJson", warehouses);
             setJsonAttr(req, "lazadaOrdersJson", lazadaOrders);
             setJsonAttr(req, "shipmentProvidersJson", providers);
+
+            List<com.wms.model.RmaRequest> pendingRmaList = new com.wms.dao.RmaDAO().findPendingForWebsite();
+            req.setAttribute("pendingRmaList", pendingRmaList);
         } catch (Exception e) {
             req.setAttribute("orderList", List.of());
             req.setAttribute("warehouses", List.<Warehouse>of());

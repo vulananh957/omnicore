@@ -92,21 +92,65 @@
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem;">
-                    <div>
+                <div id="apiCredGrid" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem;">
+                    <!-- App Key (Lazada only — Website authenticates purely via HMAC app_secret, no api_key) -->
+                    <div id="appKeyField">
                         <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">App Key <span id="apiKeyRequiredMark" style="color: #ef4444;">*</span></label>
-                        <input type="text" id="apiKey" name="apiKey" placeholder="Lấy từ Console"
-                               value="<c:out value='${channel.apiKey}' default=''/>"
-                               style="width: 100%; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="apiKey" name="apiKey" placeholder="Lấy từ Console"
+                                   value="<c:out value='${channel.apiKey}' default=''/>"
+                                   style="flex: 1; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
+                        </div>
                     </div>
+
+                    <!-- App Secret -->
                     <div>
                         <label style="display: block; color: rgba(16,55,92,0.70); font-size: 12px; font-weight: 600; margin-bottom: 0.375rem;">App Secret <span style="color: #ef4444;">*</span></label>
-                        <input type="password" id="appSecret" name="appSecret" 
-                               placeholder="${isEditMode ? 'Nhập mật khẩu mới để thay đổi, bỏ trống để giữ nguyên' : '••••••••••'}"
-                               <c:if test="${!isEditMode}">required</c:if>
-                               value="<c:out value='${channel.appSecret}' default=''/>"
-                               style="width: 100%; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="password" id="appSecret" name="appSecret"
+                                   placeholder="${isEditMode ? 'Nhập mật khẩu mới để thay đổi, bỏ trống để giữ nguyên' : '••••••••••'}"
+                                   <c:if test="${!isEditMode}">required</c:if>
+                                   value="<c:out value='${channel.appSecret}' default=''/>"
+                                   style="flex: 1; padding: 0.625rem 1rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); font-size: 13px; outline: none; border-radius: calc(var(--radius-btn) - 2px);" />
+                            <button type="button" id="btnViewSecret" title="Hiện / Ẩn App Secret"
+                                    style="display: none; align-items: center; justify-content: center; padding: 0 0.75rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); border-radius: calc(var(--radius-btn) - 2px); cursor: pointer; flex-shrink: 0;">
+                                <svg id="iconEyeOpen" style="width:14px;height:14px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg id="iconEyeClosed" style="width:14px;height:14px;display:none;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                            <button type="button" id="btnCopySecret" title="Copy App Secret"
+                                    style="display: none; align-items: center; justify-content: center; padding: 0 0.75rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); border-radius: calc(var(--radius-btn) - 2px); cursor: pointer; flex-shrink: 0;">
+                                <svg style="width:14px;height:14px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                            <button type="button" id="btnRefreshSecret" title="Sinh lại App Secret"
+                                    style="display: none; align-items: center; justify-content: center; padding: 0 0.75rem; background: var(--alice); border: 1px solid #E5EAF3; color: var(--navy); border-radius: calc(var(--radius-btn) - 2px); cursor: pointer; flex-shrink: 0;">
+                                <svg style="width:14px;height:14px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <p id="secretRotateWarning" style="display: none; color: #ef4444; font-size: 11px; margin: 0.375rem 0 0 0;">
+                            Sinh lại sẽ làm omnicore-web ngừng xác thực được ngay cho đến khi anh cập nhật <code>omnicore.hmac.secret</code> bên đó và khởi động lại/reload.
+                        </p>
                     </div>
+                </div>
+
+                <!-- Mock shipping — Website only, independent toggle (not part of the channel save form) -->
+                <div id="mockShippingSection" style="display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #E5EAF3;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 13px; color: var(--navy); cursor: pointer;">
+                        <input type="checkbox" id="mockShippingEnabled" style="accent-color: var(--orange); width: 16px; height: 16px;" ${mockShippingEnabled ? 'checked' : ''} />
+                        Bật mô phỏng đơn vị vận chuyển (mock)
+                    </label>
+                    <p style="color: rgba(16,55,92,0.45); font-size: 11px; margin: 0.375rem 0 0 1.5rem;">
+                        Khi bật: khách chọn hãng + phí vận chuyển giả lúc checkout trên Website, kho in được tem vận đơn giả. Không ảnh hưởng nút "Xác nhận đã giao" — nút đó luôn hoạt động dù tắt mock.
+                    </p>
                 </div>
 
                 <!-- SUBMIT FOOTER -->
@@ -168,44 +212,179 @@
 
 <script>
 (function() {
+    var ctx = '${pageContext.request.contextPath}';
+
     // Platform config — defaults for empty form
     var configMap = {
         'Lazada':  { endpoint: 'https://api.lazada.vn/rest',  webhook: 'https://wmshub.vn/webhook/lazada' },
         'Website': { endpoint: '', webhook: '' }
     };
 
-    var platformSelect      = document.getElementById('platform');
-    var apiUrlInput         = document.getElementById('apiUrl');
-    var apiKeyInput         = document.getElementById('apiKey');
-    var webhookUrlInput     = document.getElementById('webhookUrl');
-    var apiUrlRequiredMark  = document.getElementById('apiUrlRequiredMark');
-    var apiKeyRequiredMark  = document.getElementById('apiKeyRequiredMark');
+    var platformSelect     = document.getElementById('platform');
+    var apiUrlInput        = document.getElementById('apiUrl');
+    var apiCredGrid        = document.getElementById('apiCredGrid');
+    var appKeyField        = document.getElementById('appKeyField');
+    var apiKeyInput        = document.getElementById('apiKey');
+    var appSecretInput     = document.getElementById('appSecret');
+    var webhookUrlInput    = document.getElementById('webhookUrl');
+    var apiUrlRequiredMark = document.getElementById('apiUrlRequiredMark');
+    var apiKeyRequiredMark = document.getElementById('apiKeyRequiredMark');
+    var btnRefreshSecret   = document.getElementById('btnRefreshSecret');
+    var btnViewSecret      = document.getElementById('btnViewSecret');
+    var btnCopySecret      = document.getElementById('btnCopySecret');
+    var secretRotateWarning = document.getElementById('secretRotateWarning');
+    var iconEyeOpen        = document.getElementById('iconEyeOpen');
+    var iconEyeClosed      = document.getElementById('iconEyeClosed');
+    var mockShippingSection = document.getElementById('mockShippingSection');
+    var mockShippingEnabled = document.getElementById('mockShippingEnabled');
+
+    // ── Generate key from server ──────────────────────────────────────────────
+    function generateKey(type, targetInput, btn) {
+        var origContent = btn.innerHTML;
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        fetch(ctx + '/admin/channels/create?action=generateKey&type=' + type, { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    targetInput.value = data.value;
+                    // Brief green flash to signal success
+                    targetInput.style.borderColor = '#10b981';
+                    setTimeout(function() { targetInput.style.borderColor = '#E5EAF3'; }, 1200);
+                }
+            })
+            .catch(function() {})
+            .finally(function() {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            });
+    }
+
+    // ── Platform-aware field mode ─────────────────────────────────────────────
+    var isEditMode = ${isEditMode ? 'true' : 'false'};
+
+    function applyWebsiteMode() {
+        // App Key is unused for Website (auth is pure HMAC via app_secret) — hide entirely
+        // and clear any leftover value instead of showing a dead field.
+        appKeyField.style.display = 'none';
+        apiCredGrid.style.gridTemplateColumns = '1fr';
+        apiKeyInput.value = '';
+        apiKeyInput.required = false;
+        apiKeyRequiredMark.style.display = 'none';
+
+        // App Secret: readonly, server-generated, revealed/copied/rotated via buttons below.
+        appSecretInput.readOnly = true;
+        appSecretInput.style.background = '#f3f5f8';
+        appSecretInput.style.cursor = 'default';
+        appSecretInput.required = false;
+        apiUrlInput.required    = false;
+        apiUrlRequiredMark.style.display = 'none';
+        // show action buttons
+        btnRefreshSecret.style.display = 'flex';
+        btnViewSecret.style.display    = 'flex';
+        btnCopySecret.style.display    = 'flex';
+        secretRotateWarning.style.display = 'block';
+        // Auto-generate if empty (create mode or empty edit) — direct call, no confirm needed
+        // since there's nothing working yet to break.
+        if (!appSecretInput.value) generateKey('appSecret', appSecretInput, btnRefreshSecret);
+
+        mockShippingSection.style.display = 'block';
+    }
+
+    function applyLazadaMode() {
+        appKeyField.style.display = '';
+        apiCredGrid.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+        apiKeyInput.readOnly    = false;
+        appSecretInput.readOnly = false;
+        apiKeyInput.style.background    = 'var(--alice)';
+        appSecretInput.style.background = 'var(--alice)';
+        apiKeyInput.style.cursor    = '';
+        appSecretInput.style.cursor = '';
+        apiKeyInput.required    = true;
+        apiUrlInput.required    = true;
+        apiUrlRequiredMark.style.display = '';
+        apiKeyRequiredMark.style.display = '';
+        btnRefreshSecret.style.display = 'none';
+        btnViewSecret.style.display    = 'none';
+        btnCopySecret.style.display    = 'none';
+        secretRotateWarning.style.display = 'none';
+        // restore password input type
+        appSecretInput.type = 'password';
+        iconEyeOpen.style.display   = '';
+        iconEyeClosed.style.display = 'none';
+
+        mockShippingSection.style.display = 'none';
+    }
 
     function handlePlatformChange() {
         var platform = platformSelect.value;
-        var config = configMap[platform];
-        if (!config) return;
-        if (!apiUrlInput.value || apiUrlInput.value === 'https://api.lazada.vn/rest' || apiUrlInput.value === 'https://api.shopee.vn/api/v2') {
-            apiUrlInput.value = config.endpoint;
+        var config = configMap[platform] || {};
+        if (!apiUrlInput.value ||
+            apiUrlInput.value === 'https://api.lazada.vn/rest' ||
+            apiUrlInput.value === 'https://api.shopee.vn/api/v2') {
+            apiUrlInput.value = config.endpoint || '';
         }
-        webhookUrlInput.value = config.webhook;
+        if (webhookUrlInput) webhookUrlInput.value = config.webhook || '';
 
-        // API Endpoint URL / App Key chỉ cần thiết với sàn TMĐT ngoài (Lazada) —
-        // kênh Website tự có (omnicore-web gọi vào, không gọi ra ngoài) nên không bắt buộc.
-        var needsExternalApi = (platform === 'Lazada');
-        apiUrlInput.required = needsExternalApi;
-        apiKeyInput.required = needsExternalApi;
-        apiUrlRequiredMark.style.display = needsExternalApi ? '' : 'none';
-        apiKeyRequiredMark.style.display = needsExternalApi ? '' : 'none';
+        if (platform === 'Website') {
+            applyWebsiteMode();
+        } else {
+            applyLazadaMode();
+        }
     }
 
     platformSelect.addEventListener('change', handlePlatformChange);
+    handlePlatformChange(); // run on load
 
-    // Luôn chạy lúc load trang (kể cả edit mode) để required/dấu * khớp đúng
-    // platform hiện tại — value chỉ bị ghi đè bên trong hàm khi đang trống.
-    handlePlatformChange();
+    // ── Refresh App Secret ────────────────────────────────────────────────────
+    // Manual click replaces a secret that omnicore-web may already be relying on —
+    // confirm first, since the two apps don't sync automatically (see secretRotateWarning).
+    btnRefreshSecret.addEventListener('click', function() {
+        var hasExisting = !!appSecretInput.value;
+        if (hasExisting && !window.confirm(
+            'Sinh App Secret mới sẽ làm omnicore-web ngừng xác thực được ngay lập tức, ' +
+            'cho đến khi anh cập nhật omnicore.hmac.secret bên đó và khởi động lại/reload. Tiếp tục?'
+        )) {
+            return;
+        }
+        generateKey('appSecret', appSecretInput, btnRefreshSecret);
+    });
 
-    // Copy Webhook URL to clipboard
+    // ── View / Hide App Secret ────────────────────────────────────────────────
+    btnViewSecret.addEventListener('click', function() {
+        var isPassword = (appSecretInput.type === 'password');
+        appSecretInput.type = isPassword ? 'text' : 'password';
+        iconEyeOpen.style.display   = isPassword ? 'none' : '';
+        iconEyeClosed.style.display = isPassword ? '' : 'none';
+    });
+
+    // ── Mock shipping toggle — saved immediately via its own AJAX call, independent of
+    // the channel-save form (it's a system_config value, not a column on this channel row).
+    mockShippingEnabled.addEventListener('change', function() {
+        var checked = mockShippingEnabled.checked;
+        fetch(ctx + '/admin/channels/create?action=toggleMockShipping&enabled=' + checked, { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    mockShippingEnabled.checked = !checked; // revert on failure
+                    alert('Không thể lưu cấu hình mock. Vui lòng thử lại.');
+                }
+            })
+            .catch(function() {
+                mockShippingEnabled.checked = !checked;
+                alert('Lỗi kết nối. Vui lòng thử lại.');
+            });
+    });
+
+    // ── Copy App Secret ───────────────────────────────────────────────────────
+    btnCopySecret.addEventListener('click', function() {
+        navigator.clipboard.writeText(appSecretInput.value).then(function() {
+            btnCopySecret.style.background = '#10b981';
+            setTimeout(function() { btnCopySecret.style.background = 'var(--alice)'; }, 1200);
+        });
+    });
+
+    // ── Copy Webhook URL ──────────────────────────────────────────────────────
     var btnCopyWebhook = document.getElementById('btnCopyWebhook');
     if (btnCopyWebhook) {
         btnCopyWebhook.addEventListener('click', function() {

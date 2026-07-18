@@ -343,7 +343,8 @@ public class LazadaChannelGateway implements ChannelGateway {
                 && !params.get("shipment_provider_code").isEmpty()) {
             packReq.put("shipment_provider_code", params.get("shipment_provider_code"));
         }
-        packReq.put("shipping_allocate_type", "TFS");
+        packReq.put("shipping_allocate_type",
+                params.getOrDefault("shipping_allocate_type", "TFS"));
 
         try {
             String json = mapper.writeValueAsString(packReq);
@@ -452,6 +453,35 @@ public class LazadaChannelGateway implements ChannelGateway {
             return http.executePost("/order/package/rts", authParams, channel, null);
         } catch (Exception e) {
             throw new RuntimeException("Failed to build readyToShipReq JSON", e);
+        }
+    }
+
+    @Override
+    public String getShipmentProviders(Channel channel, String orderId, List<String> orderItemIds) {
+        Map<String, Object> req = new HashMap<>();
+        List<Map<String, Object>> ordersList = new ArrayList<>();
+        Map<String, Object> orderMap = new HashMap<>();
+        orderMap.put("order_id", Long.parseLong(orderId));
+        
+        List<Long> itemIds = new ArrayList<>();
+        for (String id : orderItemIds) {
+            itemIds.add(Long.parseLong(id));
+        }
+        orderMap.put("order_item_ids", itemIds);
+        ordersList.add(orderMap);
+        req.put("orders", ordersList);
+        
+        try {
+            String json = mapper.writeValueAsString(req);
+            Map<String, String> authParams = new TreeMap<>();
+            authParams.put("app_key", channel.getApiKey());
+            authParams.put("access_token", channel.getAccessToken());
+            authParams.put("timestamp", String.valueOf(System.currentTimeMillis()));
+            authParams.put("sign_method", "sha256");
+            authParams.put("getShipmentProvidersReq", json);
+            return http.executePost("/order/shipment/providers/get", authParams, channel, null);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build getShipmentProvidersReq JSON", e);
         }
     }
 

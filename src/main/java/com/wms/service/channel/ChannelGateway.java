@@ -94,6 +94,12 @@ public interface ChannelGateway {
     /** 3. /order/package/rts — Ready-To-Ship notification. */
     String readyToShip(Channel channel, String packageId);
 
+    /** 4. /order/shipment/providers/get — returns shipment providers list. */
+    default String getShipmentProviders(Channel channel, String orderId, List<String> orderItemIds) {
+        throw new UnsupportedOperationException(
+                "getShipmentProviders is not supported by " + platformName());
+    }
+
     // ── Tracking ─────────────────────────────────────────────
 
     /** /logistic/order/trace — returns tracking events array. */

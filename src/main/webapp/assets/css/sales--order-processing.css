@@ -37,6 +37,7 @@
 .op-tab.active.tab-review { color: #dc2626; border-bottom-color: #ef4444; }
 .op-tab.active.tab-waybill { color: #059669; border-bottom-color: #10b981; }
 .op-tab.active.tab-rts { color: #0d9488; border-bottom-color: #0f766e; }
+.op-tab.active.tab-shipping { color: #4f46e5; border-bottom-color: #6366f1; }
 .op-tab.active.tab-rma { color: #d97706; border-bottom-color: #f59e0b; }
 
 .op-tab-badge {
@@ -52,6 +53,7 @@
 .op-tab.active.tab-review .op-tab-badge { background: #fee2e2; color: #dc2626; animation: pulse 2s infinite; }
 .op-tab.active.tab-waybill .op-tab-badge { background: #d1fae5; color: #059669; }
 .op-tab.active.tab-rts .op-tab-badge { background: #ccfbf1; color: #0f766e; }
+.op-tab.active.tab-shipping .op-tab-badge { background: #e0e7ff; color: #6366f1; }
 .op-tab.active.tab-rma .op-tab-badge { background: #fef3c7; color: #d97706; }
 
 @keyframes pulse {
@@ -251,7 +253,7 @@
     inset: 0;
     background: rgba(16,55,92,.6);
     backdrop-filter: blur(4px);
-    z-index: 100;
+    z-index: 9999;
     display: flex;
     align-items: center;
     justify-content: center;

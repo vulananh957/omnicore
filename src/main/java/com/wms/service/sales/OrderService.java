@@ -148,6 +148,19 @@ public class OrderService {
                     return ActionResult.failure("Lý do từ chối phải có ít nhất 10 ký tự để phục vụ truy vết.");
                 }
                 String trimmedNote = note.trim();
+
+                Order order = orderDAO.findByOrderCode(orderCode);
+                if (order != null && "LAZADA".equalsIgnoreCase(order.getChannel()) && order.getChannelId() > 0) {
+                    com.wms.service.lazada.LazadaOrderProcessingService lazadaService = new com.wms.service.lazada.LazadaOrderProcessingService();
+                    com.wms.service.lazada.LazadaOrderProcessingService.ProcessingResult lazadaRes =
+                        lazadaService.cancelOrderOnLazada(orderCode, "2", trimmedNote);
+                    if (!lazadaRes.success) {
+                        log.warn("Lazada cancel API failed: {}", lazadaRes.message);
+                        return ActionResult.failure("Lazada từ chối hủy đơn: " + lazadaRes.message);
+                    }
+                    return ActionResult.success("Từ chối đơn hàng thành công và đã đồng bộ trạng thái hủy lên Lazada.");
+                }
+
                 // orders.order_status ENUM only allows: PENDING, CONFIRMED, PICKING,
                 // PACKED, SHIPPED, DELIVERED, CANCELLED, RETURNED. "REJECTED" is not
                 // in the ENUM and would cause MySQL 1265 Data truncated.
@@ -242,15 +255,25 @@ public class OrderService {
                 if (current.getWebOrderRef() == null || current.getWebOrderRef().isBlank()) {
                     return ActionResult.failure("Xác nhận giao hàng thủ công chỉ áp dụng cho đơn Website. Đơn sàn TMĐT tự cập nhật qua webhook.");
                 }
-                if (!"SHIPPED".equalsIgnoreCase(current.getStatus())) {
-                    return ActionResult.failure("Chỉ xác nhận giao hàng khi đơn đang ở trạng thái Đang vận chuyển.");
+                String st = (current.getStatus() == null ? "" : current.getStatus()).toUpperCase();
+                boolean isSelfDelivery = (current.getShipmentProvider() == null || current.getShipmentProvider().isBlank());
+                // Self-delivery: accept PACKED (kho đã đóng gói, không có DVVC nên không qua bước SHIPPED)
+                // Has-carrier: chỉ cho phép SHIPPED (carrier đã nhận hàng)
+                if (isSelfDelivery) {
+                    if (!st.equals("PACKED") && !st.equals("SHIPPED")) {
+                        return ActionResult.failure("Chỉ xác nhận giao hàng khi đơn đã được kho đóng gói (PACKED).");
+                    }
+                } else {
+                    if (!st.equals("SHIPPED")) {
+                        return ActionResult.failure("Chỉ xác nhận giao hàng khi đơn đang ở trạng thái Đang vận chuyển (SHIPPED).");
+                    }
                 }
                 boolean ok = orderDAO.markDelivered(orderCode);
                 if (ok) {
                     log.info("Order marked delivered manually: orderCode={} userId={}", orderCode, userId);
                     if (current.getCreatedBy() != null) {
                         notificationService.notifyOrderStatus(current.getCreatedBy(),
-                                current.getOrderId(), orderCode, "SHIPPED", "DELIVERED");
+                                current.getOrderId(), orderCode, current.getStatus(), "DELIVERED");
                     }
                 }
                 return ok ? ActionResult.success("Xác nhận giao hàng thành công.")
@@ -540,7 +563,7 @@ public class OrderService {
     public BigDecimal getReturnRate(String period) {
         LocalDateRange range = parsePeriod(period);
         if (range == null) return BigDecimal.ZERO;
-        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status IN ('RETURNED','RMA') AND status != 'CANCELLED'";
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'RETURNED'";
         String totalSql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'CANCELLED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection()) {
             int returned = 0, total = 0;
@@ -656,7 +679,7 @@ public class OrderService {
     }
 
     private int getReturnedCountForRange(LocalDateTime start, LocalDateTime end) {
-        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status IN ('RETURNED','RMA') AND status != 'CANCELLED'";
+        String sql = "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'RETURNED'";
         try (Connection conn = com.wms.util.DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setTimestamp(1, Timestamp.valueOf(start));
