@@ -75,6 +75,9 @@ public class SchemaInitListener implements ServletContextListener {
             ensureLazadaShipmentProvidersTable();
             ensureNotificationsTable();
             ensureMockShippingCarriersTable();
+            ensureInventoryDeductionLogTable();
+            ensureChannelSyncAuditTable();
+            ensureLazadaRtsLogTable();
             migrateChannelsColumns();
             ensureIndexes();
             seedDefaultData();
@@ -1014,6 +1017,79 @@ public class SchemaInitListener implements ServletContextListener {
                 + "FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE, "
                 + "INDEX idx_me_channel (channel_id), "
                 + "INDEX idx_me_resolved (resolved)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    private void ensureInventoryDeductionLogTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            // Drop old table if it exists to reset FK constraints
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate("DROP TABLE IF EXISTS inventory_deduction_log");
+            }
+
+            createTableIfNotExists(conn, "inventory_deduction_log",
+                "CREATE TABLE inventory_deduction_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "product_id INT NOT NULL, "
+                + "warehouse_id INT, "
+                + "order_id INT NOT NULL, "
+                + "order_ref VARCHAR(50) NOT NULL, "
+                + "channel VARCHAR(20) NOT NULL, "
+                + "qty_deducted INT NOT NULL, "
+                + "qty_before INT NOT NULL, "
+                + "qty_after INT NOT NULL, "
+                + "deduction_status ENUM('SUCCESS', 'FAILED') DEFAULT 'SUCCESS', "
+                + "failure_reason VARCHAR(255), "
+                + "attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE, "
+                + "INDEX idx_order (order_ref), "
+                + "INDEX idx_product (product_id), "
+                + "INDEX idx_channel (channel)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    private void ensureChannelSyncAuditTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate("DROP TABLE IF EXISTS channel_sync_audit");
+            }
+
+            createTableIfNotExists(conn, "channel_sync_audit",
+                "CREATE TABLE channel_sync_audit ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "channel_product_id INT, "
+                + "order_id INT, "
+                + "order_ref VARCHAR(50), "
+                + "operation ENUM('PUSH', 'PULL', 'UPDATE', 'DELETE', 'RTS') NOT NULL, "
+                + "status ENUM('SUCCESS', 'FAILED', 'PENDING') DEFAULT 'PENDING', "
+                + "error_message VARCHAR(500), "
+                + "sync_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "INDEX idx_operation (operation), "
+                + "INDEX idx_status (status), "
+                + "INDEX idx_order (order_ref)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    private void ensureLazadaRtsLogTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate("DROP TABLE IF EXISTS lazada_rts_log");
+            }
+
+            createTableIfNotExists(conn, "lazada_rts_log",
+                "CREATE TABLE lazada_rts_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "order_id INT NOT NULL, "
+                + "order_ref VARCHAR(50) NOT NULL, "
+                + "warehouse_id INT, "
+                + "rts_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "status ENUM('INITIATED', 'SUCCESS', 'FAILED') DEFAULT 'INITIATED', "
+                + "response_text TEXT, "
+                + "INDEX idx_order (order_ref), "
+                + "INDEX idx_status (status)"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }

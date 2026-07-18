@@ -52,11 +52,11 @@ public class InventoryDAOPhase3Test {
 
     @BeforeEach
     public void setupEach() throws Exception {
-        // Clean up test data before each test
+        // Clean up test data before each test (delete ALL inventory in test warehouse, not just product 99)
         try (Connection conn = DBConnection.getConnection()) {
             try (Statement stmt = conn.createStatement()) {
-                stmt.execute("DELETE FROM inventory_deduction_log WHERE product_id = " + TEST_PRODUCT_ID);
-                stmt.execute("DELETE FROM inventory WHERE product_id = " + TEST_PRODUCT_ID);
+                stmt.execute("DELETE FROM inventory_deduction_log WHERE warehouse_id = " + TEST_WAREHOUSE_ID);
+                stmt.execute("DELETE FROM inventory WHERE warehouse_id = " + TEST_WAREHOUSE_ID);
             }
         }
     }
@@ -240,7 +240,7 @@ public class InventoryDAOPhase3Test {
     }
 
     private Map<String, Integer> getDeductionLogData(int orderId, String orderRef) throws Exception {
-        String sql = "SELECT qty_available_before, qty_available_after, qty_deducted " +
+        String sql = "SELECT qty_before, qty_after, qty_deducted " +
                 "FROM inventory_deduction_log WHERE order_id = ? AND order_ref = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -249,8 +249,8 @@ public class InventoryDAOPhase3Test {
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     Map<String, Integer> map = new java.util.HashMap<>();
-                    map.put("qty_before", rs.getInt("qty_available_before"));
-                    map.put("qty_after", rs.getInt("qty_available_after"));
+                    map.put("qty_before", rs.getInt("qty_before"));
+                    map.put("qty_after", rs.getInt("qty_after"));
                     map.put("qty_deducted", rs.getInt("qty_deducted"));
                     return map;
                 }

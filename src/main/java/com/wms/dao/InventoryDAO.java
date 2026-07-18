@@ -894,22 +894,23 @@ public class InventoryDAO {
     public boolean deductWithLock(int productId, int orderId, String orderRef, String channel, int qty, Integer warehouseId) {
         if (qty <= 0) return false;
         if (channel == null || channel.isBlank()) channel = "WEB";
+        if (warehouseId == null) warehouseId = 1; // Default to warehouse 1
 
         String sqlDeduct = "UPDATE inventory SET deduction_lock = 1, qty_available = qty_available - ?, "
                          + "last_deducted_at = NOW() "
-                         + "WHERE product_id = ? AND deduction_lock = 0 AND qty_available >= ?";
+                         + "WHERE product_id = ? AND warehouse_id = ? AND deduction_lock = 0 AND qty_available >= ?";
 
         String sqlLog = "INSERT INTO inventory_deduction_log "
                       + "(product_id, warehouse_id, order_id, order_ref, channel, qty_deducted, "
-                      + "qty_available_before, qty_available_after, deducted_at) "
-                      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+                      + "qty_before, qty_after, deduction_status, attempted_at) "
+                      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SUCCESS', NOW())";
 
         String sqlGetInventory = "SELECT warehouse_id, qty_available FROM inventory "
-                               + "WHERE product_id = ? AND deduction_lock = 1 "
-                               + "ORDER BY warehouse_id LIMIT 1";
+                               + "WHERE product_id = ? AND warehouse_id = ? AND deduction_lock = 1 "
+                               + "LIMIT 1";
 
         // Get current qty_available for audit log
-        int qtyAvailableNow = getAvailableStock(productId, warehouseId != null ? warehouseId : 1);
+        int qtyAvailableNow = getAvailableStock(productId, warehouseId);
 
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
@@ -917,7 +918,8 @@ public class InventoryDAO {
                 // Attempt atomic deduction
                 psDeduct.setInt(1, qty);
                 psDeduct.setInt(2, productId);
-                psDeduct.setInt(3, qty);
+                psDeduct.setInt(3, warehouseId);
+                psDeduct.setInt(4, qty);
 
                 int rowsUpdated = psDeduct.executeUpdate();
                 if (rowsUpdated == 0) {
@@ -932,12 +934,11 @@ public class InventoryDAO {
                 }
 
                 // Get updated values for logging
-                int actualWarehouse = warehouseId != null ? warehouseId : 1; // Default to warehouse 1 if not specified
                 int qtyBefore = 0;
-                String sqlGetBefore = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+                String sqlGetBefore = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ? AND deduction_lock = 1";
                 try (PreparedStatement psGet = conn.prepareStatement(sqlGetBefore)) {
                     psGet.setInt(1, productId);
-                    psGet.setInt(2, actualWarehouse);
+                    psGet.setInt(2, warehouseId);
                     try (ResultSet rs = psGet.executeQuery()) {
                         if (rs.next()) {
                             // qty_available AFTER deduction (since we already updated it)
@@ -949,7 +950,7 @@ public class InventoryDAO {
                 // Log deduction
                 try (PreparedStatement psLog = conn.prepareStatement(sqlLog)) {
                     psLog.setInt(1, productId);
-                    psLog.setInt(2, actualWarehouse);
+                    psLog.setInt(2, warehouseId);
                     psLog.setInt(3, orderId);
                     psLog.setString(4, orderRef);
                     psLog.setString(5, channel);
@@ -960,9 +961,10 @@ public class InventoryDAO {
                 }
 
                 // Release lock
-                String sqlUnlock = "UPDATE inventory SET deduction_lock = 0 WHERE product_id = ? AND deduction_lock = 1";
+                String sqlUnlock = "UPDATE inventory SET deduction_lock = 0 WHERE product_id = ? AND warehouse_id = ? AND deduction_lock = 1";
                 try (PreparedStatement psUnlock = conn.prepareStatement(sqlUnlock)) {
                     psUnlock.setInt(1, productId);
+                    psUnlock.setInt(2, warehouseId);
                     psUnlock.executeUpdate();
                 }
 

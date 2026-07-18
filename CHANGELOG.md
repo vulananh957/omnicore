@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Phase 3 Test Fixes** (2026-07-18):
+  - Fixed `deductWithLock()` bug: UPDATE statement was missing `warehouse_id` filter, causing updates to wrong inventory rows
+  - Added missing tables: `inventory_deduction_log`, `channel_sync_audit`, `lazada_rts_log` in SchemaInitListener
+  - Fixed FK constraints: changed `ON DELETE RESTRICT` to `ON DELETE CASCADE` for `inventory_deduction_log.product_id` FK
+  - Fixed test cleanup: changed @BeforeEach to delete ALL inventory in test warehouse (not just product 99)
+  - Fixed test column names: changed `qty_available_before`/`qty_available_after` to `qty_before`/`qty_after`
+  - All Phase 3 tests now pass (12/12): deductWithLock() happy path, insufficient stock, race conditions, idempotency
+
 ### Added
 - **4 Production-Readiness Items** (2026-07-18):
   - ✅ **Idempotency check**: WebsiteOrderApiServlet has findExistingByWebOrderRef() — prevents duplicate orders on retry
