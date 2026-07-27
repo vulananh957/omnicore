@@ -1,15 +1,19 @@
 package com.wms.dao;
 
 import com.wms.util.DBConnection;
+import com.wms.service.warehouse.InventoryCommandBus;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -45,6 +49,7 @@ public class InventoryDAO {
                    + "WHERE product_id = ? AND warehouse_id = ? AND qty_available >= ?";
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
+            int qtyBefore = getAvailableStock(productId, warehouseId);
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, quantityToHold);
                 ps.setInt(2, quantityToHold);
@@ -53,6 +58,7 @@ public class InventoryDAO {
                 ps.setInt(5, quantityToHold);
                 int rows = ps.executeUpdate();
                 if (rows > 0) {
+                    logDeductionForPush(conn, productId, qtyBefore, qtyBefore - quantityToHold);
                     conn.commit();
                     LOGGER.info("Soft-allocated " + quantityToHold + " units of product ID " + productId
                             + " at warehouse ID " + warehouseId);
@@ -69,7 +75,7 @@ public class InventoryDAO {
                 return false;
             }
         } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "DB connection failed for soft-allocation", e);
+            LOGGER.log(Level.SEVERE, "Database connection error during soft-allocation", e);
             return false;
         }
     }
@@ -136,19 +142,23 @@ public class InventoryDAO {
      * Used by the Lazada inventory push scheduler to reflect total stock.
      */
     public int getTotalAvailableStock(int productId) {
-        String sql = "SELECT COALESCE(SUM(qty_available), 0) FROM inventory i "
-                   + "JOIN warehouses w ON i.warehouse_id = w.warehouse_id "
-                   + "WHERE i.product_id = ? "
-                   + "  AND w.active = 1 "
-                   + "  AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL')";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, productId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
+        try (Connection conn = DBConnection.getConnection()) {
+            String sql = "SELECT COALESCE(SUM(qty_available), 0) FROM inventory i "
+                       + "JOIN warehouses w ON i.warehouse_id = w.warehouse_id "
+                       + "WHERE i.product_id = ? "
+                       + "  AND w.active = 1 "
+                       + "  AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL')";
+            int wmsAvailable = 0;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, productId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        wmsAvailable = rs.getInt(1);
+                    }
                 }
             }
+            int pendingQty = getQtyPending(conn, productId);
+            return Math.max(0, wmsAvailable - pendingQty);
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING,
                 "getTotalAvailableStock failed productId=" + productId, e);
@@ -214,11 +224,25 @@ public class InventoryDAO {
             "qty_change, avail_change, created_by, note) " +
             "VALUES (?, ?, ?, 'INBOUND', ?, ?, ?, 'Nhập kho Inbound')";
 
+        String sqlCurrentAvail =
+            "SELECT COALESCE(SUM(qty_available), 0) FROM inventory WHERE product_id = ?";
+
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
             try (PreparedStatement psUpdate = conn.prepareStatement(sqlUpsert);
                  PreparedStatement psGet = conn.prepareStatement(sqlGetInvId);
                  PreparedStatement psLedger = conn.prepareStatement(sqlLedger)) {
+
+                // Snapshot available total before the add, so the push-scheduler log entry
+                // (below) records an accurate before/after — same transaction, so this read
+                // sees a consistent pre-upsert state.
+                int qtyBefore = 0;
+                try (PreparedStatement psAvail = conn.prepareStatement(sqlCurrentAvail)) {
+                    psAvail.setInt(1, productId);
+                    try (ResultSet rs = psAvail.executeQuery()) {
+                        if (rs.next()) qtyBefore = rs.getInt(1);
+                    }
+                }
 
                 // Upsert inventory row: +qty to both on_hand and available
                 psUpdate.setInt(1, productId);
@@ -255,6 +279,24 @@ public class InventoryDAO {
                 psLedger.setInt(6, userId);
                 psLedger.executeUpdate();
 
+                // Synchronize aggregate qty_available and qty_on_hand to products table for website/omnichannel APIs
+                String sqlSyncProduct =
+                    "UPDATE products p " +
+                    "SET p.qty_on_hand = (SELECT COALESCE(SUM(i.qty_on_hand), 0) FROM inventory i WHERE i.product_id = p.product_id), " +
+                    "    p.qty_available = (SELECT COALESCE(SUM(i.qty_available), 0) FROM inventory i WHERE i.product_id = p.product_id) " +
+                    "WHERE p.product_id = ?";
+                try (PreparedStatement psSync = conn.prepareStatement(sqlSyncProduct)) {
+                    psSync.setInt(1, productId);
+                    psSync.executeUpdate();
+                }
+
+                // Track change for realtime push (mirrors deductWithLock's OUTBOUND logging) —
+                // same transaction as the add itself, so the push log can never drift from
+                // what actually happened. Without this, InventoryPushScheduler's getChangesSince()
+                // never sees inbound-driven increases, so Website stock only ever updates via the
+                // Sales staff's manual "Đồng bộ" button on the channel-products page.
+                logDeductionForPush(conn, productId, qtyBefore, qtyBefore + quantity.intValue());
+
                 conn.commit();
                 LOGGER.info("addInventory: added " + quantity + " units of product ID " + productId
                         + " at warehouse ID " + warehouseId);
@@ -283,29 +325,64 @@ public class InventoryDAO {
      */
     public boolean deductTransferOut(int productId, int warehouseId, BigDecimal quantity) {
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return false;
+        String sqlGetBefore = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
         String sql = "UPDATE inventory "
                    + "SET qty_on_hand = qty_on_hand - ?, qty_available = qty_available - ? "
                    + "WHERE product_id = ? AND warehouse_id = ? AND stock_type = 'NORMAL' "
                    + "  AND qty_available >= ?";
         try (Connection conn = DBConnection.getConnection()) {
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setBigDecimal(1, quantity);
-                ps.setBigDecimal(2, quantity);
-                ps.setInt(3, productId);
-                ps.setInt(4, warehouseId);
-                ps.setBigDecimal(5, quantity);
-                int rows = ps.executeUpdate();
-                if (rows == 0) {
-                    LOGGER.warning("deductTransferOut: no row updated for productId=" + productId
-                            + " warehouseId=" + warehouseId + " qty=" + quantity);
-                    return false;
+            conn.setAutoCommit(false);
+            try {
+                int qtyBefore = 0;
+                try (PreparedStatement psGet = conn.prepareStatement(sqlGetBefore)) {
+                    psGet.setInt(1, productId);
+                    psGet.setInt(2, warehouseId);
+                    try (ResultSet rs = psGet.executeQuery()) {
+                        if (rs.next()) qtyBefore = rs.getInt(1);
+                    }
                 }
+
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setBigDecimal(1, quantity);
+                    ps.setBigDecimal(2, quantity);
+                    ps.setInt(3, productId);
+                    ps.setInt(4, warehouseId);
+                    ps.setBigDecimal(5, quantity);
+                    int rows = ps.executeUpdate();
+                    if (rows == 0) {
+                        conn.rollback();
+                        LOGGER.warning("deductTransferOut: no row updated for productId=" + productId
+                                + " warehouseId=" + warehouseId + " qty=" + quantity);
+                        return false;
+                    }
+                }
+
+                // Sync products aggregate table
+                String sqlSyncProduct =
+                    "UPDATE products p " +
+                    "SET p.qty_on_hand = (SELECT COALESCE(SUM(i.qty_on_hand), 0) FROM inventory i WHERE i.product_id = p.product_id), " +
+                    "    p.qty_available = (SELECT COALESCE(SUM(i.qty_available), 0) FROM inventory i WHERE i.product_id = p.product_id) " +
+                    "WHERE p.product_id = ?";
+                try (PreparedStatement psSync = conn.prepareStatement(sqlSyncProduct)) {
+                    psSync.setInt(1, productId);
+                    psSync.executeUpdate();
+                }
+
+                // Log change for realtime push (BUG-06 fix)
+                int qtyAfter = qtyBefore - quantity.intValue();
+                logDeductionForPush(conn, productId, qtyBefore, qtyAfter);
+
+                conn.commit();
                 LOGGER.info("deductTransferOut: deducted " + quantity + " of productId=" + productId
                         + " from warehouseId=" + warehouseId);
                 return true;
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                LOGGER.log(Level.SEVERE, "deductTransferOut: DB error", e);
+                return false;
             }
         } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "deductTransferOut: DB error", e);
+            LOGGER.log(Level.SEVERE, "deductTransferOut: DB connection error", e);
             return false;
         }
     }
@@ -356,21 +433,8 @@ public class InventoryDAO {
      * @return Total available quantity across all warehouses, or 0 if none.
      */
     public BigDecimal sumAvailableByProductId(int productId) {
-        String sql = "SELECT COALESCE(SUM(qty_available), 0) AS total_available "
-                   + "FROM inventory WHERE product_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, productId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getBigDecimal("total_available");
-                }
-            }
-        } catch (SQLException e) {
-            LOGGER.log(Level.WARNING,
-                "InventoryDAO.sumAvailableByProductId: failed productId=" + productId, e);
-        }
-        return BigDecimal.ZERO;
+        int sellable = getTotalAvailableStock(productId);
+        return BigDecimal.valueOf(sellable);
     }
 
     /**
@@ -407,6 +471,7 @@ public class InventoryDAO {
             + "    GROUP BY ii.product_id, io.warehouse_id"
             + ") inb ON inv.product_id = inb.product_id AND inv.warehouse_id = inb.warehouse_id "
             + "WHERE (inv.stock_type IS NULL OR inv.stock_type = 'NORMAL') "
+            + "  AND (w.active = 1 OR w.active IS NULL) "
             + "ORDER BY p.sku_code, w.warehouse_name "
             + "LIMIT 500";
         try (Connection conn = DBConnection.getConnection();
@@ -581,29 +646,38 @@ public class InventoryDAO {
                    + "    holding = GREATEST(holding - ?, 0) "
                    + "WHERE product_id = ? AND warehouse_id = ?";
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = DBConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            int qtyBefore = getAvailableStock(productId, warehouseId);
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setBigDecimal(1, quantity);
+                ps.setBigDecimal(2, quantity);
+                ps.setInt(3, productId);
+                ps.setInt(4, warehouseId);
 
-            ps.setBigDecimal(1, quantity);
-            ps.setBigDecimal(2, quantity);
-            ps.setInt(3, productId);
-            ps.setInt(4, warehouseId);
+                int rows = ps.executeUpdate();
+                boolean ok = rows > 0;
 
-            int rows = ps.executeUpdate();
-            boolean ok = rows > 0;
-
-            if (ok) {
-                LOGGER.info("releaseSoftAllocateInventory: released " + quantity
-                        + " units of productId=" + productId
-                        + " at warehouseId=" + warehouseId);
-            } else {
-                LOGGER.warning("releaseSoftAllocateInventory: no inventory row found for productId="
-                        + productId + " warehouseId=" + warehouseId);
+                if (ok) {
+                    int qtyAfter = qtyBefore + quantity.intValue();
+                    logDeductionForPush(conn, productId, qtyBefore, qtyAfter);
+                    conn.commit();
+                    LOGGER.info("releaseSoftAllocateInventory: released " + quantity
+                            + " units of productId=" + productId
+                            + " at warehouseId=" + warehouseId);
+                } else {
+                    conn.rollback();
+                    LOGGER.warning("releaseSoftAllocateInventory: no inventory row found for productId="
+                            + productId + " warehouseId=" + warehouseId);
+                }
+                return ok;
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                LOGGER.log(Level.SEVERE, "releaseSoftAllocateInventory: SQL error", e);
+                return false;
             }
-            return ok;
-
         } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "releaseSoftAllocateInventory: SQL error", e);
+            LOGGER.log(Level.SEVERE, "releaseSoftAllocateInventory: DB connection error", e);
             return false;
         }
     }
@@ -891,10 +965,36 @@ public class InventoryDAO {
      * @param warehouseId Warehouse ID (if null, use primary warehouse)
      * @return true if deducted; false if stock unavailable or lock failed
      */
+    /**
+     * Finds the best warehouse that has sufficient qty_available for a product.
+     */
+    public Integer findWarehouseWithAvailableStock(int productId, int qty) {
+        String sql = "SELECT warehouse_id FROM inventory WHERE product_id = ? AND deduction_lock = 0 AND qty_available >= ? ORDER BY qty_available DESC LIMIT 1";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            ps.setInt(2, qty);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("warehouse_id");
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "findWarehouseWithAvailableStock failed for productId=" + productId, e);
+        }
+        return null;
+    }
+
     public boolean deductWithLock(int productId, int orderId, String orderRef, String channel, int qty, Integer warehouseId) {
         if (qty <= 0) return false;
         if (channel == null || channel.isBlank()) channel = "WEB";
-        if (warehouseId == null) warehouseId = 1; // Default to warehouse 1
+        if (warehouseId == null) {
+            warehouseId = findWarehouseWithAvailableStock(productId, qty);
+            if (warehouseId == null) {
+                LOGGER.warning("deductWithLock: no warehouse has sufficient stock for product " + productId + " (qty=" + qty + ")");
+                return false;
+            }
+        }
 
         String sqlDeduct = "UPDATE inventory SET deduction_lock = 1, qty_available = qty_available - ?, "
                          + "last_deducted_at = NOW() "
@@ -960,6 +1060,10 @@ public class InventoryDAO {
                     psLog.executeUpdate();
                 }
 
+                // Track change for realtime push (BUG-01 fix) — same transaction as the
+                // deduction itself, so the push log can never drift from what actually happened.
+                logDeductionForPush(conn, productId, qtyBefore, qtyBefore - qty);
+
                 // Release lock
                 String sqlUnlock = "UPDATE inventory SET deduction_lock = 0 WHERE product_id = ? AND warehouse_id = ? AND deduction_lock = 1";
                 try (PreparedStatement psUnlock = conn.prepareStatement(sqlUnlock)) {
@@ -969,6 +1073,34 @@ public class InventoryDAO {
                 }
 
                 conn.commit();
+
+                try {
+                    new ProductDAO().syncStockTotals(productId);
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "deductWithLock: failed to syncStockTotals for product " + productId, e);
+                }
+
+                // Publish inventory change event for ledger + audit trail (CommandBus integration)
+                try {
+                    int qtyDeducted = qty;
+                    int qtyAfter = qtyBefore - qtyDeducted;
+                    InventoryCommandBus.get().publish(
+                        new InventoryCommandBus.InventoryEvent(
+                            productId,
+                            warehouseId,
+                            InventoryCommandBus.InventoryEvent.Type.OUTBOUND,
+                            new BigDecimal(-qtyDeducted),  // qty_change: negative = deduction
+                            new BigDecimal(-qtyDeducted),  // avail_change: negative = less available
+                            0,  // system user (no real user for API order)
+                            "Website Order " + orderRef + " (channel=" + channel + ")"
+                        )
+                    );
+                } catch (Exception e) {
+                    // Log but don't fail — ledger write is best-effort
+                    LOGGER.log(Level.WARNING, "deductWithLock: failed to publish event for product "
+                        + productId + " order " + orderRef, e);
+                }
+
                 // Audit log: deduction succeeded
                 AuditLogDAO auditLog = new AuditLogDAO();
                 auditLog.logDeductionAttempt(orderId, orderRef, productId, channel, qty, qtyAvailableNow, true, null);
@@ -988,17 +1120,124 @@ public class InventoryDAO {
     }
 
     /**
-     * Tracks inventory changes for realtime push batch collection.
-     * Called after each deduction to log what changed.
+     * Reverses every successful deduction recorded for an order (customer cancelled a
+     * PENDING order). Reads {@code inventory_deduction_log} instead of order_items so the
+     * restore always matches exactly what was deducted — same product can only have been
+     * deducted from the warehouse deductWithLock picked (defaults to warehouse 1).
      *
-     * @param productId Product ID
-     * @param qtyBefore Quantity before deduction
-     * @param qtyAfter  Quantity after deduction
+     * @return true if restore succeeded (also true when there was nothing to restore).
      */
-    public void logDeductionForPush(int productId, int qtyBefore, int qtyAfter) {
-        // This method is optional for now; can be used later to track push queue
-        // For now, we rely on getTotalAvailableStock() which queries DB directly
-        LOGGER.finest("Tracked deduction for push: product=" + productId + " before=" + qtyBefore + " after=" + qtyAfter);
+    public boolean isOrderDeducted(int orderId) {
+        String sql = "SELECT COUNT(*) FROM inventory_deduction_log WHERE order_id = ? AND deduction_status = 'SUCCESS'";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "isOrderDeducted check failed for orderId=" + orderId, e);
+            return false;
+        }
+    }
+
+    public boolean restoreDeductedStock(int orderId) {
+        String sqlFind = "SELECT product_id, warehouse_id, qty_deducted FROM inventory_deduction_log "
+                        + "WHERE order_id = ? AND deduction_status = 'SUCCESS'";
+        String sqlGetCurrent = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+        String sqlRestore = "UPDATE inventory SET qty_available = qty_available + ? "
+                           + "WHERE product_id = ? AND warehouse_id = ?";
+
+        try (Connection conn = DBConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                List<int[]> rows = new ArrayList<>(); // {productId, warehouseId, qtyDeducted}
+                try (PreparedStatement psFind = conn.prepareStatement(sqlFind)) {
+                    psFind.setInt(1, orderId);
+                    try (ResultSet rs = psFind.executeQuery()) {
+                        while (rs.next()) {
+                            rows.add(new int[]{rs.getInt("product_id"), rs.getInt("warehouse_id"), rs.getInt("qty_deducted")});
+                        }
+                    }
+                }
+
+                if (rows.isEmpty()) {
+                    conn.rollback();
+                    LOGGER.warning("restoreDeductedStock: no deduction log found for order " + orderId);
+                    return true;
+                }
+
+                try (PreparedStatement psGetCurrent = conn.prepareStatement(sqlGetCurrent);
+                     PreparedStatement psRestore = conn.prepareStatement(sqlRestore)) {
+                    for (int[] row : rows) {
+                        int productId = row[0];
+                        int warehouseId = row[1];
+                        int qtyDeducted = row[2];
+
+                        int qtyBefore = 0;
+                        psGetCurrent.setInt(1, productId);
+                        psGetCurrent.setInt(2, warehouseId);
+                        try (ResultSet rs = psGetCurrent.executeQuery()) {
+                            if (rs.next()) qtyBefore = rs.getInt("qty_available");
+                        }
+
+                        psRestore.setInt(1, qtyDeducted);
+                        psRestore.setInt(2, productId);
+                        psRestore.setInt(3, warehouseId);
+                        psRestore.executeUpdate();
+
+                        // Track change for realtime push (BUG-01 fix) — restore is a real
+                        // inventory change too; without this, Web stays stale after a cancel.
+                        logDeductionForPush(conn, productId, qtyBefore, qtyBefore + qtyDeducted);
+                    }
+                }
+
+                conn.commit();
+
+                try {
+                    ProductDAO pDao = new ProductDAO();
+                    for (int[] row : rows) {
+                        pDao.syncStockTotals(row[0]);
+                    }
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "restoreDeductedStock: failed to syncStockTotals for order " + orderId, e);
+                }
+                LOGGER.info("restoreDeductedStock: restored " + rows.size() + " line(s) for order " + orderId);
+                return true;
+            } catch (SQLException e) {
+                conn.rollback();
+                LOGGER.log(Level.SEVERE, "restoreDeductedStock failed for order " + orderId, e);
+                return false;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "DB connection failed for restoreDeductedStock order " + orderId, e);
+            return false;
+        }
+    }
+
+    /**
+     * Records an inventory change into {@code inventory_change_log}, the watermark source
+     * {@link #getChangesSince(LocalDateTime)} reads from (BUG-01 fix, 2026-07-19). Always
+     * called from inside the caller's own transaction (deductWithLock / restoreDeductedStock)
+     * so the log entry commits or rolls back atomically with the actual inventory change —
+     * never partially, never out of sync.
+     *
+     * @param conn      transaction-scoped connection from the caller (NOT closed here)
+     * @param productId Product ID
+     * @param qtyBefore Quantity before the change
+     * @param qtyAfter  Quantity after the change
+     */
+    public void logDeductionForPush(Connection conn, int productId, int qtyBefore, int qtyAfter) throws SQLException {
+        String sql = "INSERT INTO inventory_change_log (product_id, qty_before, qty_after, changed_at) "
+                   + "VALUES (?, ?, ?, NOW())";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            ps.setInt(2, qtyBefore);
+            ps.setInt(3, qtyAfter);
+            ps.executeUpdate();
+        }
     }
 
     /**
@@ -1014,43 +1253,105 @@ public class InventoryDAO {
     }
 
     /**
-     * Retrieves list of all products that have changed (deducted) since given timestamp.
-     * Used by realtime push scheduler to batch collect changes every 5s.
+     * Retrieves products whose inventory changed strictly after {@code since} (BUG-01 fix,
+     * 2026-07-19). Reads {@code inventory_change_log} — written transactionally by
+     * {@link #deductWithLock} and {@link #restoreDeductedStock} — instead of dumping the
+     * whole catalog every call. Returns an empty list when nothing changed, so
+     * {@code InventoryPushScheduler}'s early-return on empty batches actually does something.
      *
-     * Note: For Phase 1 simplicity, we return all products with current inventory.
-     * In Phase 2, can add a changelog table for precise change tracking.
+     * qty_available in the result is the current live total (SUM across active warehouses,
+     * same truth every other read in this class uses) — not a snapshot from the log, so a
+     * product with several changes in the window still reports one row with the right
+     * up-to-date number. qty_before is the earliest change's "before" value in the window
+     * (first row per product_id, ordered by changed_at) — good enough for audit display,
+     * not meant to reconstruct every intermediate step.
      *
-     * @return List of InventoryUpdate objects
+     * @return List of InventoryUpdate objects, empty (never null) when nothing changed.
      */
-    public List<com.wms.model.InventoryUpdate> getChangesSince() {
+    public List<com.wms.model.InventoryUpdate> getChangesSince(LocalDateTime since) {
         List<com.wms.model.InventoryUpdate> updates = new ArrayList<>();
 
-        String sql = "SELECT i.product_id, COALESCE(SUM(i.qty_available), 0) AS total_qty " +
-                     "FROM inventory i " +
-                     "JOIN warehouses w ON i.warehouse_id = w.warehouse_id " +
-                     "WHERE w.active = 1 AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL') " +
-                     "GROUP BY i.product_id " +
-                     "ORDER BY i.product_id";
+        String sqlChanged = "SELECT product_id, qty_before FROM inventory_change_log "
+                           + "WHERE changed_at > ? ORDER BY product_id, changed_at ASC";
 
         try (Connection conn = DBConnection.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sqlChanged)) {
 
-            while (rs.next()) {
-                String productId = String.valueOf(rs.getInt("product_id"));
-                int qtyAvailable = rs.getInt("total_qty");
+            ps.setTimestamp(1, Timestamp.valueOf(since));
 
-                // qtyBefore is not tracked in current schema, so we use 0 as placeholder
-                // In production, this should come from a changelog table
-                updates.add(new com.wms.model.InventoryUpdate(productId, qtyAvailable, 0));
+            // First row per product_id (query is ordered by changed_at ASC) = qty_before
+            // at the start of the window — putIfAbsent keeps only that first occurrence.
+            Map<Integer, Integer> qtyBeforeByProduct = new LinkedHashMap<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    qtyBeforeByProduct.putIfAbsent(rs.getInt("product_id"), rs.getInt("qty_before"));
+                }
             }
 
-            LOGGER.log(Level.INFO, "Collected {0} products for inventory push", updates.size());
+            if (qtyBeforeByProduct.isEmpty()) {
+                LOGGER.finest("getChangesSince: no inventory changes since " + since);
+                return updates;
+            }
+
+            for (Map.Entry<Integer, Integer> entry : qtyBeforeByProduct.entrySet()) {
+                int productId = entry.getKey();
+                int qtyAvailable = getPushableAvailableStock(conn, productId);
+                updates.add(new com.wms.model.InventoryUpdate(String.valueOf(productId), qtyAvailable, entry.getValue()));
+            }
+
+            LOGGER.log(Level.INFO, "Collected {0} changed products for inventory push (since {1})",
+                    new Object[]{updates.size(), since});
             return updates;
 
         } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "Error collecting changes for push: " + e.getMessage(), e);
+            LOGGER.log(Level.SEVERE, "Error collecting changes since " + since + ": " + e.getMessage(), e);
             return new ArrayList<>();
         }
+    }
+
+    /**
+     * Total qty_available across active warehouses, NORMAL stock only — same filter the
+     * pre-fix getChangesSince() used (see BUG-01 fix). Deliberately NOT the same as
+     * {@link #sumAvailableByProductId}, which has no warehouse/stock_type filter and would
+     * leak inactive-warehouse or damaged/quarantined stock into what customers see as
+     * "available".
+     */
+    /**
+     * Total unallocated pending order quantity (qty_pending) for a product across the system.
+     * Orders with status = 'PENDING' and no warehouse assigned (warehouse_id IS NULL or 0).
+     */
+    private int getQtyPending(Connection conn, int productId) throws SQLException {
+        String sql = "SELECT COALESCE(SUM(oi.qty), 0) FROM order_items oi "
+                   + "JOIN orders o ON oi.order_id = o.order_id "
+                   + "WHERE oi.product_id = ? AND o.status = 'PENDING' "
+                   + "AND (o.warehouse_id IS NULL OR o.warehouse_id = 0)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /**
+     * Total qty_available across active warehouses, NORMAL stock only minus pending order quantities.
+     */
+    private int getPushableAvailableStock(Connection conn, int productId) throws SQLException {
+        String sql = "SELECT COALESCE(SUM(i.qty_available), 0) AS total_qty "
+                   + "FROM inventory i "
+                   + "JOIN warehouses w ON i.warehouse_id = w.warehouse_id "
+                   + "WHERE i.product_id = ? AND w.active = 1 "
+                   + "AND (i.stock_type IS NULL OR i.stock_type = 'NORMAL')";
+        int wmsAvailable = 0;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    wmsAvailable = rs.getInt("total_qty");
+                }
+            }
+        }
+        int pendingQty = getQtyPending(conn, productId);
+        return Math.max(0, wmsAvailable - pendingQty);
     }
 }

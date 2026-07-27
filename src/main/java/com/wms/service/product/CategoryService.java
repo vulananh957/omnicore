@@ -316,8 +316,9 @@ public class CategoryService {
         public String getMessage() { return message; }
     }
 
-    private void syncToWebsite(String method, Category c) {
-        if (c == null) return;
+    /** @return true if the push to Website succeeded (non-null response), false otherwise. */
+    private boolean syncToWebsite(String method, Category c) {
+        if (c == null) return false;
         try {
             ObjectMapper mapper = new ObjectMapper();
             Map<String, Object> payload = new HashMap<>();
@@ -328,15 +329,47 @@ public class CategoryService {
             String json = mapper.writeValueAsString(payload);
 
             WebsiteHttpClient client = new WebsiteHttpClient();
+            String response;
             if ("POST".equalsIgnoreCase(method)) {
-                client.post("/api/v1/categories", json);
+                response = client.post("/api/v1/categories", json);
             } else if ("PUT".equalsIgnoreCase(method)) {
-                client.put("/api/v1/categories/" + c.getCategoryId(), json);
+                response = client.put("/api/v1/categories/" + c.getCategoryId(), json);
+            } else {
+                return false;
             }
+            return response != null;
         } catch (Exception e) {
             Logger.getLogger(CategoryService.class.getName())
                   .log(Level.WARNING, "Failed to sync category to Website: " + c.getCategoryId(), e);
+            return false;
         }
+    }
+
+    /**
+     * Re-pushes every category to the Website storefront. The individual create/update/
+     * delete methods already auto-sync on every change, but there was never a way to
+     * replay EXISTING categories — needed after Web's local {@code categories} table gets
+     * wiped/desynced (e.g. a full data reset) since Main never re-sends what it doesn't
+     * think has changed.
+     *
+     * <p>Pushes in {@code category_id} ascending order — in this app root categories are
+     * always created (and therefore numbered) before their children, so this naturally
+     * satisfies category hierarchy ordering without needing a real tree walk.
+     *
+     * @return number of categories successfully pushed
+     */
+    public int resyncAllToWebsite() throws SQLException {
+        List<Category> all = findAll();
+        int successCount = 0;
+        for (Category c : all) {
+            if (syncToWebsite("POST", c)) {
+                successCount++;
+            }
+        }
+        Logger.getLogger(CategoryService.class.getName())
+              .log(Level.INFO, "resyncAllToWebsite: {0}/{1} categories pushed successfully",
+                      new Object[]{successCount, all.size()});
+        return successCount;
     }
 
     private void syncDeleteToWebsite(int categoryId) {

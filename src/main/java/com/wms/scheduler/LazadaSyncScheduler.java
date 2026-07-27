@@ -26,24 +26,28 @@ import java.util.logging.Logger;
  * LazadaSyncScheduler — Background timer that periodically syncs Lazada orders.
  *
  * Pipeline per cycle, per active Lazada channel:
- *   1. Read {@code last_order_sync_at} from the channel record (incremental sync)
- *   2. GET /orders/get?status=pending&updated_after=...
- *   3. For each new order:
- *      a. GET /order/get to fetch full detail (shipping, address, payment)
- *      b. INSERT IGNORE orders (status = PENDING) with channel_id + channel_order_id
- *      c. INSERT IGNORE order_shipping_details (recipient, address, courier)
- *      d. INSERT IGNORE order_items (with SKU mapping resolution)
- *      e. Soft-allocate inventory (holding +qty, qty_available -qty)
- *   4. Persist last_order_sync_at back to the channel row
- *   5. Log every cycle to lazada_sync_log
+ * 1. Read {@code last_order_sync_at} from the channel record (incremental sync)
+ * 2. GET /orders/get?status=pending&updated_after=...
+ * 3. For each new order:
+ * a. GET /order/get to fetch full detail (shipping, address, payment)
+ * b. INSERT IGNORE orders (status = PENDING) with channel_id + channel_order_id
+ * c. INSERT IGNORE order_shipping_details (recipient, address, courier)
+ * d. INSERT IGNORE order_items (with SKU mapping resolution)
+ * e. Soft-allocate inventory (holding +qty, qty_available -qty)
+ * 4. Persist last_order_sync_at back to the channel row
+ * 5. Log every cycle to lazada_sync_log
  *
- * <p>Per user decision (Lazada end-to-end plan):
+ * <p>
+ * Per user decision (Lazada end-to-end plan):
  * <ul>
- *   <li>Newly-synced orders land in {@code status = 'PENDING'} so Sales can review
- *       and pick a warehouse (UC-B2C05 manual review).</li>
- *   <li>{@code warehouse_id = 0} on first sync — Sales staff assigns on approval.</li>
- *   <li>Soft-allocate (BR-04) is deferred to {@code OrderService.handleAction("approve")},
- *       because the order does not yet have a warehouse at sync time.</li>
+ * <li>Newly-synced orders land in {@code status = 'PENDING'} so Sales can
+ * review
+ * and pick a warehouse (UC-B2C05 manual review).</li>
+ * <li>{@code warehouse_id = 0} on first sync — Sales staff assigns on
+ * approval.</li>
+ * <li>Soft-allocate (BR-04) is deferred to
+ * {@code OrderService.handleAction("approve")},
+ * because the order does not yet have a warehouse at sync time.</li>
  * </ul>
  *
  * Interval and feature flag are read from web.xml context-params.
@@ -107,6 +111,8 @@ public class LazadaSyncScheduler implements ServletContextListener {
 
     // ───────────────────────────────────────────────────────────
     // Sync task
+    // tiến trình chạy ngầm định kì trong vòng 1 phút 1 lần để lấy dữ liệu
+    // từ lazada về
     // ───────────────────────────────────────────────────────────
 
     private class SyncTask extends TimerTask {
@@ -115,6 +121,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
         private final ChannelDAO channelDAO = new ChannelDAO();
         private final LazadaOrderSyncService syncService = new LazadaOrderSyncService();
         private final int lookbackMinutes;
+
         SyncTask(ServletContext servletContext) {
             this.lookbackMinutes = parseLookback(servletContext);
         }
@@ -196,15 +203,16 @@ public class LazadaSyncScheduler implements ServletContextListener {
                     if (result == LazadaOrderSyncService.SyncResult.NEW) {
                         newCount++;
                         newOrderCodes.add(orderCode);
-                    }
-                    else if (result == LazadaOrderSyncService.SyncResult.UPDATED) updatedCount++;
+                    } else if (result == LazadaOrderSyncService.SyncResult.UPDATED)
+                        updatedCount++;
                 }
                 conn.commit();
             } catch (SQLException sqle) {
                 throw new RuntimeException("DB error during sync for channel " + channel.getChannelId(), sqle);
             }
 
-            // Left in PENDING status with no warehouse assigned so Sales Staff can manually assign it on WMS.
+            // Left in PENDING status with no warehouse assigned so Sales Staff can manually
+            // assign it on WMS.
 
             updateLastSyncAt(channel.getChannelId());
             LOGGER.info("LazadaSyncScheduler: Channel '" + channel.getChannelName()
@@ -217,7 +225,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
         private long readLastSyncAt(int channelId) {
             String sql = "SELECT last_order_sync_at FROM channels WHERE channel_id = ?";
             try (Connection conn = DBConnection.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                    PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, channelId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
@@ -234,7 +242,7 @@ public class LazadaSyncScheduler implements ServletContextListener {
         private void updateLastSyncAt(int channelId) {
             String sql = "UPDATE channels SET last_order_sync_at = CURRENT_TIMESTAMP WHERE channel_id = ?";
             try (Connection conn = DBConnection.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                    PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, channelId);
                 ps.executeUpdate();
             } catch (SQLException e) {
@@ -243,12 +251,12 @@ public class LazadaSyncScheduler implements ServletContextListener {
         }
 
         private void logSync(int channelId, String syncType, String status,
-                             String requestData, String responseData, String errorMsg) {
+                String requestData, String responseData, String errorMsg) {
             String sql = "INSERT INTO lazada_sync_log "
                     + "(channel_id, sync_type, status, request_data, response_data, error_msg) "
                     + "VALUES (?, ?, ?, ?, ?, ?)";
             try (Connection conn = DBConnection.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                    PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, channelId);
                 ps.setString(2, syncType);
                 ps.setString(3, status);
@@ -262,7 +270,8 @@ public class LazadaSyncScheduler implements ServletContextListener {
         }
 
         private String trimForLog(String s) {
-            if (s == null) return null;
+            if (s == null)
+                return null;
             return s.length() > 4000 ? s.substring(0, 4000) + "...[truncated]" : s;
         }
     }
@@ -272,6 +281,10 @@ public class LazadaSyncScheduler implements ServletContextListener {
     private static class SyncOutcome {
         final int newOrders;
         final int updatedOrders;
-        SyncOutcome(int n, int u) { this.newOrders = n; this.updatedOrders = u; }
+
+        SyncOutcome(int n, int u) {
+            this.newOrders = n;
+            this.updatedOrders = u;
+        }
     }
 }

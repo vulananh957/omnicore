@@ -37,8 +37,17 @@ public class LazadaImageMigrator {
      *
      * @return Lazada CDN URL on success, null on failure
      */
+    public static boolean isLazadaCdnUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase();
+        return lower.contains("slatic.net") || lower.contains("slatic.com")
+            || lower.contains("laz-img-cdn.com") || lower.contains("lazada.vn")
+            || lower.contains("lazada.com");
+    }
+
     public String migrateSingle(Channel channel, String sourceUrl) {
         if (sourceUrl == null || sourceUrl.isBlank()) return null;
+        if (isLazadaCdnUrl(sourceUrl)) return sourceUrl;
         String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
                    + "<Request><Image><Url>" + xmlEscape(sourceUrl) + "</Url></Image></Request>";
         Map<String, String> params = Map.of("payload", xml);
@@ -66,10 +75,16 @@ public class LazadaImageMigrator {
         List<String> out = new ArrayList<>();
         if (externalUrls == null || externalUrls.isEmpty()) return out;
 
-        // Step 1: filter out blanks
+        // Step 1: filter out blanks and upgrade low-res Tiki URLs
         List<String> cleaned = new ArrayList<>();
         for (String u : externalUrls) {
-            if (u != null && !u.isBlank()) cleaned.add(u.trim());
+            if (u != null && !u.isBlank()) {
+                String str = u.trim();
+                if (str.contains("/cache/280x280/")) {
+                    str = str.replace("/cache/280x280/", "/cache/750x750/");
+                }
+                cleaned.add(str);
+            }
         }
         if (cleaned.isEmpty()) return out;
 
@@ -84,11 +99,15 @@ public class LazadaImageMigrator {
 
         List<String> toMigrate = new ArrayList<>();
         for (String u : cleaned) {
-            ImageMigrationDAO.MigrationRecord r = cached.get(u);
-            if (r != null && r.lazadaImageUrl != null && !r.lazadaImageUrl.isBlank()) {
-                resultBySource.put(u, r.lazadaImageUrl);
+            if (isLazadaCdnUrl(u)) {
+                resultBySource.put(u, u);
             } else {
-                toMigrate.add(u);
+                ImageMigrationDAO.MigrationRecord r = cached.get(u);
+                if (r != null && r.lazadaImageUrl != null && !r.lazadaImageUrl.isBlank()) {
+                    resultBySource.put(u, r.lazadaImageUrl);
+                } else {
+                    toMigrate.add(u);
+                }
             }
         }
 

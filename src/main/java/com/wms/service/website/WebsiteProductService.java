@@ -26,6 +26,10 @@ import java.util.logging.Logger;
  * Service handling product synchronization from WMS Hub to the Website storefront.
  * Uses WebsiteHttpClient with HMAC-SHA256 signature authorization.
  */
+import com.fasterxml.jackson.databind.JsonNode;
+import com.wms.dao.InventoryDAO;
+import java.time.LocalDateTime;
+
 public class WebsiteProductService {
 
     private static final Logger LOG = Logger.getLogger(WebsiteProductService.class.getName());
@@ -36,6 +40,7 @@ public class WebsiteProductService {
     private final ProductImageDAO productImageDAO = new ProductImageDAO();
     private final ChannelProductDAO channelProductDAO = new ChannelProductDAO();
     private final SkuMappingDAO skuMappingDAO = new SkuMappingDAO();
+    private final InventoryDAO inventoryDAO = new InventoryDAO();
 
     /** Default constructor — uses real HTTP client (production path). */
     public WebsiteProductService() {
@@ -82,6 +87,10 @@ public class WebsiteProductService {
             cp.setStatus("PENDING");
             channelProductDAO.insert(cp);
             cp = channelProductDAO.findByProductAndChannel(productId, channel.getChannelId());
+        } else if (cp.getChannelItemId() != null && !cp.getChannelItemId().trim().isEmpty()) {
+            LOG.info("WebsiteProductService: product " + p.getSkuCode() + " already exists on Website (channel_item_id=" 
+                    + cp.getChannelItemId() + "). Redirecting to updateProduct to prevent duplicate storefront entry.");
+            return updateProduct(channel, cp.getId(), null, null);
         }
 
         List<String> imageUrls = new ArrayList<>();
@@ -108,7 +117,7 @@ public class WebsiteProductService {
             String response = client.post("/api/v1/products", json);
 
             if (response != null) {
-                com.fasterxml.jackson.databind.JsonNode resNode = MAPPER.readTree(response);
+                JsonNode resNode = MAPPER.readTree(response);
                 if (resNode.path("success").asBoolean(false)) {
                     // Success path
                     int cpId = cp != null && cp.getId() > 0 ? cp.getId() : ensureChannelProductRow(cp, channel, p);
@@ -132,11 +141,13 @@ public class WebsiteProductService {
                         mapping.setExternalSku(String.valueOf(productId));
                         mapping.setSellerSku(p.getSkuCode());
                         mapping.setSyncStatus("SYNCED");
-                        mapping.setLastSyncAt(java.time.LocalDateTime.now());
+                        mapping.setLastSyncAt(LocalDateTime.now());
                         skuMappingDAO.insert(mapping);
                     } else {
                         skuMappingDAO.updateSyncStatus(mapping.getMappingId(), "SYNCED");
                     }
+
+                    skuMappingDAO.resolveCatalogExceptions(channel.getChannelId());
 
                     LOG.info("WebsiteProductService: product " + p.getSkuCode() + " pushed successfully.");
                     return true;
@@ -196,7 +207,7 @@ public class WebsiteProductService {
             String response = client.put(apiPath, json);
 
             if (response != null) {
-                com.fasterxml.jackson.databind.JsonNode resNode = MAPPER.readTree(response);
+                JsonNode resNode = MAPPER.readTree(response);
                 if (resNode.path("success").asBoolean(false)) {
                     channelProductDAO.update(cp);
                     channelProductDAO.recordPushSuccess(
@@ -239,21 +250,41 @@ public class WebsiteProductService {
             String response = client.delete(apiPath);
 
             if (response != null) {
-                com.fasterxml.jackson.databind.JsonNode resNode = MAPPER.readTree(response);
+                JsonNode resNode = MAPPER.readTree(response);
                 if (resNode.path("success").asBoolean(false)) {
-                    // Delete WMS side mappings to clean up
-                    channelProductDAO.delete(channelProductId);
-                    skuMappingDAO.deleteByProductAndChannel(cp.getProductId(), cp.getChannelId());
-                    LOG.info("WebsiteProductService: product deactivated and removed locally.");
-                    return true;
+                    LOG.info("WebsiteProductService: product deactivated on storefront.");
                 } else {
                     LOG.warning("WebsiteProductService: delete failed on storefront: " + resNode.path("message").asText());
                 }
+            } else {
+                LOG.warning("WebsiteProductService: delete HTTP call returned null/error for channel_item_id=" + cp.getChannelItemId());
             }
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "WebsiteProductService: delete failed for SKU " + cp.getChannelSkuCode(), e);
         }
-        return false;
+
+        // Always clean up WMS local records so user can delete test/orphaned products
+        channelProductDAO.delete(channelProductId);
+        skuMappingDAO.deleteByProductAndChannel(cp.getProductId(), cp.getChannelId());
+        LOG.info("WebsiteProductService: product removed locally from WMS.");
+        return true;
+    }
+
+    /**
+     * Directly deactivates/removes a product from the Website storefront by WMS product_id.
+     */
+    public boolean deleteProductByProductId(Channel channel, int productId) {
+        try {
+            String apiPath = "/api/v1/products/" + productId;
+            LOG.info("WebsiteProductService: removing/deactivating product ID " + productId + " on Website storefront...");
+            String response = client.delete(apiPath);
+            if (response != null) {
+                LOG.info("WebsiteProductService: storefront delete response for product " + productId + ": " + response);
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "WebsiteProductService: deleteProductByProductId failed for productId=" + productId, e);
+        }
+        return true;
     }
 
     /**
@@ -279,7 +310,7 @@ public class WebsiteProductService {
             String response = client.put(apiPath, json);
 
             if (response != null) {
-                com.fasterxml.jackson.databind.JsonNode resNode = MAPPER.readTree(response);
+                JsonNode resNode = MAPPER.readTree(response);
                 if (resNode.path("success").asBoolean(false)) {
                     channelProductDAO.syncStock(cp.getId(), BigDecimal.valueOf(qtyAvailable));
                     return true;
@@ -298,7 +329,7 @@ public class WebsiteProductService {
      */
     public PullResult pullProducts(Channel channel) {
         // Clear/resolve old unresolved catalog exceptions before pulling
-        new com.wms.dao.SkuMappingDAO().resolveCatalogExceptions(channel.getChannelId());
+        skuMappingDAO.resolveCatalogExceptions(channel.getChannelId());
 
         int totalPulled = 0;
         int totalUpserted = 0;
@@ -311,10 +342,10 @@ public class WebsiteProductService {
             String response = client.get("/api/v1/products");
             if (response != null) {
                 ok = true;
-                com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(response);
+                JsonNode root = MAPPER.readTree(response);
                 if (root.isArray()) {
                     totalPulled = root.size();
-                    for (com.fasterxml.jackson.databind.JsonNode item : root) {
+                    for (JsonNode item : root) {
                         String skuCode = item.path("skuCode").asText("").trim();
                         if (skuCode.isEmpty()) {
                             skuCode = item.path("sku_code").asText("").trim();
@@ -339,7 +370,7 @@ public class WebsiteProductService {
                         Product matched = productDAO.findBySkuCode(skuCode);
                         if (matched == null) {
                             // Check if mapping exists in sku_mappings table
-                            com.wms.model.SkuMapping mapping = new com.wms.dao.SkuMappingDAO()
+                            SkuMapping mapping = skuMappingDAO
                                     .findMappingByChannelAndExternalSku(channel.getChannelId(), String.valueOf(webProductId));
                             if (mapping != null) {
                                 matched = productDAO.findById(mapping.getSkuId());
@@ -348,23 +379,23 @@ public class WebsiteProductService {
 
                         if (matched == null) {
                             // No match — log mapping exception
-                            new com.wms.dao.SkuMappingDAO().logMappingException(
+                            skuMappingDAO.logMappingException(
                                     channel.getChannelId(), skuCode, String.valueOf(webProductId), productName);
                             totalUnmapped++;
                         } else {
                             // Match found — ensure sku_mappings record
-                            com.wms.dao.SkuMappingDAO mappingDAO = new com.wms.dao.SkuMappingDAO();
-                            com.wms.model.SkuMapping existingMapping = mappingDAO
+                            com.wms.dao.SkuMappingDAO mappingDAO = skuMappingDAO;
+                            SkuMapping existingMapping = mappingDAO
                                     .findMappingByChannelAndExternalSku(channel.getChannelId(), String.valueOf(webProductId));
                             if (existingMapping == null) {
-                                com.wms.model.SkuMapping newMapping = new com.wms.model.SkuMapping();
+                                SkuMapping newMapping = new SkuMapping();
                                 newMapping.setSkuId(matched.getProductId());
                                 newMapping.setChannelId(channel.getChannelId());
                                 newMapping.setExternalSku(String.valueOf(webProductId));
                                 newMapping.setSellerSku(skuCode);
                                 newMapping.setSyncStatus("SYNCED");
-                                newMapping.setLastSyncAt(java.time.LocalDateTime.now());
-                                mappingDAO.insert(newMapping);
+                                newMapping.setLastSyncAt(LocalDateTime.now());
+                                skuMappingDAO.insert(newMapping);
                             }
 
                             // Ensure channel_products record
@@ -383,7 +414,7 @@ public class WebsiteProductService {
                                 cp.setChannelPrice(BigDecimal.valueOf(price));
                                 cp.setChannelStock(BigDecimal.valueOf(stock));
                                 cp.setStatus("ACTIVE");
-                                cp.setListedAt(java.time.LocalDateTime.now());
+                                cp.setListedAt(LocalDateTime.now());
                                 boolean inserted = channelProductDAO.insert(cp);
                                 if (inserted) {
                                     ChannelProduct fresh = channelProductDAO.findByProductAndChannel(
@@ -429,7 +460,7 @@ public class WebsiteProductService {
 
         // Default to WMS actual inventory if stage channel_stock is empty/0
         int stock = cp.getChannelStock() != null && cp.getChannelStock().signum() > 0 ? cp.getChannelStock().intValue()
-                : new com.wms.dao.InventoryDAO().getTotalAvailableStock(p.getProductId());
+                : inventoryDAO.getTotalAvailableStock(p.getProductId());
         payload.put("qty_available", stock);
 
         payload.put("active", 1);
@@ -439,6 +470,97 @@ public class WebsiteProductService {
         payload.put("images", images);
 
         return payload;
+    }
+
+    /**
+     * Batch push products to Website storefront.
+     * Maps to POST /api/v1/products/batch endpoint.
+     * Reduces N HTTP calls to 1 call, improves performance.
+     *
+     * @param channel Website channel
+     * @param productIds list of product IDs to push
+     * @return success count
+     */
+    public int pushProductBatch(Channel channel, List<Integer> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
+            return 0;
+        }
+
+        List<Map<String, Object>> products = new ArrayList<>();
+        for (int productId : productIds) {
+            Product p = productDAO.findById(productId);
+            if (p == null) {
+                LOG.warning("WebsiteProductService.pushProductBatch: product not found for ID " + productId);
+                continue;
+            }
+
+            ChannelProduct cp = channelProductDAO.findByProductAndChannel(productId, channel.getChannelId());
+            if (cp == null) {
+                cp = new ChannelProduct();
+                cp.setChannelId(channel.getChannelId());
+                cp.setProductId(productId);
+                cp.setChannelSkuCode(p.getSkuCode());
+                cp.setChannelPrice(BigDecimal.valueOf(p.getBasePrice()));
+                cp.setChannelStock(BigDecimal.ZERO);
+                cp.setStatus("PENDING");
+                channelProductDAO.insert(cp);
+                cp = channelProductDAO.findByProductAndChannel(productId, channel.getChannelId());
+            }
+
+            List<ProductImage> images = productImageDAO.findByProductId(productId);
+            List<String> imageUrls = new ArrayList<>();
+            for (ProductImage img : images) {
+                if (img.getImageUrl() != null && !img.getImageUrl().isBlank()) {
+                    imageUrls.add(img.getImageUrl().trim());
+                }
+            }
+
+            Map<String, Object> payload = buildPayload(p, cp, imageUrls);
+            products.add(payload);
+        }
+
+        if (products.isEmpty()) {
+            return 0;
+        }
+
+        try {
+            Map<String, Object> batchPayload = new HashMap<>();
+            batchPayload.put("products", products);
+            String json = MAPPER.writeValueAsString(batchPayload);
+
+            LOG.info("WebsiteProductService: pushing " + products.size() + " products to Website in batch...");
+            String response = client.post("/api/v1/products/batch", json);
+
+            if (response != null) {
+                JsonNode resNode = MAPPER.readTree(response);
+                if (resNode.path("success").asBoolean(false)) {
+                    int successCount = resNode.path("success_count").asInt(0);
+                    LOG.info("WebsiteProductService: batch push completed. Success: " + successCount + "/" + products.size());
+
+                    // Record success for each product
+                    for (int productId : productIds) {
+                        ChannelProduct cp = channelProductDAO.findByProductAndChannel(productId, channel.getChannelId());
+                        if (cp != null) {
+                            channelProductDAO.recordPushSuccess(
+                                    cp.getId(),
+                                    String.valueOf(productId),
+                                    null,
+                                    cp.getChannelStock() != null ? cp.getChannelStock() : BigDecimal.ZERO
+                            );
+                        }
+                    }
+
+                    return successCount;
+                } else {
+                    LOG.warning("WebsiteProductService: batch push failed: " + resNode.path("message").asText());
+                }
+            } else {
+                LOG.warning("WebsiteProductService: batch push returned null response");
+            }
+        } catch (Exception e) {
+            LOG.log(Level.SEVERE, "WebsiteProductService: batch push failed", e);
+        }
+        return 0;
     }
 
     private int ensureChannelProductRow(ChannelProduct cp, Channel channel, Product p) {
@@ -451,10 +573,26 @@ public class WebsiteProductService {
         draft.setChannelPrice(cp.getChannelPrice());
         draft.setChannelStock(cp.getChannelStock());
         draft.setStatus("ACTIVE");
-        draft.setListedAt(java.time.LocalDateTime.now());
+        draft.setListedAt(LocalDateTime.now());
         boolean ok = channelProductDAO.insert(draft);
         if (!ok) return -1;
         ChannelProduct just = channelProductDAO.findByProductAndChannel(p.getProductId(), channel.getChannelId());
         return just != null ? just.getId() : -1;
+    }
+
+    public int syncAllProductStock(Channel channel) {
+        List<ChannelProduct> products = channelProductDAO.findByChannel(channel.getChannelId());
+        int count = 0;
+        double buffer = channel.getBufferStock();
+        InventoryDAO invDao = new InventoryDAO();
+        for (ChannelProduct cp : products) {
+            if (!"ACTIVE".equalsIgnoreCase(cp.getStatus())) continue;
+            int sellable = invDao.getTotalAvailableStock(cp.getProductId());
+            int pushQty = Math.max(0, (int) Math.floor(sellable - buffer));
+            boolean ok = syncStock(channel, cp.getProductId(), pushQty);
+            if (ok) count++;
+        }
+        LOG.info("WebsiteProductService: synced stock for " + count + "/" + products.size() + " products on channel " + channel.getChannelName());
+        return count;
     }
 }

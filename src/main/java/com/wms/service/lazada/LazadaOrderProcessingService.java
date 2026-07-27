@@ -840,41 +840,41 @@ public class LazadaOrderProcessingService {
             return ProcessingResult.fail("Đơn hàng không có sản phẩm nào.");
         }
         
-        // 3. Determine warehouse: check if main orders table already has an assigned warehouse first
+        // 3. Determine warehouse: check all active warehouses for actual stock availability
         int selectedWarehouseId = -1;
-        com.wms.model.Order mainOrder = new com.wms.dao.OrderDAO().findByOrderCode(lazadaOrderIdStr);
-        if (mainOrder != null && mainOrder.getWarehouseId() > 0) {
-            selectedWarehouseId = mainOrder.getWarehouseId();
-        } else {
-            List<com.wms.model.Warehouse> warehouses = new com.wms.dao.WarehouseDAO().findAll();
-            for (com.wms.model.Warehouse wh : warehouses) {
-                boolean allInStock = true;
-                for (LazadaOrderItem item : items) {
-                    int productId = resolveProductId(item, order.getChannelId());
-                    if (productId <= 0) {
-                        allInStock = false;
-                        break;
-                    }
-                    int available = inventoryDAO.getAvailableStock(productId, wh.getWarehouseId());
-                    if (available < item.getQuantity()) {
-                        allInStock = false;
-                        break;
-                    }
+        List<com.wms.model.Warehouse> warehouses = new com.wms.dao.WarehouseDAO().findAll();
+        
+        for (com.wms.model.Warehouse wh : warehouses) {
+            boolean allInStock = true;
+            for (LazadaOrderItem item : items) {
+                int productId = resolveProductId(item, order.getChannelId());
+                if (productId <= 0) {
+                    allInStock = false;
+                    break;
                 }
-                if (allInStock) {
-                    selectedWarehouseId = wh.getWarehouseId();
+                int available = inventoryDAO.getAvailableStock(productId, wh.getWarehouseId());
+                if (available < item.getQuantity()) {
+                    allInStock = false;
                     break;
                 }
             }
-            
-            // Fallback to first active warehouse if none matches
-            if (selectedWarehouseId <= 0) {
-                if (!warehouses.isEmpty()) {
-                    selectedWarehouseId = warehouses.get(0).getWarehouseId();
-                    LOGGER.info("syncInitializeLazadaOrder: Không có kho nào đủ toàn bộ tồn kho. Dự phòng chọn kho: " + selectedWarehouseId);
-                } else {
-                    return ProcessingResult.fail("Không tìm thấy kho hàng nào hoạt động để xử lý đơn.");
-                }
+            if (allInStock) {
+                selectedWarehouseId = wh.getWarehouseId();
+                LOGGER.info("syncInitializeLazadaOrder: Chọn kho " + wh.getWarehouseName() + " (ID=" + selectedWarehouseId + ") do đủ tồn kho.");
+                break;
+            }
+        }
+        
+        // Fallback to order's pre-assigned warehouse or first active warehouse if no single warehouse has all items
+        if (selectedWarehouseId <= 0) {
+            com.wms.model.Order mainOrder = new com.wms.dao.OrderDAO().findByOrderCode(lazadaOrderIdStr);
+            if (mainOrder != null && mainOrder.getWarehouseId() > 0) {
+                selectedWarehouseId = mainOrder.getWarehouseId();
+            } else if (!warehouses.isEmpty()) {
+                selectedWarehouseId = warehouses.get(0).getWarehouseId();
+                LOGGER.info("syncInitializeLazadaOrder: Không có kho nào đủ toàn bộ tồn kho. Dự phòng chọn kho: " + selectedWarehouseId);
+            } else {
+                return ProcessingResult.fail("Không tìm thấy kho hàng nào hoạt động để xử lý đơn.");
             }
         }
         
@@ -1118,7 +1118,16 @@ public class LazadaOrderProcessingService {
             mainOrderDAO.updateLazadaPackage(lazadaOrderIdStr, packageId, true, false);
             
             // 9. Call OutboundService to update outbound order status to PACKED (pushes WMS to PACKED state)
-            outboundService.updateStatus(outboundId, "PACKED", 1);
+            int resolvedStaffId = 1;
+            try {
+                com.wms.model.User whStaff = new com.wms.dao.UserDAO().findPrimaryWarehouseStaff(selectedWarehouseId);
+                if (whStaff != null) {
+                    resolvedStaffId = whStaff.getUserId();
+                }
+            } catch (Exception ex) {
+                LOGGER.log(Level.WARNING, "autoPackLazadaOrder: failed to resolve primary warehouse staff for warehouseId=" + selectedWarehouseId, ex);
+            }
+            outboundService.updateStatus(outboundId, "PACKED", resolvedStaffId);
             
             LOGGER.info("autoPackLazadaOrder: success for orderId=" + lazadaOrderIdStr + " packageId=" + packageId + " tracking=" + trackingNumber);
             return ProcessingResult.ok("Tự động đóng gói đơn hàng thành công.", 

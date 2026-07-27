@@ -21,6 +21,7 @@ public class WarehouseService {
     private final UserDAO userDAO = new UserDAO();
     private final InventoryDAO inventoryDAO = new InventoryDAO();
 
+    // lấy danh sách tất cả kho, gọi hàm ở lớp DAO
     public List<Warehouse> findAll() throws SQLException {
         return warehouseDAO.findAll();
     }
@@ -59,7 +60,8 @@ public class WarehouseService {
     // ── Zone CRUD (Warehouse Information screen) ───────────────
 
     /** Creates one zone inside the given warehouse. */
-    public SaveResult createZone(int warehouseId, String code, String name, String type, String description, Integer capacity) {
+    public SaveResult createZone(int warehouseId, String code, String name, String type, String description,
+            Integer capacity) {
         try {
             if (name == null || name.trim().isEmpty()
                     || type == null || type.trim().isEmpty()) {
@@ -72,7 +74,8 @@ public class WarehouseService {
             boolean ok = warehouseDAO.insertZone(warehouseId, generatedCode,
                     name.trim(), type.trim().toUpperCase(),
                     description != null ? description.trim() : null, capacity);
-            if (!ok) return SaveResult.failure("Không thể tạo phân khu.");
+            if (!ok)
+                return SaveResult.failure("Không thể tạo phân khu.");
             return SaveResult.success();
         } catch (Exception e) {
             log.error("createZone failed", e);
@@ -81,13 +84,15 @@ public class WarehouseService {
     }
 
     /** Updates an existing zone's editable fields. */
-    public SaveResult updateZone(int zoneId, int warehouseId, String name, String type, String description, Integer capacity) {
+    public SaveResult updateZone(int zoneId, int warehouseId, String name, String type, String description,
+            Integer capacity) {
         try {
             boolean isDefault = warehouseDAO.isDefaultZone(zoneId, warehouseId);
             if (isDefault) {
                 boolean ok = warehouseDAO.updateDefaultZone(zoneId, warehouseId,
                         description != null ? description.trim() : null, capacity);
-                if (!ok) return SaveResult.failure("Không thể cập nhật phân khu.");
+                if (!ok)
+                    return SaveResult.failure("Không thể cập nhật phân khu.");
                 return SaveResult.success();
             }
 
@@ -100,7 +105,8 @@ public class WarehouseService {
             boolean ok = warehouseDAO.updateZone(zoneId, warehouseId,
                     name.trim(), type.trim().toUpperCase(),
                     description != null ? description.trim() : null, capacity);
-            if (!ok) return SaveResult.failure("Không thể cập nhật phân khu.");
+            if (!ok)
+                return SaveResult.failure("Không thể cập nhật phân khu.");
             return SaveResult.success();
         } catch (Exception e) {
             log.error("updateZone failed", e);
@@ -108,14 +114,18 @@ public class WarehouseService {
         }
     }
 
-    /** Deletes a non-default zone, falls back to deactivation if deletion is blocked. */
+    /**
+     * Deletes a non-default zone, falls back to deactivation if deletion is
+     * blocked.
+     */
     public SaveResult deleteZone(int zoneId, int warehouseId) {
         try {
             if (warehouseDAO.isDefaultZone(zoneId, warehouseId)) {
                 return SaveResult.failure("Không thể xóa khu mặc định của hệ thống.");
             }
             boolean ok = warehouseDAO.deleteZone(zoneId, warehouseId);
-            if (!ok) return SaveResult.failure("Không thể xóa phân khu.");
+            if (!ok)
+                return SaveResult.failure("Không thể xóa phân khu.");
             return SaveResult.success();
         } catch (Exception e) {
             log.error("deleteZone failed", e);
@@ -186,6 +196,7 @@ public class WarehouseService {
     public void adjustInventoryFromCheck(int checkId, String adjustmentsJson, int userId) {
         submitInventoryCheckForApproval(checkId, adjustmentsJson);
     }
+
     public Warehouse findById(int warehouseId) throws SQLException {
         return warehouseDAO.findById(warehouseId);
     }
@@ -207,13 +218,16 @@ public class WarehouseService {
 
     public SaveResult saveWarehouse(Warehouse warehouse) {
         try {
+            // chặn và validate dữ liệu: kiểm tra whCode và whName không được rỗng
             if (warehouse == null
-                || warehouse.getWarehouseCode() == null || warehouse.getWarehouseCode().trim().isEmpty()
-                || warehouse.getWarehouseName() == null || warehouse.getWarehouseName().trim().isEmpty()) {
+                    || warehouse.getWarehouseCode() == null || warehouse.getWarehouseCode().trim().isEmpty()
+                    || warehouse.getWarehouseName() == null || warehouse.getWarehouseName().trim().isEmpty()) {
                 return SaveResult.failure("Thiếu thông tin bắt buộc (mã kho, tên kho).");
             }
 
-            warehouse.setWarehouseCode(warehouse.getWarehouseCode().trim().toUpperCase());
+            warehouse.setWarehouseCode(warehouse.getWarehouseCode().trim().toUpperCase()); // chuẩn hóa bằng cách loại
+                                                                                           // bỏ khoảng trắng và chuyển
+                                                                                           // sang chữ hoa
             warehouse.setWarehouseName(warehouse.getWarehouseName().trim());
             warehouse.setAddress(warehouse.getAddress() != null ? warehouse.getAddress().trim() : "");
             warehouse.setPhone(warehouse.getPhone() != null ? warehouse.getPhone().trim() : "");
@@ -223,7 +237,8 @@ public class WarehouseService {
                 for (Zone z : zones) {
                     if (z.getZoneCode() == null || z.getZoneCode().trim().isEmpty()) {
                         z.setZoneCode(warehouse.getWarehouseCode()
-                            + "-" + z.getZoneType().substring(0, Math.min(4, z.getZoneType().length())).toUpperCase());
+                                + "-"
+                                + z.getZoneType().substring(0, Math.min(4, z.getZoneType().length())).toUpperCase());
                     } else {
                         z.setZoneCode(z.getZoneCode().trim().toUpperCase());
                     }
@@ -235,11 +250,15 @@ public class WarehouseService {
             boolean success;
             if (warehouse.getWarehouseId() > 0) {
                 log.info("[saveWarehouse] Updating warehouseId={} code={} zones={}",
-                    warehouse.getWarehouseId(), warehouse.getWarehouseCode(),
-                    zones != null ? zones.stream().map(z -> z.getZoneCode()).collect(java.util.stream.Collectors.joining(",")) : "null");
+                        warehouse.getWarehouseId(), warehouse.getWarehouseCode(),
+                        zones != null
+                                ? zones.stream().map(z -> z.getZoneCode())
+                                        .collect(java.util.stream.Collectors.joining(","))
+                                : "null");
                 success = warehouseDAO.update(warehouse, zones);
                 if (!success) {
-                    return SaveResult.failure("Không thể cập nhật thông tin kho. Vui lòng kiểm tra lại mã zone có bị trùng không.");
+                    return SaveResult.failure(
+                            "Không thể cập nhật thông tin kho. Vui lòng kiểm tra lại mã zone có bị trùng không.");
                 }
             } else {
                 success = warehouseDAO.insert(warehouse, zones);
@@ -254,6 +273,7 @@ public class WarehouseService {
         }
     }
 
+    // bật tắt trạng thái kho
     public boolean toggleStatus(int warehouseId, boolean active) throws SQLException {
         return warehouseDAO.toggleStatus(warehouseId, active);
     }
@@ -275,7 +295,12 @@ public class WarehouseService {
             return new SaveResult(false, message);
         }
 
-        public boolean isSuccess() { return success; }
-        public String getMessage() { return message; }
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
     }
 }

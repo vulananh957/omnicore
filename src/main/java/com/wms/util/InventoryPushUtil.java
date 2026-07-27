@@ -20,9 +20,15 @@ public class InventoryPushUtil {
         return "PUSH-" + timestamp + "-" + uuid;
     }
 
-    public static String signRequest(String method, String path, String body, String secret) {
+    /**
+     * Message format (BUG-05 fix, 2026-07-19): method + "\n" + path + "\n" + timestamp + "\n" +
+     * body. Previously omitted timestamp — a captured request could be replayed forever just
+     * by rewriting X-Timestamp, since the signature never covered it. Web's HMACUtil.signRequest()
+     * must stay byte-for-byte identical to this — both sides sign the same message.
+     */
+    public static String signRequest(String method, String path, long timestamp, String body, String secret) {
         try {
-            String message = method + "\n" + path + "\n" + body;
+            String message = method + "\n" + path + "\n" + timestamp + "\n" + body;
             Mac mac = Mac.getInstance("HmacSHA256");
             SecretKeySpec keySpec = new SecretKeySpec(
                     secret.getBytes(StandardCharsets.UTF_8),

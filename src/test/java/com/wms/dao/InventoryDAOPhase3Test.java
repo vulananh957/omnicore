@@ -43,9 +43,29 @@ public class InventoryDAOPhase3Test {
                 stmt.execute("INSERT IGNORE INTO warehouses (warehouse_id, warehouse_code, warehouse_name, address) " +
                         "VALUES (" + TEST_WAREHOUSE_ID + ", 'WH-TEST', 'Test Warehouse', 'Test Address')");
 
-                // Insert test product with initial stock
+                // Insert test products with initial stock. Both TEST_PRODUCT_ID (99) and its
+                // sibling (100, used by testDeductWithLockMultipleProducts) must exist here —
+                // inventory_deduction_log.product_id has an FK to products, so deductWithLock()
+                // rolls back if the product row is missing. This used to pass by coincidence
+                // (the dev catalog happened to have a real product with id=100) until the
+                // catalog got wiped for a reseed, which is what exposed this test's dependency
+                // on ambient DB state.
                 stmt.execute("INSERT IGNORE INTO products (product_id, sku_code, product_name, category_id, base_price, active) " +
                         "VALUES (" + TEST_PRODUCT_ID + ", 'SKU-TEST-99', 'Test Product', 1, 100000, 1)");
+                stmt.execute("INSERT IGNORE INTO products (product_id, sku_code, product_name, category_id, base_price, active) " +
+                        "VALUES (" + (TEST_PRODUCT_ID + 1) + ", 'SKU-TEST-100', 'Test Product 2', 1, 100000, 1)");
+            }
+        }
+    }
+
+    @AfterAll
+    public void tearDownAll() throws Exception {
+        try (Connection conn = DBConnection.getConnection()) {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("DELETE FROM inventory_deduction_log WHERE warehouse_id = " + TEST_WAREHOUSE_ID);
+                stmt.execute("DELETE FROM inventory WHERE warehouse_id = " + TEST_WAREHOUSE_ID);
+                stmt.execute("DELETE FROM products WHERE product_id IN (" + TEST_PRODUCT_ID + ", " + (TEST_PRODUCT_ID + 1) + ")");
+                stmt.execute("DELETE FROM warehouses WHERE warehouse_id = " + TEST_WAREHOUSE_ID);
             }
         }
     }

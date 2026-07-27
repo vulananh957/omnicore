@@ -1,6 +1,8 @@
 package com.wms.controller.warehouse;
 
 import com.wms.controller.BaseController;
+import com.wms.dao.InventoryDAO;
+import com.wms.model.Category;
 import com.wms.model.Product;
 import com.wms.model.User;
 import com.wms.service.product.ProductService;
@@ -36,6 +38,7 @@ public class WarehouseInventoryCheckServlet extends BaseController {
     private final WarehouseService warehouseService = new WarehouseService();
     private final InventoryCheckService inventoryCheckService = new InventoryCheckService();
     private final NotificationService notificationService = new NotificationService();
+    private final InventoryDAO inventoryDAO = new InventoryDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -185,6 +188,24 @@ public class WarehouseInventoryCheckServlet extends BaseController {
         String suffix = String.format("-%04d", (int) (Math.random() * 9999));
         String checkCode = "PK-" + today.toString().replace("-", "") + suffix;
 
+        // Collect valid category IDs (including child categories)
+        java.util.Set<Integer> validCatIds = new java.util.HashSet<>();
+        if ("category".equals(scopeType) && scopeValue != null && !scopeValue.isBlank()) {
+            try {
+                int targetCatId = Integer.parseInt(scopeValue);
+                validCatIds.add(targetCatId);
+                List<Category> allCats = productService.findAllCategories();
+                for (Category c : allCats) {
+                    if (c.getParentId() != null && c.getParentId() == targetCatId) {
+                        validCatIds.add(c.getCategoryId());
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // Fetch stock specific to the target warehouse
+        java.util.Map<Integer, java.math.BigDecimal> whStockMap = inventoryDAO.findStockByWarehouse(warehouseId);
+
         // Build items JSON
         StringBuilder sb = new StringBuilder("[");
         List<Product> products = safeProducts();
@@ -193,14 +214,15 @@ public class WarehouseInventoryCheckServlet extends BaseController {
             boolean include = false;
             if ("all".equals(scopeType)) {
                 include = true;
-            } else if ("category".equals(scopeType) && scopeValue != null) {
-                include = String.valueOf(p.getCategoryId()).equals(scopeValue);
+            } else if ("category".equals(scopeType)) {
+                include = p.getCategoryId() != null && validCatIds.contains(p.getCategoryId());
             } else if ("sku".equals(scopeType) && scopeValue != null) {
                 include = p.getSkuCode() != null && p.getSkuCode().equals(scopeValue);
             }
             if (include) {
                 if (idx > 0) sb.append(",");
-                double sysQty = p.getQtyOnHand() != null ? p.getQtyOnHand().doubleValue() : 0d;
+                java.math.BigDecimal sysQtyBD = whStockMap.getOrDefault(p.getProductId(), java.math.BigDecimal.ZERO);
+                double sysQty = sysQtyBD != null ? sysQtyBD.doubleValue() : 0d;
                 sb.append("{\"productId\":").append(p.getProductId())
                   .append(",\"systemQty\":").append(sysQty).append("}");
                 idx++;

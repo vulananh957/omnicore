@@ -456,6 +456,7 @@ public class LedgerDAO {
                     try (ResultSet crs = cps.executeQuery()) { if (crs.next()) itemCount = crs.getInt(1); }
                 }
                 d.items = itemCount;
+                try { d.itemsList = loadScrapItems(conn, rs.getInt("issue_id")); } catch (Exception ex) { d.itemsList = new java.util.ArrayList<>(); }
                 docs.add(d);
             }
             }
@@ -638,7 +639,7 @@ public class LedgerDAO {
             insertLedgerEntryConn(conn, fromInvId, prodId, fromWhId, "TRANSFER_OUT", transferId,
                     shipQty.negate(), shipQty.negate(), userId, "Chuyển kho ra đi");
 
-            upsertInventoryConn(conn, prodId, toWhId, recQty, recQty);
+            upsertInventoryConn(conn, prodId, toWhId, recQty, BigDecimal.ZERO, recQty);
             int toInvId = getInventoryIdForUpdate(prodId, toWhId);
             insertLedgerEntryConn(conn, toInvId, prodId, toWhId, "TRANSFER_IN", transferId,
                     recQty, recQty, userId, "Chuyển kho nhận về");
@@ -705,10 +706,30 @@ public class LedgerDAO {
             int prodId = (int) item.get("productId");
             BigDecimal qty = (BigDecimal) item.get("qty");
             if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) continue;
-            upsertInventoryConn(conn, prodId, warehouseId, qty.negate(), qty.negate());
+
+            // Retrieve current holding to check soft-allocation
+            BigDecimal holding = BigDecimal.ZERO;
+            String sqlHolding = "SELECT holding FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sqlHolding)) {
+                ps.setInt(1, prodId);
+                ps.setInt(2, warehouseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        holding = rs.getBigDecimal("holding");
+                        if (holding == null) holding = BigDecimal.ZERO;
+                    }
+                }
+            }
+
+            BigDecimal releasedQty = holding.min(qty);
+            BigDecimal availChange = releasedQty.subtract(qty); // releasedQty - qty
+            BigDecimal holdingChange = releasedQty.negate();     // -releasedQty
+            BigDecimal qtyChange = qty.negate();                // -qty
+
+            upsertInventoryConn(conn, prodId, warehouseId, qtyChange, holdingChange, availChange);
             int invId = getInventoryIdForUpdate(prodId, warehouseId);
             insertLedgerEntryConn(conn, invId, prodId, warehouseId, "OUTBOUND", outboundId,
-                    qty.negate(), qty.negate(), userId, "Xuất kho GI approved");
+                    qtyChange, availChange, userId, "Xuất kho GI approved");
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
@@ -757,7 +778,7 @@ public class LedgerDAO {
             int prodId = (int) item.get("productId");
             BigDecimal delta = (BigDecimal) item.get("delta");
             if (delta == null || delta.compareTo(BigDecimal.ZERO) == 0) continue;
-            upsertInventoryConn(conn, prodId, warehouseId, delta, delta);
+            upsertInventoryConn(conn, prodId, warehouseId, delta, BigDecimal.ZERO, delta);
             int invId = getInventoryIdForUpdate(prodId, warehouseId);
             insertLedgerEntryConn(conn, invId, prodId, warehouseId, "ADJUSTMENT", checkId,
                     delta, delta, userId, "Kiểm kê cân đối tồn kho");
@@ -773,18 +794,52 @@ public class LedgerDAO {
     }
 
     private void upsertInventoryConn(Connection conn, int productId, int warehouseId,
-            BigDecimal qtyChange, BigDecimal availChange) throws SQLException {
+            BigDecimal qtyChange, BigDecimal holdingChange, BigDecimal availChange) throws SQLException {
+        int qtyBefore = 0;
+        String sqlGet = "SELECT qty_available FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+        try (PreparedStatement psGet = conn.prepareStatement(sqlGet)) {
+            psGet.setInt(1, productId);
+            psGet.setInt(2, warehouseId);
+            try (ResultSet rs = psGet.executeQuery()) {
+                if (rs.next()) qtyBefore = rs.getInt(1);
+            }
+        }
+
         String sql = "INSERT INTO inventory (product_id, warehouse_id, qty_on_hand, holding, qty_available) "
-                   + "VALUES (?, ?, ?, 0, ?) "
-                   + "ON DUPLICATE KEY UPDATE qty_on_hand = qty_on_hand + ?, qty_available = qty_available + ?";
+                   + "VALUES (?, ?, ?, ?, ?) "
+                   + "ON DUPLICATE KEY UPDATE qty_on_hand = qty_on_hand + ?, holding = GREATEST(holding + ?, 0), qty_available = qty_available + ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, productId);
             ps.setInt(2, warehouseId);
             ps.setBigDecimal(3, qtyChange);
-            ps.setBigDecimal(4, availChange);
-            ps.setBigDecimal(5, qtyChange);
-            ps.setBigDecimal(6, availChange);
+            ps.setBigDecimal(4, holdingChange);
+            ps.setBigDecimal(5, availChange);
+            ps.setBigDecimal(6, qtyChange);
+            ps.setBigDecimal(7, holdingChange);
+            ps.setBigDecimal(8, availChange);
             ps.executeUpdate();
+        }
+
+        // Sync aggregate products table
+        String sqlSyncProduct =
+            "UPDATE products p " +
+            "SET p.qty_on_hand = (SELECT COALESCE(SUM(i.qty_on_hand), 0) FROM inventory i WHERE i.product_id = p.product_id), " +
+            "    p.qty_available = (SELECT COALESCE(SUM(i.qty_available), 0) FROM inventory i WHERE i.product_id = p.product_id) " +
+            "WHERE p.product_id = ?";
+        try (PreparedStatement psSync = conn.prepareStatement(sqlSyncProduct)) {
+            psSync.setInt(1, productId);
+            psSync.executeUpdate();
+        }
+
+        // Track change for realtime push to Web (BUG-06 fix)
+        int qtyAfter = qtyBefore + availChange.intValue();
+        String sqlLog = "INSERT INTO inventory_change_log (product_id, qty_before, qty_after, changed_at) "
+                      + "VALUES (?, ?, ?, NOW())";
+        try (PreparedStatement psLog = conn.prepareStatement(sqlLog)) {
+            psLog.setInt(1, productId);
+            psLog.setInt(2, qtyBefore);
+            psLog.setInt(3, qtyAfter);
+            psLog.executeUpdate();
         }
     }
 
@@ -1282,6 +1337,39 @@ public class LedgerDAO {
         for (Map<String, Object> map : grouped.values()) {
             map.put("stt", index++);
             items.add(map);
+        }
+        return items;
+    }
+
+    private List<Map<String, Object>> loadScrapItems(Connection conn, int issueId) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        String sql = "SELECT id.product_id, p.sku_code, p.product_name, p.unit, p.base_price, id.quantity, id.note " +
+                     "FROM issue_details id " +
+                     "LEFT JOIN products p ON id.product_id = p.product_id " +
+                     "WHERE id.issue_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, issueId);
+            try (ResultSet rs = ps.executeQuery()) {
+                int stt = 1;
+                while (rs.next()) {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("stt", stt++);
+                    map.put("sku", rs.getString("sku_code"));
+                    map.put("name", rs.getString("product_name"));
+                    map.put("uom", rs.getString("unit"));
+                    double qty = rs.getDouble("quantity");
+                    map.put("ordered", qty);
+                    map.put("received", qty);
+                    map.put("requested", qty);
+                    map.put("shipped", qty);
+                    map.put("price", rs.getDouble("base_price"));
+                    map.put("lot", "—");
+                    map.put("note", rs.getString("note"));
+                    items.add(map);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "LedgerDAO: loadScrapItems failed for issue_id=" + issueId, e);
         }
         return items;
     }

@@ -94,8 +94,10 @@ public class SkuMappingExceptionDAO {
                    + "  AND NOT EXISTS ( "
                    + "    SELECT 1 FROM sku_mappings sm "
                    + "    WHERE sm.channel_id = cp.channel_id "
-                   + "      AND (sm.external_sku = cp.channel_sku_code "
-                   + "           OR sm.seller_sku = cp.channel_sku_code) "
+                   + "      AND (sm.sku_id = cp.product_id "
+                   + "           OR sm.external_sku = cp.channel_sku_code "
+                   + "           OR sm.seller_sku = cp.channel_sku_code "
+                   + "           OR sm.external_sku = CAST(cp.product_id AS CHAR)) "
                    + "  ) "
                    + "ORDER BY c.channel_name, cp.channel_sku_code";
 

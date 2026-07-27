@@ -215,7 +215,7 @@ public class OutboundService {
         if (code == null) {
             return StatusUpdateResult.failure("Không thể lưu phiếu xuất huỷ. Vui lòng thử lại.");
         }
-        return StatusUpdateResult.success("Đã lưu phiếu xuất huỷ " + code + " (chờ duyệt, chưa trừ tồn).");
+        return StatusUpdateResult.success("Đã lưu và hoàn tất phiếu xuất huỷ " + code + " thành công!");
     }
 
     public List<Map<String, Object>> findScrapProductsWithQty(int warehouseId) {
@@ -375,8 +375,9 @@ public class OutboundService {
                         com.wms.model.Channel webChannel = new com.wms.dao.ChannelDAO().findByPlatform("Website");
                         if (webChannel != null && webChannel.isActive() && order.getItems() != null) {
                             for (OutboundItem item : order.getItems()) {
-                                int currentStock = inventoryDAO.getTotalAvailableStock(item.getProductId());
-                                webProdService.syncStock(webChannel, item.getProductId(), currentStock);
+                                int sellable = inventoryDAO.getTotalAvailableStock(item.getProductId());
+                                int pushQty = Math.max(0, (int) Math.floor(sellable - webChannel.getBufferStock()));
+                                webProdService.syncStock(webChannel, item.getProductId(), pushQty);
                             }
                         }
                     }
@@ -552,8 +553,8 @@ public class OutboundService {
             oi.setPickedQty(java.math.BigDecimal.ZERO);
             outboundDAO.insertItem(oi);
 
-            // Soft-allocate inventory for this item
-            if (warehouseId > 0) {
+            // Soft-allocate inventory for this item IF order stock has not already been deducted via deductWithLock
+            if (warehouseId > 0 && !inventoryDAO.isOrderDeducted(order.getOrderId())) {
                 inventoryDAO.softAllocateInventory(item.getProductId(), warehouseId, item.getQuantity());
             }
         }

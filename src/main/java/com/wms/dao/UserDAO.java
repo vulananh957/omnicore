@@ -342,7 +342,7 @@ public class UserDAO {
      */
     public User findPrimaryWarehouseStaff(int warehouseId) throws SQLException {
         String sql =
-            "SELECT user_id, full_name, username, email, phone, role, active, warehouse_id "
+            "SELECT user_id, full_name, username, email, phone, role, active, warehouse_id, created_at "
           + "FROM users "
           + "WHERE role = 'WAREHOUSE_STAFF' AND warehouse_id = ? AND active = 1 "
           + "ORDER BY (warehouse_id = ?) DESC "  // primary assignment first
@@ -381,8 +381,10 @@ public class UserDAO {
         user.setWarehouseId(rs.getInt("warehouse_id"));
         user.setActive(rs.getBoolean("active"));
 
-        Timestamp ca = rs.getTimestamp("created_at");
-        if (ca != null) user.setCreatedAt(ca.toLocalDateTime());
+        try {
+            Timestamp ca = rs.getTimestamp("created_at");
+            if (ca != null) user.setCreatedAt(ca.toLocalDateTime());
+        } catch (SQLException ignored) {}
 
         return user;
     }

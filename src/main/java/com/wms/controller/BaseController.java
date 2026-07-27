@@ -39,11 +39,19 @@ public abstract class BaseController extends HttpServlet {
 
     /**
      * Redirect to a servlet URL (POST-Redirect-GET pattern).
-     * e.g., redirect(res, "dashboard")
+     * e.g., redirect(req, res, "/warehouse/inbound") -> automatically adds req.getContextPath()
      */
+    protected void redirect(HttpServletRequest req, HttpServletResponse res, String servletPath) throws IOException {
+        String ctx = req.getContextPath();
+        String target = servletPath;
+        if (target != null && target.startsWith("/") && ctx != null && !ctx.isEmpty() && !target.startsWith(ctx)) {
+            target = ctx + target;
+        }
+        res.sendRedirect(res.encodeRedirectURL(target));
+    }
+
     protected void redirect(HttpServletResponse res, String servletPath) throws IOException {
-        res.sendRedirect(res.encodeRedirectURL(
-                res.encodeURL(servletPath)));
+        res.sendRedirect(res.encodeRedirectURL(servletPath));
     }
 
     // ── Attribute helpers (replaces React state/props) ────────

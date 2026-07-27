@@ -76,7 +76,7 @@
     </context-param>
     <context-param>
         <param-name>lazada.stock.push.interval.minutes</param-name>
-        <param-value>30</param-value>
+        <param-value>1</param-value>
     </context-param>
     <context-param>
         <param-name>lazada.stock.push.batch.size</param-name>
@@ -777,6 +777,32 @@
     <servlet-mapping>
         <servlet-name>WebsiteOrderActionApiServlet</servlet-name>
         <url-pattern>/api/website/order-actions/*</url-pattern>
+    </servlet-mapping>
+
+    <!-- WebsiteOrderTrackingServlet registration removed: it was mapped to the same
+         url-pattern (/api/website/orders/*) as WebsiteOrderApiServlet above, which Tomcat
+         refuses to start ("both mapped to the url-pattern ... which is not permitted").
+         Its GET /{id}/tracking logic now lives inside WebsiteOrderApiServlet.doGet()
+         (see that class's javadoc). The .java file itself is kept, just unregistered. -->
+
+    <!-- WebsiteOrderReturnStatusServlet registration removed: same conflict as above, but
+         with WebsiteOrderActionApiServlet on /api/website/order-actions/*. Its GET
+         /{id}/return-status logic now lives inside WebsiteOrderActionApiServlet.doGet(). -->
+
+    <!-- Was /api/notifications/* — collided with NotificationServlet's mapping above (both
+         servlets, not permitted) and also both used "/count" as a sub-path with different
+         meanings, so this can't be folded into NotificationServlet the way the two
+         WebsiteOrder* conflicts above were. Moved to its own distinct base path instead; the
+         servlet's internal pathInfo parsing is relative to whatever prefix matched, so this
+         needed no Java change. Not wired to any JSP yet (unlike the WebsiteOrder* ones, which
+         the storefront already calls) — this feature is currently unreachable from any UI. -->
+    <servlet>
+        <servlet-name>ProductChangeNotificationServlet</servlet-name>
+        <servlet-class>com.wms.controller.api.ProductChangeNotificationServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ProductChangeNotificationServlet</servlet-name>
+        <url-pattern>/api/product-change-notifications/*</url-pattern>
     </servlet-mapping>
 
 </web-app>

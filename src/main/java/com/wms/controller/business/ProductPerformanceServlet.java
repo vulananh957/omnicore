@@ -28,7 +28,10 @@ public class ProductPerformanceServlet extends BaseController {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
-        // ── Parse Filter Parameters ───────────────────────────────
+        // ── Parse Filter and Pagination Parameters ─────────────────
+        int page = getPageNumber(req);
+        int pageSize = 20;
+
         // Filter params
         Integer categoryId = getIntParamOrNull(req, "categoryId");
         Integer channelId = getIntParamOrNull(req, "channelId");
@@ -50,12 +53,18 @@ public class ProductPerformanceServlet extends BaseController {
 
         // ── Load Data ───────────────────────────────────────────
         try {
-            // Performance data with sorting (no period filter)
-            List<ProductPerformance> performanceData = service.getAllPerformanceDataSorted(
+            // Fetch all sorted data for summary statistics computation
+            List<ProductPerformance> allPerformanceData = service.getAllPerformanceDataSorted(
                     categoryId, channelId, healthFilter, searchQuery, sortBy, ascending);
 
-            // Summary statistics
-            Map<String, Object> summary = service.computeSummary(performanceData);
+            // Summary statistics (on the whole filtered list)
+            Map<String, Object> summary = service.computeSummary(allPerformanceData);
+
+            // Get the paged result
+            ProductPerformanceService.PagedResult<ProductPerformance> pagedResponse = service.getPerformanceDataPaged(
+                    categoryId, channelId, healthFilter, searchQuery, sortBy, ascending, page, pageSize);
+
+            List<ProductPerformance> performanceData = pagedResponse.getItems();
 
             // Filter options
             List<Map<String, Object>> categories = service.getAllCategories();
@@ -63,6 +72,11 @@ public class ProductPerformanceServlet extends BaseController {
 
             // ── Set Attributes ──────────────────────────────────
             req.setAttribute("performanceData", performanceData);
+            req.setAttribute("totalItems", pagedResponse.getTotalItems());
+            req.setAttribute("totalPages", pagedResponse.getTotalPages());
+            req.setAttribute("currentPageNum", pagedResponse.getCurrentPage());
+            req.setAttribute("pageSize", pageSize);
+
             req.setAttribute("summary", summary);
             req.setAttribute("categories", categories);
             req.setAttribute("channels", channels);
@@ -85,6 +99,10 @@ public class ProductPerformanceServlet extends BaseController {
             // Log error and show empty state
             logger.warning("ProductPerformanceServlet: failed to load data - " + e.getMessage());
             req.setAttribute("performanceData", List.<ProductPerformance>of());
+            req.setAttribute("totalItems", 0);
+            req.setAttribute("totalPages", 0);
+            req.setAttribute("currentPageNum", 1);
+            req.setAttribute("pageSize", pageSize);
             req.setAttribute("summary", Map.<String, Object>of());
             req.setAttribute("categories", List.<Map<String, Object>>of());
             req.setAttribute("channels", List.<Map<String, Object>>of());

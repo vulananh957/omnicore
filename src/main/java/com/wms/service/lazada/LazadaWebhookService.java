@@ -262,7 +262,8 @@ public class LazadaWebhookService {
                         java.time.format.DateTimeFormatter.ofPattern(p);
                 if (p.contains("XXX") || p.contains("Z") && !p.endsWith("'Z'")) {
                     java.time.ZonedDateTime zdt = java.time.ZonedDateTime.parse(dateStr, fmt);
-                    return java.sql.Timestamp.from(zdt.toInstant());
+                    java.time.ZonedDateTime vnZdt = zdt.withZoneSameInstant(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
+                    return java.sql.Timestamp.valueOf(vnZdt.toLocalDateTime());
                 } else {
                     java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(dateStr, fmt);
                     return java.sql.Timestamp.valueOf(ldt);
@@ -435,8 +436,12 @@ public class LazadaWebhookService {
      * Increases holding and decreases qty_available atomically.
      * Continues with remaining items even if one item fails (best-effort).
      */
-    public void softAllocateForOrder(Order o) {
-        if (o.getWarehouseId() <= 0) return;
+    private void softAllocateForOrder(Order o) {
+        if (o == null || o.getWarehouseId() <= 0) return;
+        if (inventoryDAO.isOrderDeducted(o.getOrderId())) {
+            LOGGER.fine("softAllocateForOrder: order " + o.getOrderCode() + " was already deducted via deductWithLock — skipping softAllocate");
+            return;
+        }
         List<OrderItem> items = orderDAO.findItemsByOrderId(o.getOrderId());
         if (items.isEmpty()) {
             LOGGER.fine("softAllocateForOrder: no items for order " + o.getOrderCode());

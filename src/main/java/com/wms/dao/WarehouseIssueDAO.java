@@ -38,9 +38,13 @@ public class WarehouseIssueDAO {
 
         String sqlIssue = "INSERT INTO warehouse_issues "
                         + "(issue_code, warehouse_id, issue_type, created_by, status, created_at) "
-                        + "VALUES (?, ?, 'SCRAP', ?, 'DRAFT', NOW())";
+                        + "VALUES (?, ?, 'SCRAP', ?, 'APPROVED', NOW())";
         String sqlDetail = "INSERT INTO issue_details (issue_id, product_id, quantity, note) "
                          + "VALUES (?, ?, ?, ?)";
+        String sqlFindInv = "SELECT inventory_id FROM inventory WHERE product_id = ? AND warehouse_id = ?";
+        String sqlLedger = "INSERT INTO inventory_ledger "
+                         + "(inventory_id, product_id, warehouse_id, transaction_type, ledger_type, ref_document_id, qty_change, avail_change, created_by, note, timestamp) "
+                         + "VALUES (?, ?, ?, 'OUTBOUND', 'DEFECTIVE', ?, ?, 0, ?, ?, NOW())";
 
         Connection conn = null;
         try {
@@ -67,8 +71,32 @@ public class WarehouseIssueDAO {
                 ps.executeUpdate();
             }
 
+            int inventoryId = 0;
+            try (PreparedStatement psInv = conn.prepareStatement(sqlFindInv)) {
+                psInv.setInt(1, productId);
+                psInv.setInt(2, warehouseId);
+                try (ResultSet rs = psInv.executeQuery()) {
+                    if (rs.next()) {
+                        inventoryId = rs.getInt("inventory_id");
+                    }
+                }
+            }
+
+            if (inventoryId > 0) {
+                try (PreparedStatement psL = conn.prepareStatement(sqlLedger)) {
+                    psL.setInt(1, inventoryId);
+                    psL.setInt(2, productId);
+                    psL.setInt(3, warehouseId);
+                    psL.setInt(4, issueId);
+                    psL.setBigDecimal(5, qty != null ? qty.negate() : BigDecimal.ZERO);
+                    psL.setInt(6, createdBy);
+                    psL.setString(7, "Xuất hủy hàng hỏng: " + (reason != null ? reason : ""));
+                    psL.executeUpdate();
+                }
+            }
+
             conn.commit();
-            LOGGER.info("createScrapIssue: created " + issueCode + " for product " + productId);
+            LOGGER.info("createScrapIssue: created & approved " + issueCode + " for product " + productId);
             return issueCode;
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "WarehouseIssueDAO: Failed to create scrap issue", e);

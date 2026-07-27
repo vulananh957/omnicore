@@ -267,7 +267,7 @@
 
                                 const matchCh = selectedChannel === "all" || o.channel === selectedChannel;
                                 const matchSt = activeTab !== "all" || selectedStatus === "all" || o.status === selectedStatus;
-                                const carrier = o.shipmentProvider || o._lazCourierName || (o.channel === "WEBSITE" ? "Chưa chỉ định" : getCarrierByChannel(o.channel));
+                                const carrier = o.shipmentProvider || o._lazCourierName || ((o.channel === "WEBSITE" || o.channel === "Website") ? "Chưa chỉ định" : getCarrierByChannel(o.channel));
                                 const matchCar = selectedCarrier === "all" || carrier === selectedCarrier;
                                 const matchProd = selectedProduct === "all" || (o.items || []).some(i => i.name === selectedProduct);
                                 const q = searchQuery.toLowerCase();
@@ -532,8 +532,8 @@
                                 : parseFloat(o.totalAmount || 0);
 
                             const discountHtml = isLazada ? `
-                                <div style="margin-bottom:4px"><span>Giảm giá từ Cửa hàng:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherSel.toLocaleString()}đ</strong></div>
-                                <div style="margin-bottom:4px"><span>Giảm giá từ Lazada:</span> <strong style="float:right;color:#dc2626">-\${lazVoucherPlat.toLocaleString()}đ</strong></div>
+                                <div style="margin-bottom:4px"><span>Giảm giá từ Cửa hàng:</span> <strong style="float:right;color:#dc2626">-${lazVoucherSel.toLocaleString()}đ</strong></div>
+                                <div style="margin-bottom:4px"><span>Giảm giá từ Lazada:</span> <strong style="float:right;color:#dc2626">-${lazVoucherPlat.toLocaleString()}đ</strong></div>
                             ` : '';
 
                             bodyHtml += `<div class="om-section">
@@ -543,13 +543,13 @@
         </div>
         \${productsHtml}
         <div class="om-total-row">
-            <span class="om-total-label">Tổng thanh toán đơn hàng (Total Paid):</span>
+            <span class="om-total-label">Tổng tiền hàng:</span>
             <span class="om-total-amount">\${lazPrice.toLocaleString()}đ</span>
         </div>
         <div style="margin-top:8px;padding:10px;background:#f9fafb;border-radius:4px;font-size:12px">
             <div style="margin-bottom:4px"><span>Phí vận chuyển:</span> <strong style="float:right">\${lazShip.toLocaleString()}đ</strong></div>
             \${discountHtml}
-            <div style="font-weight:700;border-top:1px solid #ddd;padding-top:4px;margin-top:4px"><span>Tổng cộng:</span> <strong style="float:right">\${lazTotal.toLocaleString()}đ</strong></div>
+            <div style="font-weight:700;border-top:1px solid #ddd;padding-top:4px;margin-top:4px"><span>Tổng thanh toán đơn hàng (Total Paid):</span> <strong style="float:right;color:var(--navy);font-size:13px">\${lazTotal.toLocaleString()}đ</strong></div>
         </div>
     </div>`;
 
@@ -810,8 +810,10 @@
                         }
                         function selectCarrier(val) {
                             selectedCarrier = val;
-                            document.getElementById("omCarrierLabel").textContent = val === "all" ? "Tất cả" : val;
-                            document.getElementById("ddCarrier").classList.remove("open");
+                            const lbl = document.getElementById("omCarrierLabel");
+                            if (lbl) lbl.textContent = val === "all" ? "Tất cả" : val;
+                            const dd = document.getElementById("ddCarrier");
+                            if (dd) dd.classList.remove("open");
                             renderTable();
                         }
 
@@ -1114,7 +1116,6 @@
                                                             nhận</button>
                                                         <button onclick="selectStatus('confirmed')">Chờ lấy
                                                             hàng</button>
-                                                        <button onclick="selectStatus('packing')">Đang đóng gói</button>
                                                         <button onclick="selectStatus('packed')">Đã đóng gói</button>
                                                         <button onclick="selectStatus('shipping')">Đang giao</button>
                                                         <button onclick="selectStatus('delivered')">Đã giao</button>
@@ -1162,47 +1163,7 @@
                                                         </div>
                                                     </div>
 
-                                                    <%-- Carrier filter --%>
-                                                        <div style="position:relative">
-                                                            <button class="om-filter-btn"
-                                                                onclick="toggleDropdown('ddCarrier')">
-                                                                <span
-                                                                    style="display:flex;align-items:center;gap:6px;white-space:nowrap">
-                                                                    <svg class="filter-icon"
-                                                                        xmlns="http://www.w3.org/2000/svg"
-                                                                        viewBox="0 0 24 24" fill="none"
-                                                                        stroke="currentColor" stroke-width="2">
-                                                                        <rect x="1" y="3" width="15" height="13" />
-                                                                        <polygon
-                                                                            points="16 8 20 8 23 11 23 16 16 16 16 8" />
-                                                                        <circle cx="5.5" cy="18.5" r="2.5" />
-                                                                        <circle cx="18.5" cy="18.5" r="2.5" />
-                                                                    </svg>
-                                                                    Đơn vị vận chuyển: <strong id="omCarrierLabel"
-                                                                        style="color:var(--navy)">Tất cả</strong>
-                                                                </span>
-                                                                <svg class="clear-x" xmlns="http://www.w3.org/2000/svg"
-                                                                    viewBox="0 0 24 24" fill="none"
-                                                                    stroke="currentColor" stroke-width="2.5"
-                                                                    onclick="clearFilter('carrier',event)">
-                                                                    <line x1="18" y1="6" x2="6" y2="18" />
-                                                                    <line x1="6" y1="6" x2="18" y2="18" />
-                                                                </svg>
-                                                            </button>
-                                                            <div id="ddCarrier" class="om-dropdown right"
-                                                                style="min-width:210px">
-                                                                <button onclick="selectCarrier('all')"
-                                                                    class="selected">Tất cả đơn vị vận chuyển</button>
-                                                                <button onclick="selectCarrier('SPX Express')">SPX
-                                                                    Express</button>
-                                                                <button onclick="selectCarrier('Lazada Express')">Lazada
-                                                                    Express</button>
-                                                                <button onclick="selectCarrier('TikTok Express')">TikTok
-                                                                    Express</button>
-                                                                <button onclick="selectCarrier('Viettel Post')">Viettel
-                                                                    Post</button>
-                                                            </div>
-                                                        </div>
+
                                 </div>
 
                                 <%-- ── Data Table ─────────────────────────────────────────────────────── --%>

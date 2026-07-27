@@ -371,7 +371,51 @@ public class OutboundDAO extends BaseDAO {
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "OutboundDAO: Failed to retrieve items for outboundId=" + outboundId, e);
         }
+
+        // Auto-repair: If outbound_items is empty for this order, attempt to populate from order_items
+        if (list.isEmpty()) {
+            repairOutboundItemsFromOrder(outboundId);
+            try (Connection conn = DBConnection.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, outboundId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        OutboundItem item = new OutboundItem();
+                        item.setOutboundItemId(rs.getInt("outbound_item_id"));
+                        item.setOutboundId(rs.getInt("outbound_id"));
+                        item.setProductId(rs.getInt("product_id"));
+                        item.setQty(rs.getBigDecimal("qty"));
+                        item.setPickedQty(rs.getBigDecimal("picked_qty"));
+                        item.setShelfLocation(rs.getString("shelf_location"));
+                        item.setSkuCode(rs.getString("sku_code"));
+                        item.setSkuName(rs.getString("product_name"));
+                        list.add(item);
+                    }
+                }
+            } catch (SQLException ignored) {}
+        }
+
         return list;
+    }
+
+    private void repairOutboundItemsFromOrder(int outboundId) {
+        String repairSql = "INSERT INTO outbound_items (outbound_id, product_id, qty, picked_qty) "
+                + "SELECT o.outbound_id, oi.product_id, oi.qty, 0 "
+                + "FROM outbound_orders o "
+                + "JOIN order_items oi ON o.order_id = oi.order_id "
+                + "WHERE o.outbound_id = ? "
+                + "AND oi.product_id NOT IN (SELECT product_id FROM outbound_items WHERE outbound_id = ?)";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(repairSql)) {
+            ps.setInt(1, outboundId);
+            ps.setInt(2, outboundId);
+            int count = ps.executeUpdate();
+            if (count > 0) {
+                LOGGER.info("OutboundDAO: Auto-repaired " + count + " items for outboundId=" + outboundId);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "OutboundDAO: Failed to repair items for outboundId=" + outboundId, e);
+        }
     }
 
     /**
@@ -559,11 +603,16 @@ public class OutboundDAO extends BaseDAO {
      * Stores a placeholder tracking_no if Sales has not provided one.
      */
     public void createShippingLabel(int outboundId) {
-        String sql = "INSERT INTO shipping_labels (outbound_id, courier_name, status, created_at) "
-                   + "VALUES (?, 'CHƯA CHỌN', 'CREATED', NOW())";
+        // shipping_labels has no courier_name/status columns (that was the bug — column
+        // names never matched the table SchemaInitListener actually creates: order_id NOT
+        // NULL, carrier, printed, created_at). order_id is looked up from outbound_orders
+        // since this method is only ever called with an outboundId.
+        String sql = "INSERT INTO shipping_labels (order_id, outbound_id, carrier, created_at) "
+                   + "SELECT order_id, ?, 'CHƯA CHỌN', NOW() FROM outbound_orders WHERE outbound_id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, outboundId);
+            ps.setInt(2, outboundId);
             ps.executeUpdate();
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "OutboundDAO.createShippingLabel failed outboundId=" + outboundId, e);
@@ -574,8 +623,10 @@ public class OutboundDAO extends BaseDAO {
      * Creates a delivery note record when the order is SHIPPED.
      */
     public void createDeliveryNote(int outboundId, Integer userId) {
-        String sql = "INSERT INTO delivery_notes (outbound_id, delivered_by, status, created_at) "
-                   + "VALUES (?, ?, 'SHIPPED', NOW())";
+        // delivery_notes has no status column (the bug — same class of mismatch as
+        // createShippingLabel above); it tracks delivery via delivery_date instead.
+        String sql = "INSERT INTO delivery_notes (outbound_id, delivered_by, delivery_date) "
+                   + "VALUES (?, ?, NOW())";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, outboundId);

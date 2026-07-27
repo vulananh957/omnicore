@@ -103,6 +103,7 @@
     <div class="table-footer">
         <span id="showingCountEl">Hiển thị 0 / 0 dòng tồn kho</span>
     </div>
+    <div id="inventoryPagination"></div>
 </div>
 
 <!-- ═══ ATP Chip Styles ═══ -->
@@ -213,6 +214,11 @@
     }
 
     function render() {
+        OmniPagination.reset('warehouseInventory');
+        renderPage();
+    }
+
+    function renderPage() {
         var filtered = filter(inventoryList);
 
         var critical = filtered.filter(function(i) { return i.level === 'critical'; }).length;
@@ -222,7 +228,9 @@
         warningCountEl.textContent  = warning;
         totalCountEl.textContent    = filtered.length;
 
-        var rows = filtered.map(function(item) {
+        var paginationResult = OmniPagination.paginate('warehouseInventory', filtered);
+
+        var rows = paginationResult.items.map(function(item) {
             var qtyOnHand   = parseFloat(item.qtyOnHand || 0);
             var holding     = parseFloat(item.holding || 0);
             var qtyAvail    = parseFloat(item.qtyAvailable || 0);
@@ -272,7 +280,12 @@
             ? rows.join('')
             : '<tr><td colspan="10" style="text-align:center;padding:32px;color:#9ca3af">Không có dữ liệu tồn kho</td></tr>';
 
-        showingCountEl.textContent = 'Hiển thị ' + rows.length + ' / ' + filtered.length + ' dòng tồn kho';
+        showingCountEl.textContent = 'Hiển thị ' + filtered.length + ' / ' + inventoryList.length + ' dòng tồn kho';
+
+        OmniPagination.renderControls('inventoryPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('warehouseInventory', newPage);
+            renderPage();
+        });
     }
 
     render();

@@ -67,13 +67,18 @@
         <table class="sku-table">
             <thead>
                 <tr>
-                    <th style="width: 130px;">Mã SKU</th>
-                    <th style="width: 180px;">Tên sản phẩm</th>
+                    <th style="width: 120px;">Mã SKU</th>
+                    <th style="width: 170px;">Tên sản phẩm</th>
                     <th style="width: 90px;">Danh mục</th>
-                    <th style="width: 140px; text-align: center;">KL / Kích thước</th>
-                    <th style="width: 90px; text-align: right;">Tồn kho</th>
-                    <th style="width: 185px;">Thông tin</th>
-                    <th style="width: 120px; text-align: center;">Thao tác</th>
+                    <th style="width: 110px; text-align: right;">Giá gốc</th>
+                    <th style="width: 110px; text-align: center;">KL / Kích thước</th>
+                    <th style="width: 80px; text-align: right;" title="Tổng tồn vật lý trên toàn hệ thống kho">Tồn vật lý</th>
+                    <th style="width: 80px; text-align: right;" title="Tồn tạm giữ tại kho (đã duyệt gán kho nhưng chưa xuất)">Tạm giữ</th>
+                    <th style="width: 80px; text-align: right;" title="Tồn chờ phân kho (đơn hàng mới PENDING chưa duyệt gán kho)">Chờ phân</th>
+                    <th style="width: 90px; text-align: right;" title="Tồn khả dụng kỹ thuật WMS (Vật lý − Tạm giữ)">Khả dụng WMS</th>
+                    <th style="width: 95px; text-align: right;" title="Tồn khả dụng bán thực tế (Vật lý − Tạm giữ − Chờ phân)">Khả dụng bán</th>
+                    <th style="width: 175px;">Thông tin</th>
+                    <th style="width: 100px; text-align: center;">Thao tác</th>
                 </tr>
             </thead>
             <tbody id="skuTableBody"></tbody>
@@ -83,6 +88,7 @@
     <div class="table-footer">
         <span id="skuTableInfo">Hiển thị 0 / 0 SKU</span>
     </div>
+    <div id="skuPagination"></div>
 </div>
 
 <!-- ══ CREATE MODAL ══════════════════════════════════════════ -->
@@ -133,7 +139,6 @@
                     <input class="form-input" type="number" id="create-weight" min="0" step="any" placeholder="VD: 0.28" style="padding:10px 6px; min-width:0; width:100%;"/>
             </div>
         </div>
-        <input type="hidden" id="create-base-price" value=""/>
         </div>
         <div class="modal-ftr">
             <button class="modal-close btn-export" id="createModalCancel" style="padding:9px 16px;">Hủy</button>
@@ -181,8 +186,8 @@
                 </div>
             </div>
             <div class="form-group">
-                <label class="form-label" for="edit-base-price">Giá nhập (VNĐ)</label>
-                <input class="form-input" type="number" id="edit-base-price" min="0" step="1000" placeholder="VD: 189000" style="padding:10px 6px; min-width:0; width:100%;"/>
+                <label class="form-label" for="edit-base-price">Giá gốc / Giá nhập (VNĐ) <span style="font-weight:400; color:rgba(16,55,92,0.40);">(giá nhập kho MAC)</span></label>
+                <input class="form-input" type="number" id="edit-base-price" min="0" step="any" placeholder="VD: 150000" style="padding:10px 6px; min-width:0; width:100%;"/>
             </div>
             <input type="hidden" id="edit-barcode"/>
             <div class="form-group">
@@ -272,27 +277,33 @@ try {
     if (rawJson && rawJson.trim()) {
         var SERVER_PRODUCTS = JSON.parse(rawJson);
         skus = SERVER_PRODUCTS.map(function(p) {
-    return {
+            var effectivePrice = (p.macPrice && Number(p.macPrice) > 0) ? Number(p.macPrice) : (p.basePrice || 0);
+            return {
                 id: 'p-' + (p.productId || 0),
                 productId: p.productId || 0,
-        sku: p.sku || p.skuCode || '',
-        name: p.name || p.productName || '',
+                sku: p.sku || p.skuCode || '',
+                name: p.name || p.productName || '',
                 categoryId: p.categoryId,
                 barcode: p.barcode || '',
                 unit: p.unit || '',
-                basePrice: p.basePrice || 0,
-        category: p.category || p.categoryName || '',
-        dimensions: p.dimensions || p.attributesText || 'N/A',
-        weight: p.weight || (p.weightKg ? p.weightKg + ' kg' : 'N/A'),
-        qtyOnHand: typeof p.qtyOnHand !== 'undefined' ? p.qtyOnHand : 0,
-        minStock: p.minStock || 0,
-        maxStock: p.maxStock || 0,
-        createdBy: p.creatorName || p.createdBy || '',
-        createdAt: p.createdAt || '',
-        updatedBy: p.creatorName || p.createdBy || '',
+                basePrice: effectivePrice,
+                rawBasePrice: p.basePrice || 0,
+                macPrice: p.macPrice || 0,
+                category: p.category || p.categoryName || '',
+                dimensions: p.dimensions || 'N/A',
+                attributesText: p.attributesText || '',
+                weight: p.weight || (p.weightKg ? p.weightKg + ' kg' : 'N/A'),
+                qtyOnHand: typeof p.qtyOnHand !== 'undefined' ? p.qtyOnHand : 0,
+                qtyHolding: typeof p.qtyHolding !== 'undefined' ? p.qtyHolding : 0,
+                qtyPending: typeof p.qtyPending !== 'undefined' ? p.qtyPending : 0,
+                minStock: p.minStock || 0,
+                maxStock: p.maxStock || 0,
+                createdBy: p.creatorName || p.createdBy || '',
+                createdAt: p.createdAt || '',
+                updatedBy: p.creatorName || p.createdBy || '',
                 lastUpdated: p.lastUpdated || p.updatedAt || ''
-    };
-});
+            };
+        });
     }
 } catch (e) {
     console.warn('master-sku: No server product data');
@@ -805,7 +816,7 @@ if (btnCreateSubmit) {
             categoryName: createCatInput.value ? createCatInput.value.trim() : '',
             dimensions: dimensionsVal,
             weight: weightVal,
-            basePrice: document.getElementById('create-base-price').value.trim()
+            basePrice: '0'
         });
     });
 }
@@ -826,9 +837,6 @@ function clearCreateForm() {
     createDimWidthInput.value  = '';
     createDimHeightInput.value = '';
     createWgtInput.value  = '';
-    if (document.getElementById('create-base-price')) {
-        document.getElementById('create-base-price').value = '';
-    }
 }
 
 function padZero(n) { return n < 10 ? '0' + n : n; }
@@ -881,47 +889,125 @@ if (btnExportCSV) {
     });
 }
 
-/* ─── Helpers ─── */
+function getAllMatchingCategoryNames(selectedCatName) {
+    if (!selectedCatName || selectedCatName === 'Tất cả') return null;
+    var set = {};
+    var catNameLower = selectedCatName.trim().toLowerCase();
+    set[catNameLower] = true;
+
+    var tmp = document.createElement('textarea');
+    tmp.innerHTML = selectedCatName;
+    var decodedSelected = tmp.value.trim().toLowerCase();
+    set[decodedSelected] = true;
+
+    var matchedNodes = DB_CATEGORIES.filter(function(c) {
+        if (!c.categoryName) return false;
+        var cn = c.categoryName.trim().toLowerCase();
+        return cn === catNameLower || cn === decodedSelected;
+    });
+
+    function collectChildren(parentId) {
+        DB_CATEGORIES.forEach(function(c) {
+            if (c.parentId == parentId && c.categoryName) {
+                set[c.categoryName.trim().toLowerCase()] = true;
+                collectChildren(c.categoryId);
+            }
+        });
+    }
+
+    matchedNodes.forEach(function(node) {
+        collectChildren(node.categoryId);
+    });
+
+    return set;
+}
 
 function getFilteredList() {
+    var catSet = getAllMatchingCategoryNames(selectedCategory);
     return skus.filter(function (s) {
-        var matchSearch = s.sku.toLowerCase().indexOf(search.toLowerCase()) > -1 || 
+        var matchSearch = !search || 
+                          s.sku.toLowerCase().indexOf(search.toLowerCase()) > -1 || 
                           s.name.toLowerCase().indexOf(search.toLowerCase()) > -1;
-        var matchCat    = selectedCategory === 'Tất cả' || s.category === selectedCategory;
+        var matchCat = !catSet;
+        if (catSet && s.category) {
+            matchCat = !!catSet[s.category.trim().toLowerCase()];
+        }
         return matchSearch && matchCat;
     });
 }
 
 /* ══ RENDER TABLE ══════════════════════════════════════════ */
 function renderAll() {
-    
+    OmniPagination.reset('masterSku');
+    renderAllPage();
+}
+
+function renderAllPage() {
     var filtered = getFilteredList();
 
     tableInfo.textContent = 'Hiển thị ' + filtered.length + ' / ' + skus.length + ' SKU';
 
     if (filtered.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:48px;color:rgba(16, 55, 92, 0.4)">Không tìm thấy sản phẩm SKU nào.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:48px;color:rgba(16, 55, 92, 0.4)">Không tìm thấy sản phẩm SKU nào.</td></tr>';
+        document.getElementById('skuPagination').innerHTML = '';
         return;
     }
 
-    var html = filtered.map(function (item, idx) {
-        var isLowStock = item.qtyOnHand < item.minStock;
+    var paginationResult = OmniPagination.paginate('masterSku', filtered);
+    var pageItems = paginationResult.items;
+
+    var html = pageItems.map(function (item, idx) {
+        var wmsAvailable = item.qtyOnHand - item.qtyHolding;
+        var sellableStock = item.qtyOnHand - item.qtyHolding - item.qtyPending;
+
+        var isLowStock = sellableStock < item.minStock;
         var qtyTextClass = isLowStock ? 'stock-qty low-stock' : 'stock-qty normal-stock';
+
+        var dimsText = item.dimensions || '';
+        var attrText = item.attributesText || '';
+        var dimsHtml = '';
+        if (dimsText && dimsText !== 'N/A') {
+            dimsHtml += '<div class="detail-icon-row" style="font-weight:600;" title="Kích thước (D×R×C)">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>' + escapeHtml(dimsText) +
+            '</div>';
+        }
+        if (attrText && attrText !== dimsText) {
+            var pipeIdx = attrText.indexOf('|');
+            if (pipeIdx !== -1) {
+                var line1 = attrText.substring(0, pipeIdx + 1).trim();
+                var line2 = attrText.substring(pipeIdx + 1).trim();
+                dimsHtml += '<div style="font-size:11px; color:#475569; margin-top:2px;">' + escapeHtml(line1) + '</div>' +
+                            '<div style="font-size:11px; color:#475569;">' + escapeHtml(line2) + '</div>';
+            } else {
+                dimsHtml += '<div style="font-size:11px; color:#475569; margin-top:2px;">' + escapeHtml(attrText) + '</div>';
+            }
+        }
 
         var specHtml = '<div class="detail-icon-wrap">' +
             '<div class="detail-icon-row">' +
                 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M12 3L7 8m5-5 5 5"/></svg>' + item.weight +
             '</div>' +
-            '<div class="detail-icon-row">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>' + item.dimensions +
-            '</div>' +
+            dimsHtml +
         '</div>';
 
-        var stockHtml = '<div class="stock-val-wrap">';
+        // Tồn vật lý html
+        var physicalHtml = '<span style="font-weight:600; color:#334155;">' + item.qtyOnHand.toLocaleString() + '</span>';
+        
+        // Tạm giữ html
+        var holdingHtml = '<span style="font-weight:600; color:#475569;">' + item.qtyHolding.toLocaleString() + '</span>';
+        
+        // Chờ phân html
+        var pendingHtml = '<span style="font-weight:600; color:#64748b;">' + item.qtyPending.toLocaleString() + '</span>';
+        
+        // Khả dụng WMS html
+        var wmsAvailHtml = '<span style="font-weight:600; color:#0f766e;">' + wmsAvailable.toLocaleString() + '</span>';
+        
+        // Khả dụng bán html
+        var sellableHtml = '<div class="stock-val-wrap" style="justify-content: flex-end;">';
         if (isLowStock) {
-            stockHtml += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+            sellableHtml += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px; margin-right:4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
         }
-        stockHtml += '<span class="' + qtyTextClass + '">' + item.qtyOnHand.toLocaleString() + '</span></div>';
+        sellableHtml += '<span class="' + qtyTextClass + '" style="font-weight:800;">' + sellableStock.toLocaleString() + '</span></div>';
 
         var infoHtml = '<div class="info-lbl"><span class="info-lbl-inner">Tạo:</span> ' + item.createdBy + '</div>' +
                        '<div class="info-time">' + item.createdAt + '</div>';
@@ -934,15 +1020,26 @@ function renderAll() {
         var deleteBtnHtml = '<button type="button" class="btn-act-circle del" onclick="window.triggerDeleteSKU(\'' + item.id + '\')" title="Xóa" style="' + (isSalesStaffUser ? '' : 'display:none;') + '">' +
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
             '</button>';
-
         var rowClass = idx % 2 === 0 ? '' : 'style="background:rgba(240, 244, 250, 0.25)"';
+        var basePriceVal = (item.basePrice && Number(item.basePrice) > 0) ? Number(item.basePrice).toLocaleString() + 'đ' : '0đ';
+        var isMac = item.macPrice && Number(item.macPrice) > 0;
+        var priceTitle = isMac ? 'Giá nhập bình quân (MAC) do Kho WMS tính khi nhập hàng' : 'Giá gốc sản phẩm';
+        var priceHtml = '<span style="font-weight:700; color:#059669; font-size:13px;" title="' + priceTitle + '">' + basePriceVal + '</span>';
+        if (isMac) {
+            priceHtml += '<div style="font-size:10px; color:#475569; font-weight:500;" title="Giá nhập kho bình quân gia quyền">Giá nhập kho</div>';
+        }
 
         return '<tr ' + rowClass + '>' +
             '<td><span class="sku-code-cell">' + item.sku + '</span></td>' +
             '<td><div class="sku-name-cell" title="' + item.name + '">' + item.name + '</div></td>' +
             '<td><span class="sku-cat-cell">' + item.category + '</span></td>' +
+            '<td style="text-align:right;">' + priceHtml + '</td>' +
             '<td>' + specHtml + '</td>' +
-            '<td>' + stockHtml + '</td>' +
+            '<td style="text-align:right;">' + physicalHtml + '</td>' +
+            '<td style="text-align:right;">' + holdingHtml + '</td>' +
+            '<td style="text-align:right;">' + pendingHtml + '</td>' +
+            '<td style="text-align:right;">' + wmsAvailHtml + '</td>' +
+            '<td style="text-align:right;">' + sellableHtml + '</td>' +
             '<td>' + infoHtml + '</td>' +
             '<td>' +
                 '<div style="display:flex;align-items:center;justify-content:center;gap:8px">' +
@@ -954,6 +1051,11 @@ function renderAll() {
     }).join('');
 
     tableBody.innerHTML = html;
+
+    OmniPagination.renderControls('skuPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+        OmniPagination.setPage('masterSku', newPage);
+        renderAllPage();
+    });
 }
 
 /* ─── Bootstrap ─── */

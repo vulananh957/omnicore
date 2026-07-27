@@ -313,7 +313,8 @@ public class ProductPerformanceService {
                                         (String) r[1],   // channelName
                                         (String) r[2],   // platform
                                         (String) r[3],   // externalSku (seller_sku)
-                                        (String) r[4]    // lazadaProductId = channel_item_id
+                                        (String) r[4],   // lazadaProductId = channel_item_id
+                                        (Integer) r[0]   // productId
                                 ),
                                 Collectors.toList()
                         )
@@ -377,5 +378,57 @@ public class ProductPerformanceService {
         }
 
         return summary;
+    }
+
+    // ── Pagination Helper and Method ────────────────────────────
+
+    public static class PagedResult<T> {
+        private final List<T> items;
+        private final int totalItems;
+        private final int currentPage;
+        private final int pageSize;
+        private final int totalPages;
+
+        public PagedResult(List<T> items, int totalItems, int currentPage, int pageSize) {
+            this.items = items;
+            this.totalItems = totalItems;
+            this.currentPage = currentPage;
+            this.pageSize = pageSize;
+            this.totalPages = (int) Math.ceil((double) totalItems / pageSize);
+        }
+
+        public List<T> getItems() { return items; }
+        public int getTotalItems() { return totalItems; }
+        public int getCurrentPage() { return currentPage; }
+        public int getPageSize() { return pageSize; }
+        public int getTotalPages() { return totalPages; }
+    }
+
+    public PagedResult<ProductPerformance> getPerformanceDataPaged(
+            Integer categoryId,
+            Integer channelId,
+            String healthFilter,
+            String searchQuery,
+            String sortBy,
+            boolean ascending,
+            int page,
+            int pageSize) {
+
+        // Get the full sorted list
+        List<ProductPerformance> allItems = getAllPerformanceDataSorted(
+                categoryId, channelId, healthFilter, searchQuery, sortBy, ascending);
+
+        int totalItems = allItems.size();
+        int adjustedPage = Math.max(1, page);
+        int fromIndex = (adjustedPage - 1) * pageSize;
+        if (fromIndex < 0) fromIndex = 0;
+        if (fromIndex > totalItems) fromIndex = totalItems;
+
+        int toIndex = fromIndex + pageSize;
+        if (toIndex > totalItems) toIndex = totalItems;
+
+        List<ProductPerformance> pagedItems = allItems.subList(fromIndex, toIndex);
+
+        return new PagedResult<>(pagedItems, totalItems, adjustedPage, pageSize);
     }
 }

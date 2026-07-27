@@ -240,6 +240,26 @@ public class MarketplaceSyncService {
             ps.setString(9, errorMessage);
             ps.setString(10, item.getInboundCode());
             ps.executeUpdate();
+
+            if ("SUCCESS".equals(status)) {
+                String cpSql = "UPDATE channel_products SET channel_stock = ?, last_push_qty = ?, last_push_at = NOW(), last_error_code = NULL, last_error_message = NULL, updated_at = NOW() WHERE channel_id = ? AND product_id = ?";
+                try (PreparedStatement cpPs = conn.prepareStatement(cpSql)) {
+                    cpPs.setBigDecimal(1, item.getPushQty());
+                    cpPs.setBigDecimal(2, item.getPushQty());
+                    cpPs.setInt(3, channel.getChannelId());
+                    cpPs.setInt(4, item.getProductId());
+                    cpPs.executeUpdate();
+                }
+            } else {
+                String cpSql = "UPDATE channel_products SET last_error_code = ?, last_error_message = ?, updated_at = NOW() WHERE channel_id = ? AND product_id = ?";
+                try (PreparedStatement cpPs = conn.prepareStatement(cpSql)) {
+                    cpPs.setString(1, errorCode);
+                    cpPs.setString(2, errorMessage);
+                    cpPs.setInt(3, channel.getChannelId());
+                    cpPs.setInt(4, item.getProductId());
+                    cpPs.executeUpdate();
+                }
+            }
         } catch (Exception e) {
             log.warn("MarketplaceSyncService: Failed to log push for sellerSku={}: {}",
                     item.getSellerSku(), e.getMessage());
@@ -288,5 +308,17 @@ public class MarketplaceSyncService {
     private static String truncate(String s, int maxLen) {
         if (s == null) return null;
         return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
+    }
+
+    public void triggerStockSyncForChannel(Channel channel) {
+        if (channel == null || !"Lazada".equalsIgnoreCase(channel.getPlatform())) return;
+        List<com.wms.model.ChannelProduct> products = new com.wms.dao.ChannelProductDAO().findByChannel(channel.getChannelId());
+        List<Integer> productIds = products.stream()
+                .filter(cp -> "ACTIVE".equalsIgnoreCase(cp.getStatus()))
+                .map(com.wms.model.ChannelProduct::getProductId)
+                .toList();
+        if (!productIds.isEmpty()) {
+            triggerStockSyncAfterInbound(productIds, "BUFFER_UPDATE_" + channel.getChannelId());
+        }
     }
 }

@@ -235,9 +235,24 @@ public class LazadaProductService {
 
         String priceStr = product.path("price").asText();
         if (priceStr.isEmpty()) priceStr = product.path("special_price").asText();
+        if (priceStr.isEmpty()) {
+            JsonNode skus = product.path("skus");
+            if (skus.isArray() && !skus.isEmpty()) {
+                JsonNode firstSku = skus.get(0);
+                priceStr = firstSku.path("price").asText();
+                if (priceStr.isEmpty()) priceStr = firstSku.path("special_price").asText();
+            }
+        }
         BigDecimal price = new BigDecimal(priceStr.isEmpty() ? "0" : priceStr);
         String stockStr = product.path("quantity").asText();
         if (stockStr.isEmpty()) stockStr = product.path("stock").asText();
+        if (stockStr.isEmpty()) {
+            JsonNode skus = product.path("skus");
+            if (skus.isArray() && !skus.isEmpty()) {
+                stockStr = skus.get(0).path("quantity").asText();
+                if (stockStr.isEmpty()) stockStr = skus.get(0).path("Available").asText();
+            }
+        }
         BigDecimal stock = new BigDecimal(stockStr.isEmpty() ? "0" : stockStr);
         if (stock.signum() < 0) stock = BigDecimal.ZERO;
 
@@ -344,6 +359,13 @@ public class LazadaProductService {
         if (cp == null) {
             cp = channelProductDAO.findByProductAndChannel(
                     productId, channel.getChannelId());
+        }
+        if (cp != null && cp.getChannelItemId() != null && !cp.getChannelItemId().trim().isEmpty() && cp.getId() > 0) {
+            LOGGER.info("LazadaProductService.pushProduct: Product " + productId + " already pushed to Lazada (channel_item_id=" 
+                    + cp.getChannelItemId() + ", cpId=" + cp.getId() + "). Redirecting to updateProduct to prevent duplicate listing.");
+            BigDecimal overridePrice = (wizardCp != null && wizardCp.getChannelPrice() != null) ? wizardCp.getChannelPrice() : null;
+            String overrideDesc = (wizardCp != null && wizardCp.getDescription() != null) ? wizardCp.getDescription() : null;
+            return updateProduct(channel, cp.getId(), wizardCp, overridePrice, overrideDesc, customImageUrls, customImageBase64s);
         }
         if (cp == null) {
             // Lazada draft not yet staged — create a skeleton for the push payload
@@ -535,8 +557,7 @@ public class LazadaProductService {
         for (String u : lazadaImageUrls) if (u != null && !u.isBlank()) usableImages.add(u);
 
         if (usableImages.isEmpty()) {
-            String msg = "Không thể upload ảnh lên Lazada (internal relay failed). "
-                    + "Vui lòng kiểm tra cấu hình imgBB/Catbox hoặc thử lại.";
+            String msg = "Ảnh sản phẩm bị Lazada từ chối do kích thước quá nhỏ (Lazada yêu cầu tối thiểu 330x330 px). Vui lòng tải lên hoặc chọn ảnh có kích thước lớn hơn 330x330 px.";
             channelProductDAO.recordPushFailure(cp.getId(), "IMAGE_UPLOAD_FAILED", msg);
             pushErrorDAO.insert(cp.getId(), channel.getChannelId(), p.getSkuCode(),
                     "IMAGE_UPLOAD_FAILED", msg, null, null);
@@ -928,6 +949,27 @@ public class LazadaProductService {
         return result;
     }
 
+    /**
+     * Fetches the product description from Lazada via /product/item/get.
+     * Used as a last-resort fallback when DB description and shortDescription are both null,
+     * so the operator always has content to edit rather than an empty textarea.
+     */
+    public String fetchLazadaDescription(Channel channel, String itemId) {
+        try {
+            String response = gateway.getProductByItemId(channel, itemId);
+            if (response == null || response.isBlank()) return null;
+            JsonNode root = MAPPER.readTree(response);
+            JsonNode data = root.path("data");
+            if (data.isMissingNode() || data.isNull()) return null;
+            String description = data.path("attributes").path("description").asText("").trim();
+            return description.isEmpty() ? null : description;
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "LazadaProductService.fetchLazadaDescription failed for itemId=" + itemId, e);
+        }
+        return null;
+    }
+
     // ── DTOs ──────────────────────────────────────────────────
 
     /** Decodes a data:image/...;base64,... URI to raw bytes. */
@@ -1016,12 +1058,12 @@ public class LazadaProductService {
                 return new DeleteResult(true, "0", "Đã xóa sản phẩm nháp khỏi WMS.");
             }
 
-            // Construct lists
-            String sellerSkuListJson = "[\"" + sellerSku + "\"]";
-            String skuIdListJson = "[\"SkuId_" + itemId + "_" + (skuId != null ? skuId : "") + "\"]";
+            // Construct lists according to Lazada OpenAPI specification
+            String sellerSkuListJson = (sellerSku != null && !sellerSku.isEmpty()) ? "[\"" + sellerSku + "\"]" : null;
+            String skuIdListJson = (skuId != null && !skuId.isEmpty()) ? "[\"" + skuId + "\"]" : null;
 
             LOGGER.info("LazadaProductService: removing product from Lazada. sellerSku=" + sellerSku + " itemId=" + itemId + " skuId=" + skuId);
-            String response = gateway.removeProduct(channel, null, skuIdListJson);
+            String response = gateway.removeProduct(channel, sellerSkuListJson, skuIdListJson);
             JsonNode root = MAPPER.readTree(response);
             String code = root.path("code").asText();
 
@@ -1036,39 +1078,81 @@ public class LazadaProductService {
                 return new DeleteResult(true, "0", "Xóa sản phẩm khỏi sàn và hệ thống WMS thành công!");
             } else {
                 String errorMsg = root.path("message").asText();
-                return new DeleteResult(false, code, "Lỗi từ Lazada API: " + errorMsg);
+                LOGGER.warning("Lazada API returned error for delete (" + code + ": " + errorMsg + "). Keeping WMS local record.");
+                return new DeleteResult(false, code, "Không thể xóa sản phẩm trên Lazada: " + errorMsg + " (mã lỗi " + code + ")");
             }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "LazadaProductService: deleteProduct failed for id=" + channelProductId, e);
-            return new DeleteResult(false, "SYSTEM_ERROR", "Lỗi hệ thống: " + e.getMessage());
+            return new DeleteResult(false, "SYSTEM_ERROR", "Lỗi kết nối khi xóa sản phẩm trên Lazada: " + e.getMessage());
         }
     }
 
     private byte[] fetchOrReadBytes(String srcUrl, String b64) {
+        byte[] raw = null;
         if (b64 != null && !b64.isBlank()) {
-            try { return decodeBase64(b64); } catch (Exception ignore) {}
+            try { raw = decodeBase64(b64); } catch (Exception ignore) {}
         }
-        if (srcUrl != null && !srcUrl.isBlank()) {
+        if ((raw == null || raw.length == 0) && srcUrl != null && !srcUrl.isBlank()) {
             if (srcUrl.contains("/publish-images/")) {
                 String filename = srcUrl.substring(srcUrl.lastIndexOf("/publish-images/") + "/publish-images/".length());
                 java.io.File file = new java.io.File("/root/wms-uploads/publish-images/", filename);
                 if (file.exists() && file.isFile()) {
-                    try { return java.nio.file.Files.readAllBytes(file.toPath()); } catch (Exception ignore) {}
+                    try { raw = java.nio.file.Files.readAllBytes(file.toPath()); } catch (Exception ignore) {}
                 }
             }
-            try {
-                java.net.URL u = new java.net.URL(srcUrl);
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                if (conn.getResponseCode() == 200) {
-                    try (java.io.InputStream is = conn.getInputStream()) {
-                        return is.readAllBytes();
+            if (raw == null || raw.length == 0) {
+                try {
+                    java.net.URL u = new java.net.URL(srcUrl);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    if (conn.getResponseCode() == 200) {
+                        try (java.io.InputStream is = conn.getInputStream()) {
+                            raw = is.readAllBytes();
+                        }
                     }
-                }
-            } catch (Exception ignore) {}
+                } catch (Exception ignore) {}
+            }
         }
-        return null;
+        return ensureMinDimensions(raw);
+    }
+
+    private byte[] ensureMinDimensions(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return bytes;
+        try {
+            java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(bytes);
+            java.awt.image.BufferedImage orig = javax.imageio.ImageIO.read(bais);
+            if (orig == null) return bytes;
+
+            int w = orig.getWidth();
+            int h = orig.getHeight();
+
+            if (w < 330 || h < 330) {
+                int targetW = Math.max(w, 800);
+                int targetH = Math.max(h, 800);
+
+                java.awt.image.BufferedImage scaled = new java.awt.image.BufferedImage(
+                        targetW, targetH, java.awt.image.BufferedImage.TYPE_INT_RGB);
+                java.awt.Graphics2D g2d = scaled.createGraphics();
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                        java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setColor(java.awt.Color.WHITE);
+                g2d.fillRect(0, 0, targetW, targetH);
+                g2d.drawImage(orig, 0, 0, targetW, targetH, null);
+                g2d.dispose();
+
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                javax.imageio.ImageIO.write(scaled, "jpg", baos);
+                return baos.toByteArray();
+            }
+        } catch (Exception e) {
+            LOGGER.warning("ensureMinDimensions failed: " + e.getMessage());
+        }
+        return bytes;
     }
 
     private static final class UpsertOutcome {

@@ -29,11 +29,18 @@ import java.util.logging.Logger;
 /**
  * POST /api/website/orders — creates an order from omnicore-web.
  * GET  /api/website/orders/{id} — order status lookup for the storefront.
+ * GET  /api/website/orders/{id}/tracking — tracking code/provider/URL for the storefront.
  *
  * Customer identity is intentionally NOT resolved to a real `users` row (decision:
  * keep the customer models separate — see project memory). Contact info is stored as a
  * snapshot in `order_shipping_details`, the same table already used for Lazada/manual
  * orders that have no real WMS user behind them.
+ *
+ * Note: the /tracking sub-path used to be its own servlet (WebsiteOrderTrackingServlet)
+ * mapped to this SAME url-pattern (/api/website/orders/*) — two servlets can't share one
+ * pattern, so Tomcat refused to start the whole webapp ("both mapped to the url-pattern").
+ * Folded the tracking logic in here since this servlet already owns the pattern; the old
+ * class file is kept (not deleted) but no longer registered in web.xml.
  */
 public class WebsiteOrderApiServlet extends BaseApiServlet {
 
@@ -49,7 +56,19 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
             throws ServletException, IOException {
         if (authenticateAndReadBody(req, resp) == null) return;
 
-        String pathInfo = req.getPathInfo();
+        String pathInfo = req.getPathInfo(); // "/{id}" or "/{id}/tracking"
+        String[] parts = pathInfo == null ? null : pathInfo.replaceFirst("^/", "").split("/");
+
+        if (parts != null && parts.length == 2 && "tracking".equals(parts[1])) {
+            Integer trackingOrderId = parsePositiveIntOrNull(parts[0]);
+            if (trackingOrderId == null) {
+                sendError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid order id");
+                return;
+            }
+            handleTracking(resp, trackingOrderId);
+            return;
+        }
+
         Integer orderId = parseOrderId(pathInfo);
         if (orderId == null) {
             sendError(resp, HttpServletResponse.SC_BAD_REQUEST, "Missing or invalid order id in path");
@@ -81,6 +100,75 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "WebsiteOrderApiServlet.doGet failed for orderId=" + orderId, e);
             sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Lỗi hệ thống");
+        }
+    }
+
+    /**
+     * GET /api/website/orders/{id}/tracking — {tracking_code, shipment_provider, eta,
+     * tracking_url}. Null fields when the order hasn't shipped yet. Folded in from the
+     * former WebsiteOrderTrackingServlet (see class javadoc).
+     */
+    private void handleTracking(HttpServletResponse resp, int orderId) throws IOException {
+        String sql = "SELECT order_id, status, tracking_no, shipment_provider, web_order_ref "
+                   + "FROM orders WHERE order_id = ? AND web_order_ref IS NOT NULL";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    sendError(resp, HttpServletResponse.SC_NOT_FOUND, "Order not found");
+                    return;
+                }
+
+                String trackingNo = rs.getString("tracking_no");
+                String shipmentProvider = rs.getString("shipment_provider");
+
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("order_id", orderId);
+                data.put("status", rs.getString("status"));
+
+                if (trackingNo != null && !trackingNo.isBlank()) {
+                    data.put("tracking_code", trackingNo);
+                    data.put("shipment_provider", shipmentProvider);
+                    data.put("eta", null); // no source yet — could pull from carrier API later
+                    data.put("tracking_url", generateTrackingUrl(shipmentProvider, trackingNo));
+                } else {
+                    data.put("tracking_code", null);
+                    data.put("shipment_provider", null);
+                    data.put("eta", null);
+                    data.put("tracking_url", null);
+                }
+
+                sendJson(resp, HttpServletResponse.SC_OK, data);
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "WebsiteOrderApiServlet.handleTracking failed for orderId=" + orderId, e);
+            sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Lỗi hệ thống");
+        }
+    }
+
+    /** Ví dụ: GHN → https://khachhang.ghn.vn/tracking/..., GHTK → https://track.ghtk.vn/?... */
+    private String generateTrackingUrl(String provider, String trackingCode) {
+        if (provider == null || provider.isBlank() || trackingCode == null || trackingCode.isBlank()) {
+            return null;
+        }
+        return switch (provider.toLowerCase().trim()) {
+            case "ghn" -> "https://khachhang.ghn.vn/tracking/" + trackingCode;
+            case "ghtk" -> "https://track.ghtk.vn/?tracking_number=" + trackingCode;
+            case "viettel" -> "https://tracking.viettelpost.vn/en/web/tracking/detail/" + trackingCode;
+            case "jt" -> "https://tracker.jne.co.id/tracksolv/Tracking.htm?number=" + trackingCode;
+            case "grab" -> "https://grab.com/track/shipments/" + trackingCode;
+            case "shopee" -> "https://seller.shopee.vn/"; // Shopee không cung cấp tracking URL public
+            default -> null;
+        };
+    }
+
+    private Integer parsePositiveIntOrNull(String s) {
+        try {
+            int n = Integer.parseInt(s);
+            return n > 0 ? n : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -145,9 +233,11 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
         List<Double> unitPrices = new ArrayList<>();
         double totalAmount = 0;
         for (JsonNode item : itemsNode) {
-            int productId = item.path("product_id").asInt(-1);
-            int qty = item.path("qty").asInt(-1);
-            double unitPrice = item.path("unit_price").asDouble(-1);
+            int productId = item.has("product_id") ? item.path("product_id").asInt(-1) : item.path("productId").asInt(-1);
+            int qty = item.has("qty") ? item.path("qty").asInt(-1) : item.path("quantity").asInt(-1);
+            double unitPrice = item.has("unit_price") ? item.path("unit_price").asDouble(-1)
+                    : (item.has("unitPrice") ? item.path("unitPrice").asDouble(-1)
+                    : item.path("price").asDouble(-1));
             if (productId <= 0 || qty <= 0 || unitPrice < 0) {
                 sendError(resp, HttpServletResponse.SC_BAD_REQUEST,
                         "Each item requires product_id, qty > 0, unit_price >= 0");
@@ -185,34 +275,11 @@ public class WebsiteOrderApiServlet extends BaseApiServlet {
                 int orderId = insertOrder(conn, webOrderRef, webCustomerRef, channel.getChannelId(), totalAmount,
                         customerName, customerPhone, customerAddress, shippingFee);
                 for (int i = 0; i < requestedItems.size(); i++) {
-                    insertOrderItem(conn, orderId, requestedItems.get(i)[0], requestedItems.get(i)[1], unitPrices.get(i));
+                    int pId = requestedItems.get(i)[0];
+                    insertOrderItem(conn, orderId, pId, requestedItems.get(i)[1], unitPrices.get(i));
+                    inventoryDAO.logDeductionForPush(conn, pId, 0, 0);
                 }
                 conn.commit();
-
-                // Phase C — Atomic deduction with lock (Phase 3 — Hybrid Sync)
-                // After order is persisted, atomically deduct inventory to prevent race condition
-                // with Lazada/Shopee orders arriving simultaneously.
-                boolean allDeductionsSucceeded = true;
-                for (int i = 0; i < requestedItems.size(); i++) {
-                    int productId = requestedItems.get(i)[0];
-                    int qty = requestedItems.get(i)[1];
-                    boolean deducted = inventoryDAO.deductWithLock(productId, orderId, webOrderRef, PLATFORM, qty, null);
-                    if (!deducted) {
-                        allDeductionsSucceeded = false;
-                        LOGGER.severe("WebsiteOrderApiServlet: deduction failed for product " + productId
-                                + " order " + webOrderRef + " — inventory became unavailable");
-                        break;
-                    }
-                }
-
-                // If any deduction failed, rollback the order
-                if (!allDeductionsSucceeded) {
-                    deleteOrder(orderId);
-                    Map<String, Object> detail = new LinkedHashMap<>();
-                    detail.put("message", "Inventory became unavailable during processing (race condition)");
-                    sendErrorWithDetail(resp, HttpServletResponse.SC_CONFLICT, "Stock không đủ", detail);
-                    return;
-                }
 
                 double finalTotal = totalAmount + shippingFee;
                 if (mockCarrierId > 0) {

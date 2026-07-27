@@ -96,11 +96,32 @@
                             <span class="sort-icon"></span>
                         </th>
                         <th style="min-width: 90px;">Tình trạng</th>
-                        <th style="width: 60px;">Lazada</th>
+                        <th style="width: 60px; text-align: center;">Lazada</th>
+                        <th style="width: 85px; text-align: center;">Online Shop</th>
                     </tr>
                 </thead>
                 <tbody id="perfTableBody"></tbody>
             </table>
+        </div>
+        <!-- Pagination -->
+        <div class="perf-pagination" id="paginationContainer">
+            <c:if test="${totalPages > 1}">
+                <span class="pagination-info">
+                    Trang ${currentPageNum} / ${totalPages} — ${totalItems} sản phẩm
+                </span>
+                <div class="pagination-controls">
+                    <c:if test="${currentPageNum > 1}">
+                        <a href="#" data-page="${currentPageNum - 1}" class="pagination-btn">«</a>
+                    </c:if>
+                    <c:forEach begin="1" end="${totalPages}" var="i">
+                        <a href="#" data-page="${i}"
+                           class="pagination-btn ${i == currentPageNum ? 'active' : ''}">${i}</a>
+                    </c:forEach>
+                    <c:if test="${currentPageNum < totalPages}">
+                        <a href="#" data-page="${currentPageNum + 1}" class="pagination-btn">»</a>
+                    </c:if>
+                </div>
+            </c:if>
         </div>
     </div>
 
@@ -124,6 +145,7 @@
      data-channel="${currentChannel}"
      data-category="${currentCategory}"
      data-search='${currentSearch != null ? currentSearch : ""}'
+     data-page="${currentPageNum}"
      data-data='${performanceDataJson != null ? performanceDataJson : "[]"}'>
 </div>
 
@@ -146,6 +168,7 @@
         channel: meta.getAttribute('data-channel') || '',
         category: meta.getAttribute('data-category') || '',
         search: meta.getAttribute('data-search') || '',
+        page: parseInt(meta.getAttribute('data-page')) || 1,
         products: parseJsonSafe(meta.getAttribute('data-data')) || []
     };
 
@@ -204,7 +227,9 @@
     function buildUrl(overrides) {
         var params = new URLSearchParams();
         var opts = Object.assign({}, state, overrides || {});
-        if (opts.period && opts.period !== '30days') params.set('period', opts.period);
+        var targetPage = overrides && overrides.page !== undefined ? overrides.page : 1;
+
+        if (targetPage > 1) params.set('page', targetPage);
         if (opts.health && opts.health !== 'ALL') params.set('healthFilter', opts.health);
         if (opts.channel) params.set('channelId', opts.channel);
         if (opts.category) params.set('categoryId', opts.category);
@@ -233,12 +258,21 @@
 
         var html = '';
         products.forEach(function(p) {
-            // Lazada URL
+            // Lazada & Website URLs
             var lazadaUrl = null;
+            var websiteUrl = null;
             if (p.channelLinks && p.channelLinks.length > 0) {
                 p.channelLinks.forEach(function(ch) {
-                    if (!lazadaUrl && ch.externalUrl) lazadaUrl = ch.externalUrl;
+                    if (ch.channelPlatform === 'Lazada' && !lazadaUrl && ch.externalUrl) {
+                        lazadaUrl = ch.externalUrl;
+                    }
+                    if ((ch.channelPlatform === 'Website' || ch.channelName === 'Own Website') && !websiteUrl && ch.externalUrl) {
+                        websiteUrl = ch.externalUrl;
+                    }
                 });
+            }
+            if (!websiteUrl) {
+                websiteUrl = 'https://shop.isp392.click/products/' + p.productId;
             }
 
             // Margin class
@@ -248,6 +282,15 @@
 
             var lazadaCell = lazadaUrl
                 ? '<a href="' + lazadaUrl + '" target="_blank" rel="noopener" class="lazada-link" title="Xem trên Lazada">'
+                    + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">'
+                    + '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
+                    + '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
+                    + '</svg>'
+                    + '</a>'
+                : '—';
+
+            var websiteCell = websiteUrl
+                ? '<a href="' + websiteUrl + '" target="_blank" rel="noopener" class="website-link" title="Xem trên Online Shop">'
                     + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">'
                     + '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
                     + '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
@@ -275,6 +318,7 @@
                 '<td class="right"><span class="perf-price">' + fmtVnd(p.tiedUpCapital) + '</span></td>' +
                 '<td><span class="health-badge ' + getHealthClass(p.healthStatus) + '">' + getHealthLabel(p.healthStatus) + '</span></td>' +
                 '<td class="center">' + lazadaCell + '</td>' +
+                '<td class="center">' + websiteCell + '</td>' +
             '</tr>';
         });
 
@@ -329,6 +373,17 @@
             if (!col) return;
             var newDir = (state.sortBy === col && state.sortDir === 'asc') ? 'desc' : 'asc';
             window.location.href = buildUrl({ sortBy: col, sortDir: newDir });
+        });
+    });
+
+    // Pagination Controls
+    document.querySelectorAll('.perf-pagination .pagination-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var targetPage = parseInt(this.getAttribute('data-page'));
+            if (targetPage) {
+                window.location.href = buildUrl({ page: targetPage });
+            }
         });
     });
 

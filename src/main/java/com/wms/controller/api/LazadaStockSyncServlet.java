@@ -161,6 +161,9 @@ public class LazadaStockSyncServlet extends HttpServlet {
                 String respStr = gateway.updateProductStockBatch(ch, batch);
                 ChannelSyncAudit.logSuccess(ch.getChannelId(), "MANUAL_STOCK_SYNC",
                         "size=" + batch.size(), 200, "OK", respStr, 0);
+                for (StockItem it : items) {
+                    cpDAO.updateLastPush(ch.getChannelId(), it.productId, it.qty);
+                }
                 output.append("    Pushed ").append(batch.size()).append(" items - SUCCESS\n\n");
                 totalPushed += batch.size();
             } catch (Exception e) {

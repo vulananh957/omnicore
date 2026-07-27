@@ -217,6 +217,7 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
     <div class="doc-table-footer" id="docTableFooter">
         Hiển thị <strong>0</strong> / 0 chứng từ • Click vào dòng đã hoàn thành để xem phiếu chi tiết
     </div>
+    <div id="docPagination"></div>
 </div>
 
 <!-- ════════════════════════════════════════════════════
@@ -1220,6 +1221,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
 
         // Core Render List & stats logic
         function renderDocs() {
+            OmniPagination.reset('warehouseDocs');
+            renderDocsPage();
+        }
+
+        function renderDocsPage() {
             var html = "";
             var actionableDraft = 0;
             var actionableRma = 0;
@@ -1296,8 +1302,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
                         '</div>' +
                     '</td>' +
                 '</tr>';
+                document.getElementById('docPagination').innerHTML = '';
             } else {
-                filtered.forEach(function(d) {
+                var paginationResult = OmniPagination.paginate('warehouseDocs', filtered);
+                var pageDocs = paginationResult.items;
+                pageDocs.forEach(function(d) {
                     var cfg = DOC_TYPE_CONFIG[d.type];
                     var draft = isDraft(d);
                     var awaitingBM = isAwaitingBM(d);
@@ -1390,6 +1399,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
                         '</td>' +
                         '<td class="text-center" style="padding-right: 20px;" onclick="event.stopPropagation()">' + actionHtml + '</td>' +
                     '</tr>';
+                });
+
+                OmniPagination.renderControls('docPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+                    OmniPagination.setPage('warehouseDocs', newPage);
+                    renderDocsPage();
                 });
             }
 

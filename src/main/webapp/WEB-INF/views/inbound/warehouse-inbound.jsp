@@ -28,6 +28,7 @@
 
     <!-- GRN Table (unified) -->
     <div class="grn-list" id="grnListContainer"></div>
+    <div id="grnPagination"></div>
 </div>
 
 
@@ -612,12 +613,12 @@ window.selectStatusTab = function(statusId) {
 window.viewGRNDetail = function(grnId, event) {
     if (event) event.stopPropagation();
     expandedGrnId = expandedGrnId == grnId ? null : grnId;
-    renderReceipts();
+    renderReceiptsPage();
 };
 
 window.toggleGrnExpand = function(grnId) {
     expandedGrnId = expandedGrnId == grnId ? null : grnId;
-    renderReceipts();
+    renderReceiptsPage();
 };
 
 window.toggleDropdownMenu = function(grnId, event) {
@@ -703,19 +704,27 @@ function getStatusConfig(status) {
 }
 
 function renderReceipts() {
+    OmniPagination.reset('inboundGrns');
+    renderReceiptsPage();
+}
+
+function renderReceiptsPage() {
     localStorage.setItem('wh_inbound_grns', JSON.stringify(grns));
     updateReceiptsKPIs();
     renderStatusTabs();
 
     var filtered = getFilteredGRNs();
     var listContainer = document.getElementById('grnListContainer');
-    
+
     if (filtered.length === 0) {
         listContainer.innerHTML = '<div style="background:#fff; border:1px dashed var(--border); border-radius:12px; padding:48px; text-align:center; color:rgba(16, 55, 92, 0.40); font-weight:500; font-size:13px;">Không tìm thấy phiếu nhập kho nào.</div>';
+        document.getElementById('grnPagination').innerHTML = '';
         return;
     }
 
-    var html = filtered.map(function(grn) {
+    var paginationResult = OmniPagination.paginate('inboundGrns', filtered);
+
+    var html = paginationResult.items.map(function(grn) {
         var sc = getStatusConfig(grn.status);
         var isExpanded = expandedGrnId == grn.id;
         var totalOrdered = grn.items.reduce(function(sum, i) { return sum + i.orderedQty; }, 0);
@@ -903,6 +912,11 @@ function renderReceipts() {
     }).join('');
 
     listContainer.innerHTML = html;
+
+    OmniPagination.renderControls('grnPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+        OmniPagination.setPage('inboundGrns', newPage);
+        renderReceiptsPage();
+    });
 }
 
 // ─── DRAFT MODAL ACTIONS ───
@@ -1086,6 +1100,7 @@ window.updateDraftRowSku = function(index, skuCode) {
     var item = skus.find(function(s) { return s.sku === skuCode; });
     draftForm.items[index].skuCode = skuCode;
     draftForm.items[index].skuName = item ? item.name : '';
+    draftForm.items[index].productId = item ? (item.productId || item.id || 0) : 0;
     
     // Re-render only inputs names to prevent focus loss, or re-render fully
     renderDraftRows();

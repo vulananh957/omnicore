@@ -170,6 +170,7 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
     <div class="doc-table-footer" id="docTableFooter">
         Hiển thị 0 / 0 chứng từ
     </div>
+    <div id="docPagination"></div>
 </div>
 
 <!-- Shipping Label Section -->
@@ -416,7 +417,47 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
 
         // Print & Excel listeners
         btnDetailPrint.addEventListener('click', function() {
-            window.print();
+            var printArea = document.querySelector('#detailModalBody .pdf-print-area') || document.querySelector('.pdf-print-area');
+            if (!printArea) {
+                window.print();
+                return;
+            }
+
+            var iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+
+            var doc = iframe.contentWindow.document;
+            doc.open();
+            doc.write('<!DOCTYPE html><html><head><title>Bản in chứng từ - OmniCore WMS</title>');
+            doc.write('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">');
+            doc.write('<style>');
+            doc.write('@page { size: A4 portrait; margin: 10mm; }');
+            doc.write('body { font-family: "Inter", sans-serif; margin: 0; padding: 0; background: #fff; color: #10375C; font-size: 13px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }');
+            doc.write('* { box-sizing: border-box; }');
+            doc.write('table { width: 100%; border-collapse: collapse; page-break-inside: auto; }');
+            doc.write('tr { page-break-inside: avoid; page-break-after: auto; }');
+            doc.write('td, th { padding: 8px 10px; }');
+            doc.write('.pdf-print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; }');
+            doc.write('</style></head><body>');
+            doc.write(printArea.outerHTML);
+            doc.write('</body></html>');
+            doc.close();
+
+            setTimeout(function() {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                setTimeout(function() {
+                    if (document.body.contains(iframe)) {
+                        document.body.removeChild(iframe);
+                    }
+                }, 1000);
+            }, 300);
         });
         btnDetailExcel.addEventListener('click', function() {
             alert('Xuất excel chứng từ thành công!');
@@ -1196,6 +1237,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
 
         // Render documents table
         function renderDocs() {
+            OmniPagination.reset('ledgerDocs');
+            renderDocsPage();
+        }
+
+        function renderDocsPage() {
             var html = "";
 
             // ─── Filter Logic ───
@@ -1261,8 +1307,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
                         '</div>' +
                     '</td>' +
                 '</tr>';
+                document.getElementById('docPagination').innerHTML = '';
             } else {
-                filtered.forEach(function(d) {
+                var paginationResult = OmniPagination.paginate('ledgerDocs', filtered);
+                var pageDocs = paginationResult.items;
+                pageDocs.forEach(function(d) {
                     var cfg = DOC_TYPE_CONFIG[d.type] || { bg: "grn", icon: "", shortName: d.type };
                     var draft = isDraft(d);
                     var awaitingBM = isAwaitingBM(d);
@@ -1332,6 +1381,11 @@ window.__COMPANY_TAX_CODE__ = '<c:out value="${companyTaxCode}" default=""/>';
                         '</td>' +
                         '<td class="text-center" style="padding-right: 20px;" onclick="event.stopPropagation()">' + actionHtml + '</td>' +
                     '</tr>';
+                });
+
+                OmniPagination.renderControls('docPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+                    OmniPagination.setPage('ledgerDocs', newPage);
+                    renderDocsPage();
                 });
             }
 

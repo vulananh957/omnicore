@@ -62,7 +62,7 @@
                     Đa kênh hiệu quả.
                 </h2>
                 <p class="left-pane__sub">
-                    Hệ thống quản lý tồn kho, đơn hàng và bán hàng đa kênh — Shopee, TikTok&nbsp;Shop, Lazada, Website — tập trung tại một nơi.
+                    Hệ thống quản lý tồn kho, đơn hàng và bán hàng đa kênh — Lazada, Website Storefront — tập trung tại một nơi.
                 </p>
             </div>
         </div>

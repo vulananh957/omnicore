@@ -289,29 +289,44 @@ public class InboundService {
                     BigDecimal rejected = item.getRejectedQty() != null ? item.getRejectedQty() : BigDecimal.ZERO;
                     BigDecimal unitCost = item.getUnitCost() != null ? item.getUnitCost() : BigDecimal.ZERO;
 
+                    int productId = item.getProductId();
+                    if (productId <= 0) {
+                        log.warn("Receive goods skipped: invalid productId={} for inboundId={}", item.getProductId(), inboundId);
+                        continue;
+                    }
+
                     // Ghi nhận đầy đủ 3 cột qty: thực nhận / chấp nhận / trả NCC.
-                    inboundDAO.updateReceivedQtys(inboundId, item.getProductId(),
+                    inboundDAO.updateReceivedQtys(inboundId, productId,
                             received, accepted, rejected, item.getRejectReason(), unitCost);
 
                     // Cộng SL chấp nhận vào tồn kho + cập nhật MAC (chỉ phần đạt chuẩn mới vào kho).
                     double currentOnHand = 0.0;
                     BigDecimal currentMac = BigDecimal.ZERO;
-                    var prod = productDAO.findById(item.getProductId());
+                    var prod = productDAO.findById(productId);
                     if (prod != null) {
                         currentOnHand = prod.getQtyOnHand() != null ? prod.getQtyOnHand() : 0.0;
-                        currentMac = productDAO.findMacPrice(item.getProductId());
+                        currentMac = productDAO.findMacPrice(productId);
                     }
-                    inventoryDAO.addInventory(item.getProductId(), existing.getWarehouseId(), accepted, userId);
+                    boolean invAdded = inventoryDAO.addInventory(productId, existing.getWarehouseId(), accepted, userId);
+                    if (!invAdded) {
+                        failCount++;
+                        log.error("Receive goods item error: inboundId={} productId={} addInventory failed — "
+                                + "stock NOT updated, skipping MAC update to avoid cost/quantity drift", inboundId, productId);
+                        continue;
+                    }
                     productDAO.updateMacPrice(
-                            item.getProductId(),
+                            productId,
                             BigDecimal.valueOf(currentOnHand),
                             currentMac,
                             accepted,
                             unitCost);
 
+                    // Đồng bộ tổng tồn kho khả dụng mới sang bảng products cho Web/Lazada
+                    productDAO.syncStockTotals(productId);
+
                     // Tự động cấu hình default zone cho sản phẩm tại kho này nếu được chọn
                     if (zoneId != null && zoneId > 0) {
-                        productDAO.updateZoneForWarehouse(item.getProductId(), existing.getWarehouseId(), zoneId);
+                        productDAO.updateZoneForWarehouse(productId, existing.getWarehouseId(), zoneId);
                     }
 
                     successCount++;

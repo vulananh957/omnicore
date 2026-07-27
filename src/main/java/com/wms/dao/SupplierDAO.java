@@ -143,7 +143,7 @@ public class SupplierDAO extends BaseDAO {
                 SELECT s.supplier_id,
                        COALESCE(dc.current_balance, 0) AS current_balance
                 FROM suppliers s
-                LEFT JOIN debt_cte dc ON s.name = dc.supplier_name
+                LEFT JOIN debt_cte dc ON s.supplier_id = dc.supplier_id
                 WHERE 1=1
                 %s
             ) AS filtered
@@ -156,20 +156,16 @@ public class SupplierDAO extends BaseDAO {
     private String buildCteDataSql(String searchPattern, String debtFilter, String orderBy) {
         return """
             WITH debt_cte AS (
-                SELECT dc_inner.supplier_name,
-                       SUM(dc_inner.unit_cost * dc_inner.quantity) AS current_balance,
-                       SUM(dc_inner.unit_cost * dc_inner.quantity) AS total_ordered_value
-                FROM (
-                    SELECT wr.supplier_name,
-                           rd.unit_cost, rd.quantity
-                    FROM warehouse_receipts wr
-                    INNER JOIN receipt_details rd ON wr.receipt_id = rd.receipt_id
-                    INNER JOIN suppliers s ON wr.supplier_name = s.name
-                    WHERE wr.status = 'APPROVED'
-                      AND wr.supplier_name IS NOT NULL
-                      AND (s.payment_terms = 'CREDIT' OR s.payment_terms IS NULL)
-                ) dc_inner
-                GROUP BY dc_inner.supplier_name
+                SELECT 
+                    s.supplier_id,
+                    SUM(CASE WHEN s.payment_terms LIKE 'Net%%' OR s.payment_terms LIKE 'NET%%' OR s.payment_terms IS NULL OR s.payment_terms = 'CREDIT' 
+                             THEN ii.accepted_qty * ii.unit_cost ELSE 0 END) AS current_balance,
+                    SUM(ii.accepted_qty * ii.unit_cost) AS total_ordered_value
+                FROM inbound_orders io
+                JOIN inbound_items ii ON io.inbound_id = ii.inbound_id
+                JOIN suppliers s ON io.supplier_id = s.supplier_id
+                WHERE io.status = 'RECEIVED'
+                GROUP BY s.supplier_id
             )
             SELECT s.supplier_id,
                    s.supplier_code,
@@ -184,7 +180,7 @@ public class SupplierDAO extends BaseDAO {
                    COALESCE(dc.current_balance, 0)      AS current_balance,
                    COALESCE(dc.total_ordered_value, 0)  AS total_ordered_value
             FROM suppliers s
-            LEFT JOIN debt_cte dc ON s.name = dc.supplier_name
+            LEFT JOIN debt_cte dc ON s.supplier_id = dc.supplier_id
             WHERE 1=1
             %s
             ORDER BY %s
@@ -198,20 +194,16 @@ public class SupplierDAO extends BaseDAO {
     private String debtCteSubquery() {
         return """
             WITH debt_cte AS (
-                SELECT dc_inner.supplier_name,
-                       SUM(dc_inner.unit_cost * dc_inner.quantity) AS current_balance,
-                       SUM(dc_inner.unit_cost * dc_inner.quantity) AS total_ordered_value
-                FROM (
-                    SELECT wr.supplier_name,
-                           rd.unit_cost, rd.quantity
-                    FROM warehouse_receipts wr
-                    INNER JOIN receipt_details rd ON wr.receipt_id = rd.receipt_id
-                    INNER JOIN suppliers s ON wr.supplier_name = s.name
-                    WHERE wr.status = 'APPROVED'
-                      AND wr.supplier_name IS NOT NULL
-                      AND (s.payment_terms = 'CREDIT' OR s.payment_terms IS NULL)
-                ) dc_inner
-                GROUP BY dc_inner.supplier_name
+                SELECT 
+                    s.supplier_id,
+                    SUM(CASE WHEN s.payment_terms LIKE 'Net%%' OR s.payment_terms LIKE 'NET%%' OR s.payment_terms IS NULL OR s.payment_terms = 'CREDIT' 
+                             THEN ii.accepted_qty * ii.unit_cost ELSE 0 END) AS current_balance,
+                    SUM(ii.accepted_qty * ii.unit_cost) AS total_ordered_value
+                FROM inbound_orders io
+                JOIN inbound_items ii ON io.inbound_id = ii.inbound_id
+                JOIN suppliers s ON io.supplier_id = s.supplier_id
+                WHERE io.status = 'RECEIVED'
+                GROUP BY s.supplier_id
             )
             """;
     }

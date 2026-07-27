@@ -12,7 +12,8 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * WarehouseServlet — Handles requests for the Warehouse List page and AJAX APIs.
+ * WarehouseServlet — Handles requests for the Warehouse List page and AJAX
+ * APIs.
  *
  * Maps to /business/warehouses.
  */
@@ -25,19 +26,19 @@ public class WarehouseServlet extends BaseController {
             throws ServletException, IOException {
 
         String action = req.getParameter("action");
-
+        // controller tiếp nhận hành động tải danh sách kho
         if ("list".equals(action)) {
-            handleList(req, resp);
+            handleList(req, resp); // chuyển sang hàm xử lý json
             return;
         }
 
-        req.setAttribute("pageTitle",    "Danh Sách Kho Hàng");
+        req.setAttribute("pageTitle", "Danh Sách Kho Hàng");
         req.setAttribute("pageSubtitle", "Quản lý thông tin, phân khu lưu trữ và trạng thái các chi nhánh kho");
-        req.setAttribute("currentPage",  "warehouses");
+        req.setAttribute("currentPage", "warehouses");
         req.setAttribute("contentPage", "/WEB-INF/views/warehouse/warehouses.jsp");
 
         req.getRequestDispatcher("/WEB-INF/views/layout/dashboard-layout.jsp")
-           .forward(req, resp);
+                .forward(req, resp);
     }
 
     @Override
@@ -55,10 +56,12 @@ public class WarehouseServlet extends BaseController {
                 writeJson(resp, "{\"success\":false,\"message\":\"Hành động không hợp lệ.\"}");
             }
         } catch (Exception e) {
-            writeJson(resp, "{\"success\":false,\"message\":\"Đã xảy ra lỗi hệ thống: " + escapeJson(e.getMessage()) + "\"}");
+            writeJson(resp,
+                    "{\"success\":false,\"message\":\"Đã xảy ra lỗi hệ thống: " + escapeJson(e.getMessage()) + "\"}");
         }
     }
 
+    // chuyển danh sách warehouse thành chuỗi json trả về cho browser
     private void handleList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         try {
             List<Warehouse> list = warehouseService.findAll();
@@ -68,6 +71,7 @@ public class WarehouseServlet extends BaseController {
         }
     }
 
+    // nhận json từ browser, chuyển thành warehouse object, gọi service lưu xuống db
     private void handleSave(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         try {
             Warehouse w = parseJson(req.getReader().lines().reduce("", (a, b) -> a + b), Warehouse.class);
@@ -79,10 +83,13 @@ public class WarehouseServlet extends BaseController {
                 writeJson(resp, "{\"success\":false,\"message\":\"" + escapeJson(result.getMessage()) + "\"}");
             }
         } catch (Exception e) {
-            writeJson(resp, "{\"success\":false,\"message\":\"Lỗi định dạng dữ liệu: " + escapeJson(e.getMessage()) + "\"}");
+            writeJson(resp,
+                    "{\"success\":false,\"message\":\"Lỗi định dạng dữ liệu: " + escapeJson(e.getMessage()) + "\"}");
         }
     }
 
+    // xử lý bật tắt trạng thái kho, nhận id và active từ browser, gọi service lưu
+    // xuống db
     private void handleToggleStatus(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String idStr = req.getParameter("id");
         String activeStr = req.getParameter("active");
@@ -93,9 +100,12 @@ public class WarehouseServlet extends BaseController {
         }
 
         try {
+            // nhận yêu cầu post với tham số id và active
             int id = Integer.parseInt(idStr);
             boolean active = Boolean.parseBoolean(activeStr);
+            // gọi service
             boolean success = warehouseService.toggleStatus(id, active);
+            // trả về kết quả
             if (success) {
                 writeJson(resp, "{\"success\":true}");
             } else {

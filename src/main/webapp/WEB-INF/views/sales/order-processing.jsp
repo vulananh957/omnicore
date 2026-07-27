@@ -12,10 +12,6 @@
 
 <%-- ── ENTERPRISE TAB SWITCHER BAR ── --%>
 <div class="op-tab-bar">
-    <button class="op-tab tab-all" id="tabAll" onclick="switchTab('all')">
-        Tất cả đơn hàng
-        <span class="op-tab-badge" id="badgeAll">0</span>
-    </button>
     <button class="op-tab tab-review" id="tabReview" onclick="switchTab('pending_review')">
         Đơn cần duyệt
         <span class="op-tab-badge" id="badgeReview">0</span>
@@ -27,6 +23,10 @@
     <button class="op-tab tab-rts" id="tabRTS" onclick="switchTab('pending_rts')">
         Chờ bàn giao ĐVVC
         <span class="op-tab-badge" id="badgeRTS">0</span>
+    </button>
+    <button class="op-tab tab-shipping" id="tabShipping" onclick="switchTab('shipping')">
+        Đang giao
+        <span class="op-tab-badge" id="badgeShipping">0</span>
     </button>
     <button class="op-tab tab-rma" id="tabRMA" onclick="switchTab('rma_dispute')">
         Hàng Hoàn &amp; Khiếu Nại
@@ -79,20 +79,6 @@
         </div>
     </div>
 
-    <%-- Filter 3: Đơn vị vận chuyển (populated by JS from shipmentProvidersJson) --%>
-    <div style="position:relative">
-        <button class="op-filter-btn" onclick="toggleDropdown('ddCarrier', event)">
-            <span style="display:flex;align-items:center;gap:6px">
-                <svg class="f-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
-                ĐVVC: <strong id="lblCarrier" style="color:var(--navy)">Tất cả</strong>
-            </span>
-            <svg class="clear-x" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" onclick="clearFilter('carrier', event)"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-        <div id="ddCarrier" class="op-dropdown right">
-            <button class="selected" onclick="selectCarrier('all')">Tất cả ĐVVC</button>
-            <%-- populated dynamically by initCarrierDropdown() --%>
-        </div>
-    </div>
 
     <%-- Filter 4: Thời gian đóng gói (Chỉ hiện ở Tab Chờ bàn giao ĐVVC) --%>
     <div style="position:relative;display:none" id="opTimeFilterContainer">
@@ -129,6 +115,7 @@
     <div class="op-table-footer" id="opTableFooter">
         Hiển thị 0 / 0 đơn hàng
     </div>
+    <div id="opPagination"></div>
 </div>
 
 <%-- ── ENTERPRISE DETAIL MODAL ── --%>
@@ -287,12 +274,17 @@
     <c:forEach var="item" items="${order.items}">
         <c:set var="totalQty" value="${totalQty + item.quantity}"/>
     </c:forEach>
+    <c:set var="cleanName" value="${fn:replace(fn:replace(fn:escapeXml(order.customerName), '&#10;', ' '), '&#13;', '')}"/>
+    <c:set var="cleanAddr" value="${fn:replace(fn:replace(fn:escapeXml(order.customerAddress), '&#10;', ' '), '&#13;', '')}"/>
+    <c:set var="cleanReviewNote" value="${fn:replace(fn:replace(fn:escapeXml(order.reviewNote), '&#10;', ' '), '&#13;', '')}"/>
+    <c:set var="cleanDisputeNote" value="${fn:replace(fn:replace(fn:escapeXml(order.disputeNote), '&#10;', ' '), '&#13;', '')}"/>
+    <c:set var="cleanRmaReason" value="${fn:replace(fn:replace(fn:escapeXml(order.rmaReason), '&#10;', ' '), '&#13;', '')}"/>
     {
         "id": "${fn:escapeXml(order.orderCode)}",
         "channel": "${order.channel == 'ONLINE' ? 'Lazada' : fn:escapeXml(order.channel)}",
-        "customerName": "${fn:escapeXml(order.customerName)}",
+        "customerName": "${cleanName}",
         "customerPhone": "${fn:escapeXml(order.customerPhone)}",
-        "customerAddress": "${fn:escapeXml(order.customerAddress)}",
+        "customerAddress": "${cleanAddr}",
         "totalItems": ${totalQty},
         "totalAmount": ${order.totalAmount},
         "status": "${order.status == 'PENDING' ? 'pending_review' : (order.status == 'CONFIRMED' ? 'confirmed' : (order.status == 'PICKING' ? 'confirmed' : (order.status == 'PACKED' ? 'packed' : (order.status == 'SHIPPED' ? 'shipping' : (order.status == 'DELIVERED' ? 'delivered' : (order.status == 'COMPLETED' ? 'completed' : (order.status == 'RETURNED' ? 'returned' : (order.status == 'DISPUTED' ? 'disputed' : (order.status == 'DISPUTE_SUCCESS' ? 'dispute_success' : (order.status == 'CANCELLED' ? 'cancelled' : order.status.toLowerCase()))))))))))}",
@@ -300,21 +292,24 @@
         "webOrderRef": "${fn:escapeXml(order.webOrderRef)}",
         "trackingNo": "${fn:escapeXml(order.trackingNo)}",
         "shipmentProvider": "${fn:escapeXml(order.shipmentProvider)}",
-        "reviewNote": "${fn:escapeXml(order.reviewNote)}",
-        "rmaReason": "${fn:escapeXml(order.rmaReason)}",
+        "reviewNote": "${cleanReviewNote}",
+        "rmaReason": "${cleanRmaReason}",
         "rmaPhysicalStatus": "${fn:escapeXml(order.rmaPhysicalStatus)}",
         "rmaPlatformStatus": "${fn:escapeXml(order.rmaPlatformStatus)}",
         "disputeEvidenceVideo": "${fn:escapeXml(order.disputeEvidenceVideo)}",
-        "disputeNote": "${fn:escapeXml(order.disputeNote)}",
+        "disputeNote": "${cleanDisputeNote}",
         "createdAt": "${order.createdAt}",
         "updatedAt": "${order.updatedAt}",
         "items": [
             <c:forEach var="item" items="${order.items}" varStatus="itemStatus">
+            <c:set var="cleanItemName" value="${fn:replace(fn:replace(fn:escapeXml(item.productName), '&#10;', ' '), '&#13;', '')}"/>
             {
                 "sku": "${fn:escapeXml(item.skuCode)}",
-                "name": "${fn:escapeXml(item.productName)}",
+                "name": "${cleanItemName}",
                 "quantity": ${item.quantity},
-                "price": ${item.unitPrice}
+                "price": ${item.unitPrice},
+                "warehouseStocks": "${fn:escapeXml(item.warehouseStocks)}",
+                "qtyAvailable": ${item.qtyAvailable}
             }${!itemStatus.last ? ',' : ''}
             </c:forEach>
         ]
@@ -401,7 +396,7 @@ const websiteRmaMap = {};
 pendingRmas.forEach(rma => {
     websiteRmaMap[rma.orderCode] = rma;
 });
-let activeTab = "all";
+let activeTab = "pending_review";
 let searchQuery = "";
 let selectedChannel = "all";
 let selectedProduct = "all";
@@ -409,6 +404,7 @@ let selectedCarrier = "all";
 let selectedTime = "all";
 
 let activeDetailOrder = null;
+let isSubmitting = false;
 
 // ── INIT DOMContentLoaded ───────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", function() {
@@ -434,11 +430,13 @@ document.addEventListener("DOMContentLoaded", function() {
     // Check initial search params
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get("tab");
-    if (tabParam && ["all", "pending_review", "pending_waybill", "pending_rts", "rma_dispute", "cancelled"].includes(tabParam)) {
+    if (tabParam && ["pending_review", "pending_waybill", "pending_rts", "shipping", "rma_dispute", "cancelled"].includes(tabParam)) {
         activeTab = tabParam;
+    } else {
+        activeTab = "pending_review";
     }
 
-    renderAll();
+    switchTab(activeTab);
     
     // Global body click to hide dropdowns
     document.addEventListener("click", function() {
@@ -450,7 +448,38 @@ function loadOrdersFromStorage() {
     const orderDataElem = document.getElementById("orderDataContainer");
     if (orderDataElem) {
         try {
-            allOrders = JSON.parse(orderDataElem.textContent.trim());
+            const rawText = orderDataElem.textContent.trim();
+            try {
+                allOrders = JSON.parse(rawText);
+            } catch(firstErr) {
+                // If direct parse failed due to raw unescaped newlines in text fields, sanitize control characters
+                const sanitized = rawText.replace(/[\r\n]+/g, " ");
+                allOrders = JSON.parse(sanitized);
+            }
+            // Populate __whStockCache from loaded orders so Website & Lazada items have real stock cached
+            if (Array.isArray(allOrders)) {
+                if (!window.__whStockCache) window.__whStockCache = {};
+                allOrders.forEach(function(order) {
+                    if (order && Array.isArray(order.items)) {
+                        order.items.forEach(function(item) {
+                            if (item && item.sku && item.warehouseStocks) {
+                                if (!window.__whStockCache[item.sku]) window.__whStockCache[item.sku] = {};
+                                var parts = item.warehouseStocks.split(',');
+                                parts.forEach(function(part) {
+                                    var colonIdx = part.lastIndexOf(':');
+                                    if (colonIdx < 0) return;
+                                    var whName = part.substring(0, colonIdx).trim();
+                                    var qtyStr = part.substring(colonIdx + 1).trim();
+                                    var qty = parseFloat(qtyStr);
+                                    if (!isNaN(qty) && whName) {
+                                        window.__whStockCache[item.sku][whName] = qty;
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+            }
             // Sync to local storage for any listening components
             localStorage.setItem("b2c_orders_v2", JSON.stringify(allOrders));
         } catch(e) {
@@ -497,9 +526,29 @@ function postOrderAction(params, callback) {
 }
 
 function getWarehouseStock(sku, wname) {
-    // 1) Prefer the real-time server cache populated by loadInventoryStock()
-    if (window.__whStockCache && window.__whStockCache[sku] && window.__whStockCache[sku][wname] !== undefined) {
-        return window.__whStockCache[sku][wname];
+    if (!sku || !wname) return 0;
+
+    // 1) Prefer the real-time server cache populated by loadInventoryStock() or embedded data
+    if (window.__whStockCache && window.__whStockCache[sku]) {
+        var skuCache = window.__whStockCache[sku];
+        if (skuCache[wname] !== undefined) {
+            return skuCache[wname];
+        }
+        // Flexible name matching (e.g. Kho TP.HCM vs Kho Hồ Chí Minh)
+        var normInput = wname.toLowerCase();
+        for (var k in skuCache) {
+            var kNorm = k.toLowerCase();
+            if (kNorm === normInput) return skuCache[k];
+            if ((kNorm.includes("hcm") || kNorm.includes("hồ chí minh")) && (normInput.includes("hcm") || normInput.includes("hồ chí minh"))) {
+                return skuCache[k];
+            }
+            if (kNorm.includes("hà nội") && normInput.includes("hà nội")) {
+                return skuCache[k];
+            }
+            if (kNorm.includes("đà nẵng") && normInput.includes("đà nẵng")) {
+                return skuCache[k];
+            }
+        }
     }
 
     // 2) Fallback: legacy localStorage cache populated by channel-products page
@@ -515,7 +564,7 @@ function getWarehouseStock(sku, wname) {
     if (wname === "Kho Hà Nội" || wname.indexOf("Hà Nội") > -1) {
         return Math.floor(totalQty * 0.6);
     }
-    if (wname === "Kho TP.HCM" || wname === "Kho TP. Hồ Chí Minh" || wname.indexOf("HCM") > -1) {
+    if (wname === "Kho TP.HCM" || wname === "Kho TP. Hồ Chí Minh" || wname.indexOf("HCM") > -1 || wname.indexOf("Hồ Chí Minh") > -1) {
         return Math.floor(totalQty * 0.3);
     }
     if (wname === "Kho Đà Nẵng" || wname.indexOf("Đà Nẵng") > -1) {
@@ -711,21 +760,24 @@ function switchTab(tabId) {
     
     // Toggle active tab class
     document.querySelectorAll(".op-tab").forEach(btn => btn.classList.remove("active"));
-    if (tabId === "all") document.getElementById("tabAll").classList.add("active");
-    if (tabId === "pending_review") document.getElementById("tabReview").classList.add("active");
-    if (tabId === "pending_waybill") document.getElementById("tabWaybill").classList.add("active");
-    if (tabId === "pending_rts") document.getElementById("tabRTS").classList.add("active");
-    if (tabId === "rma_dispute") document.getElementById("tabRMA").classList.add("active");
-    if (tabId === "cancelled") document.getElementById("tabCancelled").classList.add("active");
+    if (tabId === "pending_review" && document.getElementById("tabReview")) document.getElementById("tabReview").classList.add("active");
+    if (tabId === "pending_waybill" && document.getElementById("tabWaybill")) document.getElementById("tabWaybill").classList.add("active");
+    if (tabId === "pending_rts" && document.getElementById("tabRTS")) document.getElementById("tabRTS").classList.add("active");
+    if (tabId === "shipping" && document.getElementById("tabShipping")) document.getElementById("tabShipping").classList.add("active");
+    if (tabId === "rma_dispute" && document.getElementById("tabRMA")) document.getElementById("tabRMA").classList.add("active");
+    if (tabId === "cancelled" && document.getElementById("tabCancelled")) document.getElementById("tabCancelled").classList.add("active");
     
     // Toggle time filter visibility (only in RTS tab)
     const timeFilter = document.getElementById("opTimeFilterContainer");
-    if (tabId === "pending_rts") {
-        timeFilter.style.display = "block";
-    } else {
-        timeFilter.style.display = "none";
-        selectedTime = "all";
-        document.getElementById("lblTime").textContent = "Tất cả";
+    if (timeFilter) {
+        if (tabId === "pending_rts") {
+            timeFilter.style.display = "block";
+        } else {
+            timeFilter.style.display = "none";
+            selectedTime = "all";
+            const lblTime = document.getElementById("lblTime");
+            if (lblTime) lblTime.textContent = "Tất cả";
+        }
     }
     
     renderAll();
@@ -738,22 +790,22 @@ function renderAll() {
 }
 
 function renderTabBadges() {
-    const allCnt = allOrders.length;
     const reviewCnt = allOrders.filter(o => o.status === "pending_review").length;
     const waybillCnt = allOrders.filter(o => o.status === "confirmed").length;
     const rtsCnt = allOrders.filter(o => o.status === "packed").length;
+    const shippingCnt = allOrders.filter(o => o.status === "shipping").length;
     const rmaCnt = allOrders.filter(o => {
         return (o.status === "returned" || o.status === "disputed" || o.status === "dispute_success") 
             || (websiteRmaMap[o.id] !== undefined);
     }).length;
     const cancelledCnt = allOrders.filter(o => o.status === "cancelled").length;
     
-    if (document.getElementById("badgeAll")) document.getElementById("badgeAll").textContent = allCnt;
-    document.getElementById("badgeReview").textContent = reviewCnt;
-    document.getElementById("badgeWaybill").textContent = waybillCnt;
-    document.getElementById("badgeRTS").textContent = rtsCnt;
-    document.getElementById("badgeRMA").textContent = rmaCnt;
-    document.getElementById("badgeCancelled").textContent = cancelledCnt;
+    if (document.getElementById("badgeReview")) document.getElementById("badgeReview").textContent = reviewCnt;
+    if (document.getElementById("badgeWaybill")) document.getElementById("badgeWaybill").textContent = waybillCnt;
+    if (document.getElementById("badgeRTS")) document.getElementById("badgeRTS").textContent = rtsCnt;
+    if (document.getElementById("badgeShipping")) document.getElementById("badgeShipping").textContent = shippingCnt;
+    if (document.getElementById("badgeRMA")) document.getElementById("badgeRMA").textContent = rmaCnt;
+    if (document.getElementById("badgeCancelled")) document.getElementById("badgeCancelled").textContent = cancelledCnt;
 }
 
 // ── DROPDOWNS ────────────────────────────────────────────────────────
@@ -864,6 +916,8 @@ function getFilteredOrders() {
             matchTab = order.status === "confirmed";
         } else if (activeTab === "pending_rts") {
             matchTab = order.status === "packed";
+        } else if (activeTab === "shipping") {
+            matchTab = order.status === "shipping";
         } else if (activeTab === "rma_dispute") {
             matchTab = (order.status === "returned" || order.status === "disputed" || order.status === "dispute_success") 
                 || (websiteRmaMap[order.id] !== undefined);
@@ -954,10 +1008,15 @@ function renderTableHeader() {
 }
 
 function renderTableBody() {
+    OmniPagination.reset('orderProcessing');
+    renderTableBodyPage();
+}
+
+function renderTableBodyPage() {
     const tbody = document.getElementById("opTableBody");
     const filtered = getFilteredOrders();
-    
-    
+
+
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr>' +
             '<td colspan="' + (activeTab === 'pending_waybill' ? 8 : activeTab === 'pending_rts' ? 9 : activeTab === 'rma_dispute' ? 9 : 8) + '" class="op-empty">' +
@@ -966,18 +1025,23 @@ function renderTableBody() {
             '</td>' +
         '</tr>';
         document.getElementById("opTableFooter").textContent = "Hiển thị 0 / " + allOrders.length + " đơn hàng";
+        document.getElementById("opPagination").innerHTML = "";
         return;
     }
-    
+
+    const paginationResult = OmniPagination.paginate('orderProcessing', filtered);
+    const pageRows = paginationResult.items;
+    const sttOffset = (paginationResult.currentPage - 1) * paginationResult.pageSize;
+
     let html = "";
-        filtered.forEach((order, idx) => {
+        pageRows.forEach((order, idx) => {
         const cfg = STATUS_CONFIG[order.status] || { label: order.status, bg: "background:#e5eaf3", text: "color:#10375c", dot: "background:#10375c" };
         const carrier = getShippingCarrierOfOrder(order);
         const channelColor = order.channelColor || "#10375c";
         
         html += '<tr class="' + (order.status === 'pending_review' ? 'pending-row' : '') + '" onclick="openDetailModal(\'' + order.id + '\')" style="cursor:pointer">';
         
-        html += '<td><span style="color:rgba(16,55,92,.4);font-weight:700;font-size:12px">' + (idx + 1) + '</span></td>' +
+        html += '<td><span style="color:rgba(16,55,92,.4);font-weight:700;font-size:12px">' + (sttOffset + idx + 1) + '</span></td>' +
         '<td>' +
             '<div style="font-weight:700;font-family:monospace">' + order.id + '</div>' +
             (order.trackingNo ? '<div style="font-size:10px;color:rgba(16,55,92,.4);font-family:monospace;margin-top:2px">' + order.trackingNo + '</div>' : '<div style="font-size:9.5px;color:#d97706;font-style:italic;font-weight:700;margin-top:2px">Chưa cấp tracking</div>') +
@@ -1074,6 +1138,11 @@ function renderTableBody() {
     
     tbody.innerHTML = html;
     document.getElementById("opTableFooter").textContent = "Hiển thị " + filtered.length + " / " + allOrders.length + " đơn hàng";
+
+    OmniPagination.renderControls("opPagination", paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+        OmniPagination.setPage('orderProcessing', newPage);
+        renderTableBodyPage();
+    });
 }
 
 // ── DETAIL MODAL FUNCTIONS ───────────────────────────────────────────
@@ -1204,7 +1273,10 @@ function renderModal(order) {
                 '<div style="padding-left:12px;border-left:2px solid rgba(16,55,92,.1)">';
             
             resolved.forEach(phy => {
-                const totalStock = getWarehouseStock(phy.sku, "Kho Hà Nội") + getWarehouseStock(phy.sku, "Kho TP.HCM") + getWarehouseStock(phy.sku, "Kho Đà Nẵng");
+                let totalStock = 0;
+                WAREHOUSES.forEach(wh => {
+                    totalStock += getWarehouseStock(phy.sku, wh.name);
+                });
                 
                 itemsHtml += '<div style="margin-bottom:12px">' +
                     '<div style="display:flex;justify-content:between;align-items:center;margin-bottom:6px;font-size:12.5px">' +
@@ -1540,26 +1612,17 @@ function renderModal(order) {
                 '<button class="op-btn success" onclick="submitApprove(true)">[ DUYỆT ĐƠN &amp; PHÂN BỔ KHO ]</button>' +
             '</div>' +
         '</div>';
-    } else if (order.status === "shipping" && order.webOrderRef) {
-        // Website order — no external platform webhook; Sales/Kho confirms delivery manually (mock shipper).
+    } else if (order.status === "shipping") {
+        // Shipping order — Sales/Kho confirms delivery manually (mock shipper or test simulation)
         actionHtml += '<div class="op-action-box" style="border-color:#10b981;background:rgba(16,185,129,.03)">' +
             '<div class="op-action-title" style="color:#059669">' +
                 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>' +
-                'Đơn Website — Xác nhận giao hàng thủ công' +
+                'Đơn hàng đang giao — Xác nhận giao hàng thành công' +
             '</div>' +
-            '<p style="font-size:12px;color:rgba(16,55,92,.6)">Đơn Website không có webhook từ sàn TMĐT. Khi đơn vị vận chuyển đã giao hàng thành công, bấm xác nhận bên dưới để bắt đầu tính cửa sổ 7 ngày hoàn trả cho khách.</p>' +
+            '<p style="font-size:12px;color:rgba(16,55,92,.6)">Bấm nút bên dưới để xác nhận/giả lập đơn hàng đã giao thành công tới khách hàng (chuyển trạng thái đơn sang Đã giao - DELIVERED).</p>' +
             '<div style="display:flex;justify-content:flex-end;margin-top:8px">' +
                 '<button class="op-btn success" onclick="submitConfirmDelivered(\'' + order.id + '\')">[ XÁC NHẬN ĐÃ GIAO ]</button>' +
             '</div>' +
-        '</div>';
-    } else if (order.status === "shipping" || order.status === "delivered" || order.status === "packed") {
-        // Render Webhook Simulator Actions
-        actionHtml += '<div class="op-action-box" style="border-color:#10b981;background:rgba(16,185,129,.03)">' +
-            '<div class="op-action-title" style="color:#059669">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>' +
-                'Giao hàng thành công — Chờ webhook từ Lazada cập nhật trạng thái' +
-            '</div>' +
-            '<p style="font-size:12px;color:rgba(16,55,92,.6)">Trạng thái vận chuyển được cập nhật tự động qua Webhook từ Lazada khi đơn hàng được bưu tá giao thành công. Thời gian đối soát ví: 3 ngày kể từ ngày giao hàng.</p>' +
         '</div>';
     } else if (order.rmaPhysicalStatus === "Đã nhập Zone Khiếu Nại") {
         // RMA Dispute form
@@ -1700,24 +1763,30 @@ function submitConfirmDelivered(orderId) {
     };
 
     postOrderAction(params, function(err, resp) {
-        isSubmitting = false;
-        if (err) {
-            alert("Lỗi xác nhận giao hàng: " + err);
-            return;
-        }
-
-        allOrders = allOrders.map(o => {
-            if (o.id === orderId) {
-                o.status = "delivered";
-                o.updatedAt = new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16);
+        try {
+            if (err) {
+                alert("Lỗi xác nhận giao hàng: " + err);
+                return;
             }
-            return o;
-        });
 
-        saveOrdersToStorage();
-        closeDetailModal();
-        renderAll();
-        showToast("Đã xác nhận giao hàng thành công!", "success");
+            allOrders = allOrders.map(o => {
+                if (o.id === orderId) {
+                    o.status = "delivered";
+                    o.updatedAt = new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16);
+                }
+                return o;
+            });
+
+            saveOrdersToStorage();
+            closeDetailModal();
+            renderAll();
+            showToast("Đã xác nhận giao hàng thành công!", "success");
+        } catch (e) {
+            console.error("submitConfirmDelivered error:", e);
+            alert("Lỗi xảy ra trong quá trình xác nhận giao hàng: " + e.message);
+        } finally {
+            isSubmitting = false;
+        }
     });
 }
 

@@ -456,6 +456,7 @@
 <div class="ret-list-container" id="returnsContainer">
     <!-- Rendered by JS -->
 </div>
+<div id="returnsPagination"></div>
 
 <!-- ═══ MODAL: KIỂM QC ═══ -->
 <div class="ret-overlay" id="qcOverlay" style="display:none;">
@@ -876,7 +877,7 @@
     // ─── Global Event Handling ───
     window.toggleRmaExpand = function (id) {
         expandedRmaId = expandedRmaId === id ? null : id;
-        render();
+        renderPage();
     };
 
     window.openQCModal = function (e, id) {
@@ -1240,6 +1241,11 @@
 
     // ─── Render ───
     function render() {
+        OmniPagination.reset('warehouseReturns');
+        renderPage();
+    }
+
+    function renderPage() {
         // Counts
         var counts = {
             all:        returns.length,
@@ -1290,10 +1296,13 @@
 
         if (filtered.length === 0) {
             returnsContainer.innerHTML = '<div class="ret-empty">Không tìm thấy phiếu hàng hoàn nào phù hợp.</div>';
+            document.getElementById('returnsPagination').innerHTML = '';
             return;
         }
 
-        returnsContainer.innerHTML = filtered.map(function (rma) {
+        var paginationResult = OmniPagination.paginate('warehouseReturns', filtered);
+
+        returnsContainer.innerHTML = paginationResult.items.map(function (rma) {
             var sc = getStatusConfig(rma.status);
             var isExpanded = expandedRmaId === rma.id;
             var totalQty = rma.items.reduce(function (sum, i) { return sum + i.qty; }, 0);
@@ -1424,6 +1433,11 @@
                       expandSection +
                    '</div>';
         }).join('');
+
+        OmniPagination.renderControls('returnsPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('warehouseReturns', newPage);
+            renderPage();
+        });
     }
 
     function esc(v) {

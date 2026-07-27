@@ -80,7 +80,8 @@ public class SalesOrdersServlet extends BaseController {
                 if (ws != null) {
                     switch (ws.toUpperCase()) {
                         case "PENDING": fs = "pending_review"; break;
-                        case "CONFIRMED": fs = "confirmed"; break;
+                        case "CONFIRMED":
+                        case "PICKING": fs = "confirmed"; break;
                         case "PACKING": fs = "packing"; break;
                         case "PACKED": fs = "packed"; break;
                         case "SHIPPED": fs = "shipping"; break;

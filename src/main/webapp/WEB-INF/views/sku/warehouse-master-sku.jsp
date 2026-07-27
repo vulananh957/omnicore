@@ -275,7 +275,8 @@ try {
         name: p.productName || '',
         categoryId: p.categoryId,
         category: p.categoryName || '',
-        dimensions: p.attributesText || 'N/A',
+        dimensions: p.dimensions || 'N/A',
+        attributesText: p.attributesText || '',
         weight: p.weightKg ? p.weightKg + ' kg' : 'N/A',
                 qtyOnHand: Number(p.qtyOnHand || 0),
                 macPrice: Number(p.macPrice || 0),
@@ -397,7 +398,7 @@ function padZero(n) { return n < 10 ? '0' + n : n; }
 var search = '';
 var selectedCategory = 'Tất cả';
 var currentPage = 1;
-var pageSize = 20;
+var pageSize = 10;
 
 /* ─── Init: set warehouse label ─ */
 (function initMyWarehouse() {
@@ -731,7 +732,8 @@ function renderAll() {
             '</td>' +
             '<td><div style="font-size: 13px; color: var(--navy);">' + escapeHtml(item.category || '—') + '</div></td>' +
             '<td>' +
-                '<div style="font-size: 13px; color: var(--navy); font-weight: 500;">' + escapeHtml(item.dimensions || '—') + '</div>' +
+                '<div style="font-size: 13px; color: var(--navy); font-weight: 600;">' + escapeHtml(item.dimensions !== 'N/A' ? item.dimensions : (item.attributesText || '—')) + '</div>' +
+                (item.attributesText && item.attributesText !== item.dimensions ? '<div style="font-size: 11px; color: rgba(16,55,92,0.6); margin-top: 1px;">' + escapeHtml(item.attributesText) + '</div>' : '') +
                 '<div style="font-size: 11px; color: rgba(16,55,92,0.5); margin-top: 2px;">' + escapeHtml(item.weight || '—') + '</div>' +
             '</td>' +
             '<td>' + locHtml + '</td>' +

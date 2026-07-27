@@ -8,6 +8,7 @@
     <title>${pageTitle != null ? pageTitle : 'Warehouse'} — OmniCore</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/dashboard.css"/>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/notification.css"/>
+    <script src="${pageContext.request.contextPath}/assets/js/pagination-util.js"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -524,6 +525,41 @@
     .then(function(r) { return r.json(); })
     .then(function(data) { updateBadge(data.unreadCount || 0); })
     .catch(function() {});
+
+    // Auto-hide notification bell whenever any modal/overlay/sidebar panel is active on screen
+    var _isNotifCheckBusy = false;
+    var _notifAutoObserver = new MutationObserver(function() {
+        if (_isNotifCheckBusy || !notifBtn) return;
+        _isNotifCheckBusy = true;
+
+        var modalOpen = document.body.classList.contains('modal-open') ||
+            !!document.querySelector('.staff-overlay:not(.hidden-panel)') ||
+            !!document.querySelector('.supplier-overlay:not(.hidden-panel)') ||
+            !!document.querySelector('.warehouse-overlay:not(.hidden-panel)') ||
+            !!document.querySelector('.category-overlay:not(.hidden-panel)') ||
+            !!document.querySelector('.ic-modal-overlay.open, .ic-modal-overlay[style*="display: flex"], .ic-modal-overlay[style*="display: block"]') ||
+            !!document.querySelector('.op-modal-overlay.open, .op-modal-overlay[style*="display: flex"], .op-modal-overlay[style*="display: block"]') ||
+            !!document.querySelector('.zm-overlay.open, .zm-overlay[style*="display: flex"], .zm-overlay[style*="display: block"]') ||
+            !!document.querySelector('.modal-overlay.open, .modal-overlay.active, .modal-overlay[style*="display: flex"], .modal-overlay[style*="display: block"]') ||
+            !!document.querySelector('.modal.show, .modal[style*="display: flex"], .modal[style*="display: block"]') ||
+            !!document.querySelector('[id*="Modal"]:not([style*="display: none"])') ||
+            !!document.querySelector('[id*="Overlay"]:not([style*="display: none"]):not(.hidden-panel)');
+
+        var isHidden = notifBtn.classList.contains('notif-hidden-by-modal');
+        if (modalOpen && !isHidden) {
+            notifBtn.classList.add('notif-hidden-by-modal');
+            if (notifPanel) notifPanel.classList.remove('open');
+            if (notifBackdrop) notifBackdrop.style.display = 'none';
+        } else if (!modalOpen && isHidden) {
+            notifBtn.classList.remove('notif-hidden-by-modal');
+        }
+
+        _isNotifCheckBusy = false;
+    });
+
+    if (document.body) {
+        _notifAutoObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
 })();
 </script>
 </body>

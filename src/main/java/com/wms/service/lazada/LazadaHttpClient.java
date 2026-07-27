@@ -182,17 +182,19 @@ public class LazadaHttpClient {
 
             try (BufferedReader br = new BufferedReader(new InputStreamReader(
                     code >= 200 && code < 300
-                            ? conn.getInputStream()
-                            : conn.getErrorStream(),
+                            ? conn.getInputStream() // lấy luồng dữ liệu khi thành công
+                            : conn.getErrorStream(), // lấy luồng thông báo lỗi khi thất bại
                     StandardCharsets.UTF_8))) {
                 StringBuilder sb = new StringBuilder();
                 String line;
+                // đọc dữ liệu trả về từ API và ghép lại
                 while ((line = br.readLine()) != null) sb.append(line.trim());
-                String resp = sb.toString();
+                String resp = sb.toString(); // chuỗi raw json
                 String preview = resp.length() > 500 ? resp.substring(0, 500) + "..." : resp;
                 LOGGER.info("LazadaHttpClient uploadImageMultipart => HTTP " + code
                         + " bodyPreview=" + preview);
                 return resp;
+                // trả về cho các service bóc tách
             }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "LazadaHttpClient: uploadImageMultipart failed", e);

@@ -88,18 +88,17 @@ public class ProductPerformanceDAO {
 
         // WHERE clause
         List<String> whereClauses = new ArrayList<>();
-        List<Object> params = new ArrayList<>();
+
+        if (channelId != null && channelId > 0) {
+            whereClauses.add("EXISTS (SELECT 1 FROM channel_products cp WHERE cp.product_id = p.product_id AND cp.channel_id = ?)");
+        }
 
         if (categoryId != null && categoryId > 0) {
             whereClauses.add("p.category_id = ?");
-            params.add(categoryId);
         }
 
         if (searchQuery != null && !searchQuery.trim().isEmpty()) {
             whereClauses.add("(p.sku_code LIKE ? OR p.product_name LIKE ?)");
-            String searchPattern = "%" + searchQuery.trim() + "%";
-            params.add(searchPattern);
-            params.add(searchPattern);
         }
 
         if (!whereClauses.isEmpty()) {
@@ -120,7 +119,12 @@ public class ProductPerformanceDAO {
                 ps.setDate(paramIndex++, endDate);
             }
 
-            // Set channel param
+            // Set channel param in sales subquery
+            if (channelId != null && channelId > 0) {
+                ps.setInt(paramIndex++, channelId);
+            }
+
+            // Set channel param in WHERE clause
             if (channelId != null && channelId > 0) {
                 ps.setInt(paramIndex++, channelId);
             }
@@ -217,6 +221,10 @@ public class ProductPerformanceDAO {
         // WHERE clause
         List<String> whereClauses = new ArrayList<>();
 
+        if (channelId != null && channelId > 0) {
+            whereClauses.add("EXISTS (SELECT 1 FROM channel_products cp WHERE cp.product_id = p.product_id AND cp.channel_id = ?)");
+        }
+
         if (categoryId != null && categoryId > 0) {
             whereClauses.add("p.category_id = ?");
         }
@@ -237,7 +245,12 @@ public class ProductPerformanceDAO {
 
             int paramIndex = 1;
 
-            // Set channel param
+            // Set channel param in sales subquery
+            if (channelId != null && channelId > 0) {
+                ps.setInt(paramIndex++, channelId);
+            }
+
+            // Set channel param in WHERE clause
             if (channelId != null && channelId > 0) {
                 ps.setInt(paramIndex++, channelId);
             }

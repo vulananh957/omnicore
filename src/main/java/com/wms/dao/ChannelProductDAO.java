@@ -245,6 +245,28 @@ public class ChannelProductDAO {
     }
 
     /**
+     * Updates last push quantity and timestamp for a channel product.
+     */
+    public boolean updateLastPush(int channelId, int productId, int qty) {
+        String sql = "UPDATE channel_products SET "
+                   + "channel_stock = ?, last_push_qty = ?, last_push_at = CURRENT_TIMESTAMP, "
+                   + "last_error_code = NULL, last_error_message = NULL, updated_at = CURRENT_TIMESTAMP "
+                   + "WHERE channel_id = ? AND product_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, qty);
+            ps.setInt(2, qty);
+            ps.setInt(3, channelId);
+            ps.setInt(4, productId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelProductDAO: Failed to update last push for channel=" + channelId + " product=" + productId, e);
+            return false;
+        }
+    }
+
+    /**
      * Updates the last_synced timestamp for a channel product.
      */
     public boolean updateLastSynced(int channelProductId) {
@@ -490,5 +512,26 @@ public class ChannelProductDAO {
             LOGGER.log(Level.WARNING, "ChannelProductDAO: Failed to delete channel product by ID " + id, e);
             return false;
         }
+    }
+
+    /**
+     * Find all channel IDs where this product is listed (status != INACTIVE).
+     * Used for product change notifications.
+     */
+    public java.util.List<Integer> findListedChannelIds(int productId) {
+        java.util.List<Integer> channelIds = new ArrayList<>();
+        String sql = "SELECT DISTINCT channel_id FROM channel_products WHERE product_id = ? AND status != 'INACTIVE'";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    channelIds.add(rs.getInt("channel_id"));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "ChannelProductDAO: Failed to find listed channels for product " + productId, e);
+        }
+        return channelIds;
     }
 }

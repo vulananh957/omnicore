@@ -3,66 +3,7 @@
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/transfer--warehouse-transfer.css?v=2"/>
 
-<!-- ═══ PAGE HEADER ═══ -->
-<div class="wt-page-header">
-    <div>
-        <div class="wt-page-title">Điều Chuyển Kho</div>
-        <div class="wt-page-sub">Quản lý lệnh điều chuyển hàng hóa giữa các kho và khu vực</div>
-    </div>
-</div>
 
-<!-- ═══ STATS ═══ -->
-<div class="wt-stats">
-    <div class="wt-stat">
-        <div class="wt-stat-icon" style="background:rgba(16,55,92,.08);">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                 stroke="rgba(16,55,92,1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-            </svg>
-        </div>
-        <div>
-            <div class="wt-stat-val" id="wtStatTotal">0</div>
-            <div class="wt-stat-lbl">Tổng phiếu</div>
-        </div>
-    </div>
-    <div class="wt-stat">
-        <div class="wt-stat-icon" style="background:rgba(245,158,11,.15);">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                 stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-            </svg>
-        </div>
-        <div>
-            <div class="wt-stat-val" id="wtStatTransit" style="color:#b45309;">0</div>
-            <div class="wt-stat-lbl">Đang chuyển</div>
-        </div>
-    </div>
-    <div class="wt-stat">
-        <div class="wt-stat-icon" style="background:#ecfdf5;">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                 stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
-        </div>
-        <div>
-            <div class="wt-stat-val" id="wtStatReceived" style="color:#059669;">0</div>
-            <div class="wt-stat-lbl">Đã nhận</div>
-        </div>
-    </div>
-    <div class="wt-stat">
-        <div class="wt-stat-icon" style="background:rgba(16,55,92,.05);">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                 stroke="rgba(16,55,92,.50)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
-            </svg>
-        </div>
-        <div>
-            <div class="wt-stat-val" id="wtStatCancelled" style="color:rgba(16,55,92,.60);">0</div>
-            <div class="wt-stat-lbl">Đã hủy</div>
-        </div>
-    </div>
-</div>
 
 <!-- ═══ TOOLBAR ═══ -->
 <div class="wt-toolbar">
@@ -118,6 +59,7 @@
             </tbody>
         </table>
     </div>
+    <div id="wtPagination"></div>
 </div>
 
 <!-- ═══ MODAL: TẠO PHIẾU ═══ -->
@@ -227,6 +169,21 @@
         <div class="wt-modal-ft" id="wtDetailFooter">
             <button class="wt-btn navy"
                     onclick="document.getElementById('wtDetailOverlay').style.display='none'">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ CUSTOM CONFIRM MODAL ═══ -->
+<div class="ic-modal-overlay" id="appConfirmModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:999999; align-items:center; justify-content:center;">
+    <div class="ic-modal" style="max-width:420px; width:90%; padding:28px; text-align:center; border-radius:20px; background:#ffffff; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);">
+        <div style="width:56px; height:56px; border-radius:50%; background:rgba(59,130,246,0.12); color:#2563eb; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+            <svg xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <h3 id="appConfirmTitle" style="font-size:18px; font-weight:700; color:#1e293b; margin:0 0 8px 0;">Xác nhận hành động</h3>
+        <p id="appConfirmMessage" style="font-size:14px; color:#64748b; margin:0 0 24px 0; line-height:1.5;"></p>
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button type="button" id="appConfirmBtnCancel" class="wt-btn cancel" style="flex:1; padding:10px 16px; border-radius:10px; font-weight:600;">Hủy</button>
+            <button type="button" id="appConfirmBtnOk" class="wt-btn orange" style="flex:1; padding:10px 16px; border-radius:10px; font-weight:600;">Xác nhận</button>
         </div>
     </div>
 </div>
@@ -369,15 +326,20 @@
 
     /* ─── Render ─── */
     function render() {
+        OmniPagination.reset('warehouseTransfers');
+        renderPage();
+    }
+
+    function renderPage() {
         // Counts
         function cnt(key) {
             if (key === 'all') return DB_TRANSFERS.length;
             return DB_TRANSFERS.filter(function (t) { return t.status === key; }).length;
         }
-        document.getElementById('wtStatTotal').textContent    = DB_TRANSFERS.length;
-        document.getElementById('wtStatTransit').textContent  = cnt('IN_TRANSIT');
-        document.getElementById('wtStatReceived').textContent = cnt('RECEIVED');
-        document.getElementById('wtStatCancelled').textContent = cnt('CANCELLED');
+        var elTotal = document.getElementById('wtStatTotal'); if (elTotal) elTotal.textContent = DB_TRANSFERS.length;
+        var elTransit = document.getElementById('wtStatTransit'); if (elTransit) elTransit.textContent = cnt('IN_TRANSIT');
+        var elReceived = document.getElementById('wtStatReceived'); if (elReceived) elReceived.textContent = cnt('RECEIVED');
+        var elCancelled = document.getElementById('wtStatCancelled'); if (elCancelled) elCancelled.textContent = cnt('CANCELLED');
 
         ['all','IN_TRANSIT','RECEIVED','CANCELLED'].forEach(function (k) {
             var el = document.getElementById('wtBadge-' + k);
@@ -397,10 +359,13 @@
 
         if (filtered.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="wt-empty">Không có phiếu chuyển kho nào phù hợp.</td></tr>';
+            document.getElementById('wtPagination').innerHTML = '';
             return;
         }
 
-        tbody.innerHTML = filtered.map(function (t) {
+        var paginationResult = OmniPagination.paginate('warehouseTransfers', filtered);
+
+        tbody.innerHTML = paginationResult.items.map(function (t) {
             var acts = '<button class="wt-btn-icon" data-action="view" data-id="' + esc(t.code) + '" title="Xem chi tiết">' + eyeSVG() + '</button>';
             return '<tr>' +
                 '<td><span class="wt-code">' + esc(t.code) + '</span></td>' +
@@ -411,6 +376,11 @@
                 '<td class="ta-r"><div class="wt-row-actions">' + acts + '</div></td>' +
                 '</tr>';
         }).join('');
+
+        OmniPagination.renderControls('wtPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('warehouseTransfers', newPage);
+            renderPage();
+        });
     }
 
     /* ─── Table events ─── */
@@ -607,43 +577,99 @@
         var footerEl = document.getElementById('wtDetailFooter');
         if (t.status === 'IN_TRANSIT' && parseInt(myWarehouseId, 10) === t.toWarehouseId) {
             footerEl.innerHTML = 
-                '<button class="wt-btn green" onclick="confirmReceive(' + t.id + ', this)">Xác nhận nhận hàng</button>' +
-                '<button class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
+                '<button type="button" class="wt-btn green" onclick="confirmReceive(event, ' + t.id + ', this)">Xác nhận nhận hàng</button>' +
+                '<button type="button" class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
         } else {
             footerEl.innerHTML = 
-                '<button class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
+                '<button type="button" class="wt-btn navy" onclick="document.getElementById(\'wtDetailOverlay\').style.display=\'none\'">Đóng</button>';
         }
 
         detailOvl.style.display = 'flex';
     }
 
-    window.confirmReceive = function(transferId, btn) {
-        if (!confirm('Bạn có chắc chắn xác nhận đã nhận đủ hàng cho phiếu điều chuyển này?')) return;
-        btn.disabled = true;
-        var originalText = btn.textContent;
-        btn.textContent = 'Đang xử lý...';
+    function showToast(message, isSuccess) {
+        var toast = document.getElementById('wtToast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'wtToast';
+            toast.style.cssText = 'position:fixed;top:24px;right:24px;z-index:99999;padding:12px 20px;border-radius:8px;color:#fff;font-weight:700;font-size:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.35);display:none;align-items:center;gap:10px;font-family:sans-serif;pointer-events:none;transition:all 0.3s ease;';
+            document.body.appendChild(toast);
+        }
+        toast.style.background = isSuccess ? '#059669' : '#dc2626';
+        toast.innerHTML = (isSuccess ? '✓ ' : '✕ ') + message;
+        toast.style.display = 'flex';
+        setTimeout(function() { toast.style.display = 'none'; }, 3500);
+    }
 
-        fetch('${pageContext.request.contextPath}/warehouse/transfer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'receive', transferId: transferId })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-            if (res.success) {
-                alert('Xác nhận nhận hàng điều chuyển thành công!');
-                window.location.reload();
-            } else {
-                alert(res.message || 'Xác nhận thất bại.');
-                btn.disabled = false;
-                btn.textContent = originalText;
+    function customConfirm(title, message, onConfirm) {
+        var overlay = document.getElementById('appConfirmModalOverlay');
+        var titleEl = document.getElementById('appConfirmTitle');
+        var msgEl = document.getElementById('appConfirmMessage');
+        var btnOk = document.getElementById('appConfirmBtnOk');
+        var btnCancel = document.getElementById('appConfirmBtnCancel');
+
+        if (!overlay) {
+            onConfirm();
+            return;
+        }
+
+        titleEl.textContent = title || 'Xác nhận hành động';
+        msgEl.textContent = message;
+
+        function cleanup() {
+            overlay.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+        }
+
+        btnOk.onclick = function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            cleanup();
+            onConfirm();
+        };
+        btnCancel.onclick = function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            cleanup();
+        };
+
+        overlay.style.display = 'flex';
+    }
+
+    window.confirmReceive = function(evt, transferId, btn) {
+        if (evt && evt.preventDefault) evt.preventDefault();
+
+        customConfirm(
+            'Xác nhận nhận hàng',
+            'Bạn có chắc chắn xác nhận đã nhận đủ hàng cho phiếu điều chuyển này?',
+            function() {
+                btn.disabled = true;
+                var originalText = btn.textContent;
+                btn.textContent = 'Đang xử lý...';
+
+                fetch('${pageContext.request.contextPath}/warehouse/transfer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'receive', transferId: transferId })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (res.success) {
+                        showToast('Xác nhận nhận hàng điều chuyển thành công!', true);
+                        setTimeout(function() { window.location.reload(); }, 1200);
+                    } else {
+                        showToast(res.message || 'Xác nhận thất bại.', false);
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                    }
+                })
+                .catch(function (err) {
+                    showToast('Có lỗi mạng xảy ra khi xác nhận nhận hàng.', false);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                });
             }
-        })
-        .catch(function (err) {
-            alert('Có lỗi mạng xảy ra khi xác nhận nhận hàng.');
-            btn.disabled = false;
-            btn.textContent = originalText;
-        });
+        );
+        return false;
     };
 
     window.wtCloseDetail = function (e) {

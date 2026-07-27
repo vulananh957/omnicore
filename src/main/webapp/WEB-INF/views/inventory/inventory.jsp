@@ -72,6 +72,7 @@
     <div class="table-footer">
         <span id="showingCountEl">Hiển thị 0 / 0 dòng tồn kho</span>
     </div>
+    <div id="inventoryPagination"></div>
 </div>
 
 <!-- ═══ ATP Chip Styles ═══ -->
@@ -150,6 +151,11 @@
     });
 
     function render() {
+        OmniPagination.reset('salesInventory');
+        renderPage();
+    }
+
+    function renderPage() {
         var filtered = inventoryList.filter(function(item) {
             var sku = item.skuCode || item.sku || '';
             var name = item.productName || item.name || '';
@@ -180,10 +186,13 @@
             td.textContent = 'Không tìm thấy dòng tồn kho nào phù hợp';
             tr.appendChild(td);
             tableBody.appendChild(tr);
+            document.getElementById('inventoryPagination').innerHTML = '';
             return;
         }
 
-        filtered.forEach(function(item) {
+        var paginationResult = OmniPagination.paginate('salesInventory', filtered);
+
+        paginationResult.items.forEach(function(item) {
             var tr = document.createElement('tr');
 
             // ── SKU ──
@@ -285,6 +294,11 @@
             tr.appendChild(td9);
 
             tableBody.appendChild(tr);
+        });
+
+        OmniPagination.renderControls('inventoryPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('salesInventory', newPage);
+            renderPage();
         });
     }
 

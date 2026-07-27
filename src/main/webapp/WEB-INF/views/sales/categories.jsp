@@ -29,10 +29,17 @@
                     Cơ cấu cây phân cấp danh mục sản phẩm
                 </h3>
             </div>
-            <button class="btn-primary-sm" id="btnRootCategoryTrigger">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Thêm danh mục
-            </button>
+            <div style="display:flex;gap:8px">
+                <button class="btn-primary-sm" id="btnResyncAllCategories" onclick="window.WMS_RESYNC_ALL_CATEGORIES(event)"
+                        title="Đẩy lại toàn bộ danh mục sang Website — dùng khi dữ liệu bên Website bị mất/lệch, vì đồng bộ tự động chỉ chạy khi có thay đổi mới">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    Đồng bộ lại toàn bộ danh mục sang Website
+                </button>
+                <button class="btn-primary-sm" id="btnRootCategoryTrigger">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Thêm danh mục
+                </button>
+            </div>
         </div>
         <div class="tree-container" id="treeContainer"></div>
         <div id="feedbackBannerWrap"></div>
@@ -712,6 +719,41 @@
         })
         .catch(function () {
             showToast('Da xay ra loi khi kich hoat lai danh muc!', 'error');
+        });
+    };
+
+    window.WMS_RESYNC_ALL_CATEGORIES = function (event) {
+        if (event) event.preventDefault();
+        if (!window.confirm('Day lai toan bo danh muc sang Website?\n\nDung khi du lieu ben Website bi mat/lech — dong bo tu dong chi chay khi co thay doi moi, khong tu phat lai du lieu cu.')) {
+            return;
+        }
+
+        var btn = document.getElementById('btnResyncAllCategories');
+        var originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = 'Dang dong bo...';
+
+        var params = new URLSearchParams();
+        params.append('action', 'resync_all');
+
+        fetch('${pageContext.request.contextPath}/sales/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString()
+        })
+        .then(function (resp) {
+            if (resp.redirected) {
+                window.location.href = resp.url;
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                showToast('Da xay ra loi khi dong bo danh muc!', 'error');
+            }
+        })
+        .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            showToast('Da xay ra loi khi dong bo danh muc!', 'error');
         });
     };
 

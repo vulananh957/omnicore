@@ -1,8 +1,10 @@
 package com.wms.controller.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.wms.dao.InventoryDAO;
 import com.wms.dao.OrderDAO;
 import com.wms.dao.RmaDAO;
+import com.wms.model.RmaRequest;
 import com.wms.util.JsonUtil;
 
 import jakarta.servlet.ServletException;
@@ -29,9 +31,20 @@ import java.util.logging.Logger;
  * POST /api/website/order-actions/{orderId}/return — customer requests a return within the
  *      7-day window (reason + base64 photo/video evidence) → creates a pending rma_requests
  *      row for Sales to review.
+ * POST /api/website/order-actions/{orderId}/cancel — customer cancels a still-PENDING order
+ *      (before Sales confirms it) → restores inventory deducted at checkout and records the
+ *      reason into orders.note so Sales sees why.
+ * GET  /api/website/order-actions/{orderId}/return-status — RMA status lookup for the
+ *      storefront (404 if no return request was ever submitted for the order).
  *
  * Both actions are gated to orders with web_order_ref IS NOT NULL — see OrderDAO's
  * *ByOrderId methods. Lazada/Shopee/TikTok orders are unaffected.
+ *
+ * Note: GET /return-status used to be its own servlet (WebsiteOrderReturnStatusServlet)
+ * mapped to this SAME url-pattern (/api/website/order-actions/*) — two servlets can't share
+ * one pattern, so Tomcat refused to start the whole webapp. Folded the logic in here since
+ * this servlet already owns the pattern; the old class file is kept (not deleted) but no
+ * longer registered in web.xml.
  */
 public class WebsiteOrderActionApiServlet extends BaseApiServlet {
 
@@ -45,6 +58,7 @@ public class WebsiteOrderActionApiServlet extends BaseApiServlet {
 
     private final OrderDAO orderDAO = new OrderDAO();
     private final RmaDAO rmaDAO = new RmaDAO();
+    private final InventoryDAO inventoryDAO = new InventoryDAO();
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
@@ -72,8 +86,91 @@ public class WebsiteOrderActionApiServlet extends BaseApiServlet {
         switch (subAction) {
             case "confirm-received" -> handleConfirmReceived(resp, orderId);
             case "return" -> handleReturn(resp, orderId, body);
+            case "cancel" -> handleCancel(resp, orderId, body);
             default -> sendError(resp, HttpServletResponse.SC_NOT_FOUND, "Unknown action: " + subAction);
         }
+    }
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+        if (authenticateAndReadBody(req, resp) == null) return;
+
+        String pathInfo = req.getPathInfo(); // e.g. /123/return-status
+        String[] parts = pathInfo == null ? null : pathInfo.replaceFirst("^/", "").split("/");
+        if (parts == null || parts.length != 2 || !"return-status".equals(parts[1])) {
+            sendError(resp, HttpServletResponse.SC_BAD_REQUEST, "Expected path /{orderId}/return-status");
+            return;
+        }
+
+        int orderId;
+        try {
+            orderId = Integer.parseInt(parts[0]);
+        } catch (NumberFormatException e) {
+            sendError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid order id");
+            return;
+        }
+
+        handleReturnStatus(resp, orderId);
+    }
+
+    private void handleReturnStatus(HttpServletResponse resp, int orderId) throws IOException {
+        try {
+            RmaRequest rma = rmaDAO.findByOrderId(orderId);
+            if (rma == null) {
+                sendError(resp, HttpServletResponse.SC_NOT_FOUND, "No return request found for this order");
+                return;
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("rma_code", rma.getRmaCode());
+            data.put("order_id", orderId);
+            data.put("status", rma.getStatus());
+            data.put("return_reason", rma.getReturnReason());
+            data.put("resolution_note", rma.getResolutionNote());
+            data.put("requested_at", rma.getRequestedAt() != null ? rma.getRequestedAt().toString() : null);
+            data.put("returned_at", rma.getReturnedAt() != null ? rma.getReturnedAt().toString() : null);
+
+            sendJson(resp, HttpServletResponse.SC_OK, data);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "WebsiteOrderActionApiServlet.handleReturnStatus failed for orderId=" + orderId, e);
+            sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Lỗi hệ thống");
+        }
+    }
+
+    private void handleCancel(HttpServletResponse resp, int orderId, String body) throws IOException {
+        Map<String, Object> info = orderDAO.findDeliveryInfoById(orderId);
+        if (info == null) {
+            sendError(resp, HttpServletResponse.SC_NOT_FOUND, "Order not found");
+            return;
+        }
+        if (!"PENDING".equals(info.get("status"))) {
+            sendError(resp, HttpServletResponse.SC_CONFLICT,
+                    "Chỉ hủy được đơn đang ở trạng thái Chờ xác nhận.");
+            return;
+        }
+
+        String reason = null;
+        try {
+            JsonNode node = JsonUtil.getMapper().readTree(body);
+            reason = node.path("reason").asText(null);
+        } catch (Exception e) {
+            // body rỗng/không hợp lệ — hủy vẫn tiếp tục, chỉ là không có lý do để ghi note
+        }
+
+        if (!inventoryDAO.restoreDeductedStock(orderId)) {
+            sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Không thể hoàn trả tồn kho");
+            return;
+        }
+        if (!orderDAO.markCancelledByOrderId(orderId, reason)) {
+            sendError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Không thể cập nhật trạng thái đơn hàng");
+            return;
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("order_id", orderId);
+        data.put("status", "CANCELLED");
+        sendJson(resp, HttpServletResponse.SC_OK, data);
     }
 
     private void handleConfirmReceived(HttpServletResponse resp, int orderId) throws IOException {

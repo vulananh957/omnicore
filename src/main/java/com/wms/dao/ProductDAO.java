@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,16 +33,20 @@ public class ProductDAO {
 
     private static final String SELECT_CORE =
         "SELECT p.product_id, p.sku_code, p.product_name, p.category_id, p.barcode, p.unit, "
-        + "p.min_stock, p.max_stock, p.attributes_text, p.weight_kg, p.base_price, p.mac_price, "
+        + "p.min_stock, p.max_stock, p.attributes_text, p.dimensions, p.weight_kg, p.base_price, p.mac_price, "
         + "p.d_avg, p.d_max, p.l_avg, p.l_max, p.safety_stock, p.rop_calculated, "
         + "p.created_by, p.created_at, p.updated_at, "
         + "p.short_description, "
         + "c.category_name, u.full_name AS creator_name, "
-        + "COALESCE(i.qty_on_hand, 0) AS qty_on_hand "
+        + "COALESCE(i.qty_on_hand, 0) AS qty_on_hand, "
+        + "COALESCE(i.qty_holding, 0) AS qty_holding, "
+        + "COALESCE(i.qty_available, 0) AS qty_available, "
+        + "COALESCE(pending.qty_pending, 0) AS qty_pending "
         + "FROM products p "
         + "LEFT JOIN categories c ON p.category_id = c.category_id "
         + "LEFT JOIN users u ON p.created_by = u.user_id "
-        + "LEFT JOIN (SELECT product_id, SUM(qty_on_hand) AS qty_on_hand FROM inventory GROUP BY product_id) i ON p.product_id = i.product_id";
+        + "LEFT JOIN (SELECT product_id, SUM(qty_on_hand) AS qty_on_hand, SUM(holding) AS qty_holding, SUM(qty_available) AS qty_available FROM inventory GROUP BY product_id) i ON p.product_id = i.product_id "
+        + "LEFT JOIN (SELECT oi.product_id, SUM(oi.qty) AS qty_pending FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE o.status = 'PENDING' AND (o.warehouse_id IS NULL OR o.warehouse_id = 0) GROUP BY oi.product_id) pending ON p.product_id = pending.product_id";
 
     public ProductDAO() {
     }
@@ -315,8 +320,8 @@ public class ProductDAO {
 
     public boolean insert(Product product) {
         String sql = "INSERT INTO products (sku_code, product_name, category_id, barcode, unit, "
-                + "min_stock, max_stock, attributes_text, weight_kg, base_price, created_by) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "min_stock, max_stock, attributes_text, dimensions, weight_kg, base_price, created_by) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, product.getSkuCode());
@@ -331,16 +336,17 @@ public class ProductDAO {
             ps.setDouble(6, product.getMinStock() != null ? product.getMinStock() : 0.0);
             ps.setDouble(7, product.getMaxStock() != null ? product.getMaxStock() : 0.0);
             ps.setString(8, product.getAttributesText());
+            ps.setString(9, product.getDimensions());
             if (product.getWeightKg() != null) {
-                ps.setDouble(9, product.getWeightKg());
+                ps.setDouble(10, product.getWeightKg());
             } else {
-                ps.setNull(9, java.sql.Types.DECIMAL);
+                ps.setNull(10, java.sql.Types.DECIMAL);
             }
-            ps.setDouble(10, product.getBasePrice() != null ? product.getBasePrice() : 0.0);
+            ps.setDouble(11, product.getBasePrice() != null ? product.getBasePrice() : 0.0);
             if (product.getCreatedBy() != null) {
-                ps.setInt(11, product.getCreatedBy());
+                ps.setInt(12, product.getCreatedBy());
             } else {
-                ps.setNull(11, java.sql.Types.INTEGER);
+                ps.setNull(12, java.sql.Types.INTEGER);
             }
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -352,7 +358,7 @@ public class ProductDAO {
     public boolean update(Product product) {
         String sql = "UPDATE products SET "
                 + "sku_code = ?, product_name = ?, category_id = ?, barcode = ?, unit = ?, "
-                + "min_stock = ?, max_stock = ?, attributes_text = ?, weight_kg = ?, base_price = ?, "
+                + "min_stock = ?, max_stock = ?, attributes_text = ?, dimensions = ?, weight_kg = ?, base_price = ?, "
                 + "updated_at = CURRENT_TIMESTAMP "
                 + "WHERE product_id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -369,13 +375,14 @@ public class ProductDAO {
             ps.setDouble(6, product.getMinStock() != null ? product.getMinStock() : 0.0);
             ps.setDouble(7, product.getMaxStock() != null ? product.getMaxStock() : 0.0);
             ps.setString(8, product.getAttributesText());
+            ps.setString(9, product.getDimensions());
             if (product.getWeightKg() != null) {
-                ps.setDouble(9, product.getWeightKg());
+                ps.setDouble(10, product.getWeightKg());
             } else {
-                ps.setNull(9, java.sql.Types.DECIMAL);
+                ps.setNull(10, java.sql.Types.DECIMAL);
             }
-            ps.setDouble(10, product.getBasePrice() != null ? product.getBasePrice() : 0.0);
-            ps.setInt(11, product.getProductId());
+            ps.setDouble(11, product.getBasePrice() != null ? product.getBasePrice() : 0.0);
+            ps.setInt(12, product.getProductId());
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "ProductDAO: Failed to update product " + product.getProductId(), e);
@@ -417,11 +424,12 @@ public class ProductDAO {
                 .add(acceptedQty.multiply(unitCost));
         BigDecimal newMac = totalValue.divide(totalOnHand, 4, RoundingMode.HALF_UP);
 
-        String sql = "UPDATE products SET mac_price = ? WHERE product_id = ?";
+        String sql = "UPDATE products SET mac_price = ?, base_price = CASE WHEN base_price = 0 OR base_price IS NULL THEN ? ELSE base_price END WHERE product_id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setBigDecimal(1, newMac);
-            ps.setInt(2, productId);
+            ps.setBigDecimal(2, newMac);
+            ps.setInt(3, productId);
             int rows = ps.executeUpdate();
             if (rows > 0) {
                 LOGGER.info("MAC updated: productId=" + productId + " newMAC=" + newMac
@@ -431,6 +439,73 @@ public class ProductDAO {
             return rows > 0;
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "ProductDAO.updateMacPrice failed productId=" + productId, e);
+            return false;
+        }
+    }
+
+    /**
+     * Đồng bộ tổng tồn khả dụng từ bảng inventory sang bảng channel_products.
+     */
+    public boolean syncStockTotals(int productId) {
+        String sqlChannel =
+            "UPDATE channel_products cp " +
+            "JOIN ( " +
+            "    SELECT i.product_id, SUM(i.qty_available) AS total_avail " +
+            "    FROM inventory i " +
+            "    JOIN warehouses w ON i.warehouse_id = w.warehouse_id " +
+            "    WHERE i.product_id = ? AND w.active = 1 " +
+            "    GROUP BY i.product_id " +
+            ") inv ON cp.product_id = inv.product_id " +
+            "LEFT JOIN ( " +
+            "    SELECT oi.product_id, SUM(oi.qty) AS pending_qty " +
+            "    FROM order_items oi " +
+            "    JOIN orders o ON oi.order_id = o.order_id " +
+            "    WHERE oi.product_id = ? AND o.status = 'PENDING' AND (o.warehouse_id IS NULL OR o.warehouse_id = 0) " +
+            "    GROUP BY oi.product_id " +
+            ") pending ON cp.product_id = pending.product_id " +
+            "LEFT JOIN channels c ON cp.channel_id = c.channel_id " +
+            "SET cp.channel_stock = GREATEST(inv.total_avail - COALESCE(pending.pending_qty, 0) - COALESCE(c.buffer_stock, 0), 0) " +
+            "WHERE cp.product_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sqlChannel)) {
+            ps.setInt(1, productId);
+            ps.setInt(2, productId);
+            ps.setInt(3, productId);
+            ps.executeUpdate();
+            LOGGER.info("Synced stock totals to channel_products for productId=" + productId);
+            return true;
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "ProductDAO.syncStockTotals failed for productId=" + productId, e);
+            return false;
+        }
+    }
+
+    public boolean syncAllStockTotals() {
+        String sqlChannel =
+            "UPDATE channel_products cp " +
+            "JOIN ( " +
+            "    SELECT i.product_id, SUM(i.qty_available) AS total_avail " +
+            "    FROM inventory i " +
+            "    JOIN warehouses w ON i.warehouse_id = w.warehouse_id " +
+            "    WHERE w.active = 1 " +
+            "    GROUP BY i.product_id " +
+            ") inv ON cp.product_id = inv.product_id " +
+            "LEFT JOIN ( " +
+            "    SELECT oi.product_id, SUM(oi.qty) AS pending_qty " +
+            "    FROM order_items oi " +
+            "    JOIN orders o ON oi.order_id = o.order_id " +
+            "    WHERE o.status = 'PENDING' AND (o.warehouse_id IS NULL OR o.warehouse_id = 0) " +
+            "    GROUP BY oi.product_id " +
+            ") pending ON cp.product_id = pending.product_id " +
+            "LEFT JOIN channels c ON cp.channel_id = c.channel_id " +
+            "SET cp.channel_stock = GREATEST(inv.total_avail - COALESCE(pending.pending_qty, 0) - COALESCE(c.buffer_stock, 0), 0)";
+        try (Connection conn = DBConnection.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate(sqlChannel);
+            LOGGER.info("Synced all channel_product stock totals from inventory.");
+            return true;
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "ProductDAO.syncAllStockTotals failed", e);
             return false;
         }
     }
@@ -635,11 +710,37 @@ public class ProductDAO {
     }
 
     public boolean delete(int productId) {
-        String sql = "DELETE FROM products WHERE product_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, productId);
-            return ps.executeUpdate() > 0;
+        String[] cascadeSqls = new String[] {
+            "DELETE FROM inventory_deduction_log WHERE product_id = ?",
+            "DELETE FROM inventory WHERE product_id = ?",
+            "DELETE FROM mapping_exceptions WHERE product_id = ?",
+            "DELETE FROM sku_mappings WHERE sku_id = ?",
+            "DELETE FROM channel_products WHERE product_id = ?",
+            "DELETE FROM product_images WHERE product_id = ?",
+            "DELETE FROM product_default_zones WHERE product_id = ?",
+            "DELETE FROM products WHERE product_id = ?"
+        };
+        try (Connection conn = DBConnection.getConnection()) {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                for (String sql : cascadeSqls) {
+                    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                        ps.setInt(1, productId);
+                        ps.executeUpdate();
+                    } catch (SQLException ex) {
+                        LOGGER.fine("Cascade delete optional failure for product " + productId + ": " + ex.getMessage());
+                    }
+                }
+                conn.commit();
+                return true;
+            } catch (Exception e) {
+                conn.rollback();
+                LOGGER.log(Level.WARNING, "ProductDAO: Failed to delete product " + productId, e);
+                return false;
+            } finally {
+                conn.setAutoCommit(originalAutoCommit);
+            }
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "ProductDAO: Failed to delete product " + productId, e);
             return false;
@@ -715,6 +816,7 @@ public class ProductDAO {
         product.setCategoryName(getString(rs, "category_name"));
         product.setCreatorName(getString(rs, "creator_name"));
         product.setAttributesText(getString(rs, "attributes_text"));
+        product.setDimensions(getString(rs, "dimensions"));
         product.setShortDescription(getString(rs, "short_description"));
 
         double w = rs.getDouble("weight_kg");
@@ -722,6 +824,27 @@ public class ProductDAO {
 
         double qoh = rs.getDouble("qty_on_hand");
         product.setQtyOnHand(qoh);
+        
+        try {
+            double qh = rs.getDouble("qty_holding");
+            product.setQtyHolding(rs.wasNull() ? 0.0 : qh);
+        } catch (SQLException ignored) {
+            product.setQtyHolding(0.0);
+        }
+
+        try {
+            double qa = rs.getDouble("qty_available");
+            product.setQtyAvailable(rs.wasNull() ? qoh : qa);
+        } catch (SQLException ignored) {
+            product.setQtyAvailable(qoh);
+        }
+
+        try {
+            double qp = rs.getDouble("qty_pending");
+            product.setQtyPending(rs.wasNull() ? 0.0 : qp);
+        } catch (SQLException ignored) {
+            product.setQtyPending(0.0);
+        }
 
         double bp = rs.getDouble("base_price");
         product.setBasePrice(rs.wasNull() ? 0.0 : bp);

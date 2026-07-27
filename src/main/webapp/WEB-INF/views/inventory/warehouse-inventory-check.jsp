@@ -55,7 +55,7 @@
             <div class="ic-stat-label">Chờ phê duyệt</div>
         </div>
     </div>
-    <!-- Đã duyệt & Cân bằng -->
+    <!-- Đã xong & Cân bằng -->
     <div class="ic-stat-card">
         <div class="ic-stat-icon" style="background: #ecfdf5;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -65,7 +65,7 @@
         </div>
         <div>
             <div class="ic-stat-value" id="statApproved" style="color: #059669;">0</div>
-            <div class="ic-stat-label">Đã duyệt & Cân bằng</div>
+            <div class="ic-stat-label">Đã xong & Cân bằng</div>
         </div>
     </div>
 </div>
@@ -105,7 +105,7 @@
         Đang kiểm đếm <span class="ic-tab-badge" id="badge-progress">0</span>
     </button>
     <button class="ic-tab" data-tab="approved">
-        Đã duyệt & Cân bằng <span class="ic-tab-badge" id="badge-approved">0</span>
+        Đã xong & Cân bằng <span class="ic-tab-badge" id="badge-approved">0</span>
     </button>
 </div>
 
@@ -113,6 +113,7 @@
 <div class="ic-list-container" id="sheetsContainer">
     <div class="ic-empty">Đang tải danh sách phiếu kiểm kê...</div>
 </div>
+<div id="sheetsPagination"></div>
 
 <!-- ═══ MODAL: TẠO PHIẾU KIỂM KÊ ═══ -->
 <div class="ic-overlay" id="createOverlay" style="display:none;">
@@ -204,6 +205,21 @@
                 <button type="submit" class="ic-btn ic-btn--submit">TẠO PHIẾU</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- ═══ CUSTOM CONFIRM MODAL ═══ -->
+<div class="ic-modal-overlay" id="appConfirmModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:999999; align-items:center; justify-content:center;">
+    <div class="ic-modal" style="max-width:420px; width:90%; padding:28px; text-align:center; border-radius:20px; background:#ffffff; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);">
+        <div style="width:56px; height:56px; border-radius:50%; background:rgba(59,130,246,0.12); color:#2563eb; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+            <svg xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <h3 id="appConfirmTitle" style="font-size:18px; font-weight:700; color:#1e293b; margin:0 0 8px 0;">Xác nhận hành động</h3>
+        <p id="appConfirmMessage" style="font-size:14px; color:#64748b; margin:0 0 24px 0; line-height:1.5;"></p>
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button type="button" id="appConfirmBtnCancel" class="ic-btn ic-btn--cancel" style="flex:1; padding:10px 16px; border-radius:10px; font-weight:600;">Hủy</button>
+            <button type="button" id="appConfirmBtnOk" class="ic-btn ic-btn--submit" style="flex:1; padding:10px 16px; border-radius:10px; font-weight:600; background:#ea580c; color:#fff; border:none;">Xác nhận</button>
+        </div>
     </div>
 </div>
 
@@ -452,7 +468,7 @@
         var cfg = {
             DRAFT:        { label: "Nháp",            cls: "ic-badge--draft",     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' },
             IN_PROGRESS:  { label: "Đang kiểm đếm",  cls: "ic-badge--progress",  icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
-            APPROVED:     { label: "Đã duyệt",        cls: "ic-badge--approved",  icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' }
+            APPROVED:     { label: "Đã xong",         cls: "ic-badge--approved",  icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' }
         };
         return cfg[status] || cfg.IN_PROGRESS;
     }
@@ -462,54 +478,136 @@
         var ck = Number(id);
         if (expandedSheetId === ck) {
             expandedSheetId = null;
-            render();
+            renderPage();
         } else {
             expandedSheetId = ck;
-            render();
+            renderPage();
             if (!itemsBySheetId[ck]) loadDetails(ck);
         }
     };
 
+    function showToast(message, isSuccess) {
+        var toast = document.getElementById('icToast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'icToast';
+            toast.style.cssText = 'position:fixed;top:24px;right:24px;z-index:99999;padding:12px 20px;border-radius:8px;color:#fff;font-weight:700;font-size:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.35);display:none;align-items:center;gap:10px;font-family:sans-serif;pointer-events:none;transition:all 0.3s ease;';
+            document.body.appendChild(toast);
+        }
+        toast.style.background = isSuccess ? '#059669' : '#dc2626';
+        toast.innerHTML = (isSuccess ? '✓ ' : '✕ ') + message;
+        toast.style.display = 'flex';
+        setTimeout(function() { toast.style.display = 'none'; }, 3500);
+    }
+
+    function customConfirm(title, message, onConfirm) {
+        var overlay = document.getElementById('appConfirmModalOverlay');
+        var titleEl = document.getElementById('appConfirmTitle');
+        var msgEl = document.getElementById('appConfirmMessage');
+        var btnOk = document.getElementById('appConfirmBtnOk');
+        var btnCancel = document.getElementById('appConfirmBtnCancel');
+
+        if (!overlay) {
+            onConfirm();
+            return;
+        }
+
+        titleEl.textContent = title || 'Xác nhận hành động';
+        msgEl.textContent = message;
+
+        function cleanup() {
+            overlay.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+        }
+
+        btnOk.onclick = function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            cleanup();
+            onConfirm();
+        };
+        btnCancel.onclick = function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            cleanup();
+        };
+
+        overlay.style.display = 'flex';
+    }
+
     window.triggerComplete = function (e, id) {
-        e.stopPropagation();
+        if (e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (e.preventDefault) e.preventDefault();
+        }
         var ck = Number(id);
-        if (!confirm('Xác nhận hoàn tất kiểm đếm và trình duyệt phiếu này?')) return;
-        var details = itemsBySheetId[ck] || [];
-        var results = details.map(function (d) {
-            return { checkDetailId: d.checkDetailId, actualQty: d.actualQty != null ? Number(d.actualQty) : 0 };
-        });
-        fetch(window.location.pathname, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'submit', checkId: ck, resultsJson: JSON.stringify(results) })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (data && data.success) loadChecks();
-            else alert('Lỗi: ' + (data && data.message ? data.message : 'Không rõ'));
-        });
+        
+        customConfirm(
+            'Xác nhận hoàn tất kiểm kê',
+            'Bạn có chắc chắn muốn hoàn tất kiểm đếm và chốt phiếu kiểm kê này?',
+            function() {
+                var details = itemsBySheetId[ck] || [];
+                var results = details.map(function (d) {
+                    return { checkDetailId: d.checkDetailId, actualQty: d.actualQty != null ? Number(d.actualQty) : 0 };
+                });
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'submit', checkId: ck, resultsJson: JSON.stringify(results) })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && data.success) {
+                        showToast('Hoàn tất phiếu kiểm kê thành công!', true);
+                        loadChecks();
+                    } else {
+                        showToast('Lỗi: ' + (data && data.message ? data.message : 'Không rõ'), false);
+                    }
+                })
+                .catch(function (err) {
+                    showToast('Có lỗi mạng xảy ra khi hoàn tất kiểm kê.', false);
+                });
+            }
+        );
+        return false;
     };
 
     window.triggerAdjust = function (e, id) {
-        e.stopPropagation();
+        if (e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (e.preventDefault) e.preventDefault();
+        }
         var ck = Number(id);
-        if (!confirm('Xác nhận điều chỉnh tồn kho theo kết quả kiểm kê này?')) return;
-        var details = itemsBySheetId[ck] || [];
-        var adjustments = details
-            .filter(function (d) { return d.deltaQty != null && Number(d.deltaQty) !== 0; })
-            .map(function (d) {
-                return { checkDetailId: d.checkDetailId, deltaQty: Number(d.deltaQty) };
-            });
-        fetch(window.location.pathname, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'adjust', checkId: ck, adjustmentsJson: JSON.stringify(adjustments) })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (data && data.success) loadChecks();
-            else alert('Lỗi: ' + (data && data.message ? data.message : 'Không rõ'));
-        });
+
+        customConfirm(
+            'Xác nhận điều chỉnh tồn kho',
+            'Xác nhận điều chỉnh tồn kho theo kết quả kiểm kê này?',
+            function() {
+                var details = itemsBySheetId[ck] || [];
+                var adjustments = details
+                    .filter(function (d) { return d.deltaQty != null && Number(d.deltaQty) !== 0; })
+                    .map(function (d) {
+                        return { checkDetailId: d.checkDetailId, deltaQty: Number(d.deltaQty) };
+                    });
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'adjust', checkId: ck, adjustmentsJson: JSON.stringify(adjustments) })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && data.success) {
+                        showToast('Điều chỉnh tồn kho thành công!', true);
+                        loadChecks();
+                    } else {
+                        showToast('Lỗi: ' + (data && data.message ? data.message : 'Không rõ'), false);
+                    }
+                })
+                .catch(function (err) {
+                    showToast('Có lỗi mạng xảy ra khi điều chỉnh tồn kho.', false);
+                });
+            }
+        );
+        return false;
     };
 
     // Inline edit quantity: persist the single row update immediately
@@ -530,7 +628,7 @@
                 resultsJson: JSON.stringify([{ checkDetailId: d.checkDetailId, actualQty: d.actualQty != null ? d.actualQty : 0 }])
             })
         });
-        render();
+        renderPage();
     };
 
     // ─── Data loaders ───
@@ -603,13 +701,18 @@
                 } else {
                     itemsBySheetId[checkId] = [];
                 }
-                render();
+                renderPage();
             })
             .catch(function (err) { console.error('loadDetails failed:', err); });
     }
 
     // ─── Render ───
     function render() {
+        OmniPagination.reset('stocktakeSheets');
+        renderPage();
+    }
+
+    function renderPage() {
         // Stats
         var counts = {
             all:        sheets.length,
@@ -650,10 +753,13 @@
 
         if (filtered.length === 0) {
             sheetsContainer.innerHTML = '<div class="ic-empty">Không tìm thấy phiếu kiểm kê nào phù hợp.</div>';
+            document.getElementById('sheetsPagination').innerHTML = '';
             return;
         }
 
-        sheetsContainer.innerHTML = filtered.map(function (sheet) {
+        var paginationResult = OmniPagination.paginate('stocktakeSheets', filtered);
+
+        sheetsContainer.innerHTML = paginationResult.items.map(function (sheet) {
             var sc = getStatusConfig(sheet.status);
             var sheetKey = sheet.checkId;
             var isExpanded = expandedSheetId === sheetKey;
@@ -666,7 +772,7 @@
             // Action button
             var actionBtn = '';
             if (sheet.status === 'DRAFT' || sheet.status === 'IN_PROGRESS') {
-                actionBtn = '<button class="ic-btn-action ic-btn-action--orange" onclick="triggerComplete(event, ' + sheetKey + ')">' +
+                actionBtn = '<button type="button" class="ic-btn-action ic-btn-action--orange" onclick="triggerComplete(event, ' + sheetKey + ')">' +
                             'Hoàn tất</button>';
             }
 
@@ -715,6 +821,16 @@
             var expandedClass = isExpanded ? 'expanded' : '';
             var expandSection = '';
             if (isExpanded) {
+                var loadedItems = itemsBySheetId[sheetKey];
+                var tbodyContent = '';
+                if (loadedItems === undefined) {
+                    tbodyContent = '<tr><td colspan="6" style="text-align:center;color:rgba(16,55,92,0.4);padding:20px;">Đang tải chi tiết...</td></tr>';
+                } else if (loadedItems.length === 0) {
+                    tbodyContent = '<tr><td colspan="6" style="text-align:center;color:rgba(16,55,92,0.4);padding:20px;">Chưa có sản phẩm nào trong phiếu kiểm kê này.</td></tr>';
+                } else {
+                    tbodyContent = tableRows;
+                }
+
                 expandSection = '<div class="ic-sheet-body">' +
                                 '<table class="ic-table">' +
                                 '<thead>' +
@@ -727,7 +843,7 @@
                                 '<th class="text-center">Trạng thái</th>' +
                                 '</tr>' +
                                 '</thead>' +
-                                '<tbody>' + (items.length > 0 ? tableRows : '<tr><td colspan="6" style="text-align:center;color:rgba(16,55,92,0.4);padding:20px;">Đang tải chi tiết...</td></tr>') + '</tbody>' +
+                                '<tbody>' + tbodyContent + '</tbody>' +
                                 '</table>' +
                                 '</div>';
             }
@@ -767,6 +883,11 @@
                       expandSection +
                    '</div>';
         }).join('');
+
+        OmniPagination.renderControls('sheetsPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('stocktakeSheets', newPage);
+            renderPage();
+        });
     }
 
     function esc(v) {

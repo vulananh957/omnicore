@@ -51,8 +51,11 @@
                                 <c:when test="${chan.platform == 'Shopee'}">
                                     <span style="background: rgba(238,77,45,0.1); color: #ee4d2d; padding: 0.25rem 0.5rem; font-size: 10px; font-weight: 800; border-radius: 4px; border: 1px solid rgba(238,77,45,0.2);">SHOPEE</span>
                                 </c:when>
+                                <c:when test="${chan.platform == 'Website'}">
+                                    <span style="background: rgba(235,131,23,0.1); color: #eb8317; padding: 0.25rem 0.5rem; font-size: 10px; font-weight: 800; border-radius: 4px; border: 1px solid rgba(235,131,23,0.2);">WEBSITE STOREFRONT</span>
+                                </c:when>
                                 <c:otherwise>
-                                    <span style="background: rgba(0,0,0,0.08); color: #000000; padding: 0.25rem 0.5rem; font-size: 10px; font-weight: 800; border-radius: 4px; border: 1px solid rgba(0,0,0,0.15);">TIKTOK SHOP</span>
+                                    <span style="background: rgba(235,131,23,0.1); color: #eb8317; padding: 0.25rem 0.5rem; font-size: 10px; font-weight: 800; border-radius: 4px; border: 1px solid rgba(235,131,23,0.2);">WEBSITE STOREFRONT</span>
                                 </c:otherwise>
                             </c:choose>
                             <h4 style="color: var(--navy); font-size: 15px; font-weight: 700; margin: 0;"><c:out value="${chan.channelName}"/></h4>

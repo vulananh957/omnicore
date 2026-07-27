@@ -86,9 +86,20 @@ public class LazadaInventoryPushScheduler implements ServletContextListener {
         catch (Exception e) { return 20; }
     }
 
+    public static void triggerPushNowAsync() {
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                LOGGER.info("LazadaInventoryPushScheduler: realtime triggerPushNowAsync triggered");
+                new PushTask(20).run();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "LazadaInventoryPushScheduler.triggerPushNowAsync failed", e);
+            }
+        });
+    }
+
     // ── Push task ─────────────────────────────────────────────
 
-    private class PushTask extends TimerTask {
+    private static class PushTask extends TimerTask {
 
         private final ChannelGateway gateway = ChannelRegistry.get("Lazada");
         private final ChannelProductDAO cpDAO = new ChannelProductDAO();

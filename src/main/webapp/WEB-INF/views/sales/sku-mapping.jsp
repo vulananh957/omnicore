@@ -2,6 +2,7 @@
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ page import="com.wms.model.Product" %>
 <%@ page import="com.wms.model.SkuMapping" %>
+<%@ page import="com.wms.model.Channel" %>
 <%@ page import="java.util.List" %>
 <%@ page import="java.util.Map" %>
 <%@ page import="com.wms.util.JsonUtil" %>
@@ -15,13 +16,18 @@
     List<Map<String, Object>> unresolvedExceptions = (List<Map<String, Object>>) request.getAttribute("unresolvedExceptions");
     if (unresolvedExceptions == null) unresolvedExceptions = java.util.Collections.emptyList();
 
+    List<Channel> channels = (List<Channel>) request.getAttribute("channels");
+    if (channels == null) channels = java.util.Collections.emptyList();
+
     String productsJson = JsonUtil.toJson(products);
     String mappingsJson = JsonUtil.toJson(skuMappings);
     String unresolvedJson = JsonUtil.toJson(unresolvedExceptions);
+    String channelsJson = JsonUtil.toJson(channels);
 
     request.setAttribute("productsJson", productsJson);
     request.setAttribute("mappingsJson", mappingsJson);
     request.setAttribute("unresolvedJson", unresolvedJson);
+    request.setAttribute("channelsJson", channelsJson);
 %>
 
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/sales--sku-mapping.css"/>
@@ -46,9 +52,13 @@
         <input type="text" placeholder="Tìm theo Master SKU, tên sản phẩm..." id="smSearchInput" oninput="onSearch(this.value)" />
     </div>
     <div class="sm-toolbar-right">
-        <button class="sm-btn-pull" onclick="pullMarketplaceProducts()" id="btnPullProducts">
-            <svg id="pullSpinnerIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
-            Kéo từ Sàn
+        <button class="sm-btn-pull" onclick="pullMarketplaceProducts('lazada')" id="btnPullLazada">
+            <svg class="pullSpinnerIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+            Kéo từ Lazada
+        </button>
+        <button class="sm-btn-pull" onclick="pullMarketplaceProducts('website')" id="btnPullWebsite">
+            <svg class="pullSpinnerIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+            Kéo từ Website
         </button>
     </div>
 </div>
@@ -61,7 +71,7 @@
                 <div class="sm-loader-spinner-outer"></div>
             </div>
             <div class="loading-title">Đang kết nối...</div>
-            <div class="loading-sub">Đang kéo các sản phẩm chưa gán ánh xạ từ Shopee, Lazada, TikTok API...</div>
+            <div class="loading-sub" id="smPullOverlayText">Đang kéo các sản phẩm chưa gán ánh xạ...</div>
         </div>
     </div>
     <div class="sm-table-scroll">
@@ -80,6 +90,7 @@
             <tbody id="smTableBody"></tbody>
         </table>
     </div>
+    <div id="smPagination"></div>
 </div>
 
 <%-- ── RIGHT DRAWER — Inbox ── --%>
@@ -157,6 +168,7 @@
 <div id="productsJsonData" style="display:none;"><c:out value="${productsJson}"/></div>
 <div id="mappingsJsonData" style="display:none;"><c:out value="${mappingsJson}"/></div>
 <div id="unresolvedJsonData" style="display:none;"><c:out value="${unresolvedJson}"/></div>
+<div id="channelsJsonData" style="display:none;"><c:out value="${channelsJson}"/></div>
 
 <script>
 // ════════════════════════════════════════════════════════════════
@@ -261,6 +273,11 @@ function onSearch(val) {
 }
 
 function renderTableBody() {
+    OmniPagination.reset('skuMapping');
+    renderTableBodyPage();
+}
+
+function renderTableBodyPage() {
     const tbody = document.getElementById("smTableBody");
     tbody.innerHTML = "";
 
@@ -280,10 +297,13 @@ function renderTableBody() {
             '<rect x="3" y="3" width="18" height="18" rx="2"></rect>' +
             '<line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>' +
             msg + '</td></tr>';
+        document.getElementById("smPagination").innerHTML = "";
         return;
     }
 
-    filtered.forEach(wms => {
+    const paginationResult = OmniPagination.paginate('skuMapping', filtered);
+
+    paginationResult.items.forEach(wms => {
         const rels     = rawMappings.filter(m => m.masterSKU === wms.sku);
         const category = wms.category || (rels[0] && rels[0].channelCategory) || "";
         const qty      = wms.qtyOnHand || 0;
@@ -298,6 +318,11 @@ function renderTableBody() {
             '<td>' + buildChannelCell(rels, 'website', 'Website') + '</td>' +
             '<td style="text-align:right">' + stockBadge(qty) + '</td>';
         tbody.appendChild(tr);
+    });
+
+    OmniPagination.renderControls('smPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+        OmniPagination.setPage('skuMapping', newPage);
+        renderTableBodyPage();
     });
 }
 
@@ -508,18 +533,37 @@ function submitForm(action, fields) {
 // ════════════════════════════════════════════════════════════════
 // PULL FROM MARKETPLACE
 // ════════════════════════════════════════════════════════════════
-async function pullMarketplaceProducts() {
-    const channelIds = [];
-    <c:forEach var="ch" items="${channels}">
-    channelIds.push("${ch.channelId}");
-    </c:forEach>
+const ALL_CHANNELS = [];
+try {
+    const rawCh = document.getElementById("channelsJsonData").textContent.trim();
+    if (rawCh) {
+        JSON.parse(rawCh).forEach(ch => {
+            ALL_CHANNELS.push({ id: String(ch.channelId), platform: ch.platform });
+        });
+    }
+} catch (e) {
+    console.error("Failed to parse channels JSON", e);
+}
 
-    if (!channelIds.length) { showToast("Không tìm thấy kênh bán hàng nào để kéo sản phẩm.", "error"); return; }
+const PULL_LABELS = { lazada: "Lazada", website: "Website" };
+const PULL_BUTTON_IDS = { lazada: "btnPullLazada", website: "btnPullWebsite" };
 
-    const overlay = document.getElementById("smPullOverlay");
-    const icon    = document.getElementById("pullSpinnerIcon");
-    const btn     = document.getElementById("btnPullProducts");
-    overlay.classList.add("open"); icon.style.animation = "spin 1s linear infinite"; btn.disabled = true;
+async function pullMarketplaceProducts(platformFilter) {
+    const label = PULL_LABELS[platformFilter] || platformFilter;
+    const channelIds = ALL_CHANNELS
+        .filter(ch => (ch.platform || "").toLowerCase() === platformFilter)
+        .map(ch => ch.id);
+
+    if (!channelIds.length) { showToast("Không tìm thấy kênh " + label + " nào để kéo sản phẩm.", "error"); return; }
+
+    const overlay   = document.getElementById("smPullOverlay");
+    const icons     = document.querySelectorAll(".pullSpinnerIcon");
+    const btnLazada = document.getElementById("btnPullLazada");
+    const btnWebsite = document.getElementById("btnPullWebsite");
+    document.getElementById("smPullOverlayText").textContent = "Đang kéo các sản phẩm chưa gán ánh xạ từ " + label + " API...";
+    overlay.classList.add("open");
+    icons.forEach(icon => icon.style.animation = "spin 1s linear infinite");
+    btnLazada.disabled = true; btnWebsite.disabled = true;
 
     try {
         let ok = 0, msgs = [];
@@ -532,10 +576,14 @@ async function pullMarketplaceProducts() {
             if (res.ok) { const d = await res.json(); d.success ? ok++ : msgs.push(d.message); }
             else msgs.push("HTTP " + res.status);
         }
-        if (ok > 0) { showToast("Kéo thành công từ " + ok + "/" + channelIds.length + " kênh!", "success"); setTimeout(() => location.reload(), 1500); }
+        if (ok > 0) { showToast("Kéo thành công từ " + ok + "/" + channelIds.length + " kênh " + label + "!", "success"); setTimeout(() => location.reload(), 1500); }
         else          showToast("Thất bại: " + msgs.join(" | "), "error");
     } catch(e) { showToast("Lỗi: " + e.message, "error"); }
-    finally { overlay.classList.remove("open"); icon.style.animation = "none"; btn.disabled = false; }
+    finally {
+        overlay.classList.remove("open");
+        icons.forEach(icon => icon.style.animation = "none");
+        btnLazada.disabled = false; btnWebsite.disabled = false;
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -558,3 +606,6 @@ const _s = document.createElement("style");
 _s.textContent = "@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}";
 document.head.appendChild(_s);
 </script>
+
+<c:remove var="toastMessage" scope="session" />
+<c:remove var="toastSuccess" scope="session" />

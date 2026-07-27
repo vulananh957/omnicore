@@ -123,9 +123,9 @@ public class LazadaProductPayloadBuilder {
         if (sellerSku == null || sellerSku.isBlank()) {
             errs.add(new ValidationError("seller_sku", "REQUIRED_SELLER_SKU",
                 "Seller SKU không được để trống."));
-        } else if (sellerSku.length() > 50 || !sellerSku.matches("[A-Za-z0-9_-]+")) {
+        } else if (!sellerSku.matches("[A-Za-z0-9_.,-]+")) {
             errs.add(new ValidationError("seller_sku", "INVALID_SELLER_SKU",
-                "Seller SKU chỉ chứa chữ, số, - hoặc _ (tối đa 50 ký tự)."));
+                "Seller SKU chỉ chứa chữ, số, - , _ hoặc . (tối đa 50 ký tự)."));
         }
         return errs;
     }
@@ -179,7 +179,7 @@ public class LazadaProductPayloadBuilder {
         skus.put("Sku", new Object[]{ sku });
 
         Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("name", trim(p.getProductName(), 255));
+        attributes.put("name", trim(p.getProductName(), 255).replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim());
         // Lazada Open Platform docs (2025): "brand" will be deprecated,
         // use "brand_id" instead. Most categories require a valid brand_id.
         // Prefer ChannelProduct.brandId (numeric Lazada brand ID from /brand/get).
@@ -202,11 +202,13 @@ public class LazadaProductPayloadBuilder {
                 p == null ? null : p.getShortDescription(),
                 cp == null ? null : cp.getShortDescription());
         if (longDesc == null) longDesc = "";
+        longDesc = longDesc.replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim();
         attributes.put("description", trim(longDesc, 5000));
         // short_description is a separate field — prefer the operator's explicit
         // cp.shortDescription, otherwise truncate the long description to 255 chars.
         String shortDesc = firstNonBlank(cp == null ? null : cp.getShortDescription(),
                 longDesc.isEmpty() ? null : longDesc);
+        if (shortDesc != null) shortDesc = shortDesc.replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim();
         attributes.put("short_description", trim(shortDesc == null ? "" : shortDesc, 255));
 
         // Lazada category-specific mandatory attributes (hardcoded defaults for the
@@ -231,6 +233,60 @@ public class LazadaProductPayloadBuilder {
             } else if (catId == 10859L || catId == 1720L || catId == 7831L || catId == 8059L || catId == 12699L || catId == 15072L) {
                 // "Khăn, khăn choàng, Hijab, găng tay" — mandatory attributes per /category/attributes/get
                 attributes.put("clothing_material", "Polyester");
+            } else if (catId == 13226L || catId == 10235L) {
+                // "Mũ & Nón thể thao" — mandatory attributes per /category/attributes/get
+                attributes.put("recommended_gender", "Unisex");
+                attributes.put("hat_style", "Caps");
+                attributes.put("hat_type", "Caps");
+                attributes.put("features", "Breathable");
+                attributes.put("feature", "Breathable");
+                attributes.put("sports_feature", "Breathable");
+            }
+
+            // Common mandatory attributes for most Lazada categories.
+            // These are safe defaults that avoid E4110 (CHK_CATPROP_CPV_NOT_ENUM).
+            if (!attributes.containsKey("warranty_type")) {
+                attributes.put("warranty_type", "No Warranty");
+            }
+            if (!attributes.containsKey("hazmat")) {
+                attributes.put("hazmat", "None");
+            }
+            if (!attributes.containsKey("delivery_option_sof")) {
+                attributes.put("delivery_option_sof", "No");
+            }
+
+            // Fallback defaults for mandatory category attributes to prevent CHK_CATPROP_CPV_REQUIRED errors
+            if (!attributes.containsKey("Chất liệu") && !attributes.containsKey("material")) {
+                attributes.put("Chất liệu", "Khác");
+            }
+            if (!attributes.containsKey("Loại sản phẩm") && !attributes.containsKey("product_type")) {
+                attributes.put("Loại sản phẩm", "Khác");
+            }
+            if (!attributes.containsKey("Chất liệu trang phục") && !attributes.containsKey("clothing_material")) {
+                attributes.put("Chất liệu trang phục", "Khác");
+            }
+            if (!attributes.containsKey("Họa tiết") && !attributes.containsKey("pattern")) {
+                attributes.put("Họa tiết", "Khác");
+            }
+            if (!attributes.containsKey("Loại áo") && !attributes.containsKey("top_type")) {
+                attributes.put("Loại áo", "Khác");
+            }
+            if (!attributes.containsKey("Loại mũ") && !attributes.containsKey("hat_style") && !attributes.containsKey("hat_type")) {
+                attributes.put("Loại mũ", "Khác");
+                attributes.put("hat_style", "Caps");
+            }
+            if (!attributes.containsKey("Tính năng") && !attributes.containsKey("feature") && !attributes.containsKey("features")) {
+                attributes.put("Tính năng", "Khác");
+                attributes.put("features", "Breathable");
+            }
+            if (!attributes.containsKey("Mẫu mã") && !attributes.containsKey("model")) {
+                attributes.put("Mẫu mã", "Khác");
+            }
+            if (!attributes.containsKey("Phong cách") && !attributes.containsKey("style")) {
+                attributes.put("Phong cách", "Khác");
+            }
+            if (!attributes.containsKey("Loại phụ kiện")) {
+                attributes.put("Loại phụ kiện", "Khác");
             }
         }
 
@@ -346,7 +402,7 @@ public class LazadaProductPayloadBuilder {
         skus.put("Sku", new Object[]{ sku });
 
         Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("name", trim(p.getProductName(), 255));
+        attributes.put("name", trim(p.getProductName(), 255).replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim());
         // Prefer numeric brand_id over text brand — Lazada rejects many categories without it.
         Long brandId = cp != null ? cp.getBrandId() : null;
         if (brandId != null && brandId > 0) {
@@ -363,10 +419,12 @@ public class LazadaProductPayloadBuilder {
                 p == null ? null : p.getShortDescription(),
                 cp == null ? null : cp.getShortDescription());
         if (longDesc == null) longDesc = "";
+        longDesc = longDesc.replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim();
         attributes.put("description", trim(longDesc, 5000));
         // short_description: prefer cp.shortDescription, otherwise truncate longDesc.
         String shortDescUpdate = firstNonBlank(cp == null ? null : cp.getShortDescription(),
                 longDesc.isEmpty() ? null : longDesc);
+        if (shortDescUpdate != null) shortDescUpdate = shortDescUpdate.replaceAll("[\\^~<>|]", " ").replaceAll("\\s+", " ").trim();
         attributes.put("short_description", trim(shortDescUpdate == null ? "" : shortDescUpdate, 255));
 
         if (cp != null && cp.getLazadaCategoryId() != null) {
@@ -384,6 +442,17 @@ public class LazadaProductPayloadBuilder {
                 }
             } else if (catId == 10859L || catId == 1720L || catId == 7831L || catId == 8059L || catId == 12699L || catId == 15072L) {
                 attributes.put("clothing_material", "Polyester");
+            }
+
+            // Common mandatory attributes for most Lazada categories.
+            if (!attributes.containsKey("warranty_type")) {
+                attributes.put("warranty_type", "No Warranty");
+            }
+            if (!attributes.containsKey("hazmat")) {
+                attributes.put("hazmat", "None");
+            }
+            if (!attributes.containsKey("delivery_option_sof")) {
+                attributes.put("delivery_option_sof", "No");
             }
         }
 
@@ -430,12 +499,14 @@ public class LazadaProductPayloadBuilder {
 
     static int[] parseDimensions(String s) {
         if (s == null) return null;
-        String[] parts = s.split("\\s*[xX*\\u00d7\\u2715\\u2716\\uff58\\uff38]\\s*");
+        String cleaned = s.replaceAll("(?i)\\s*(cm|mm|m)?\\s*$", "").trim();
+        String[] parts = cleaned.split("\\s*[xX*\\u00d7\\u2715\\u2716\\uff58\\uff38]\\s*");
         if (parts.length != 3) return null;
         try {
             int[] out = new int[3];
             for (int i = 0; i < 3; i++) {
-                double v = Double.parseDouble(parts[i].trim());
+                String pStr = parts[i].replaceAll("(?i)\\s*(cm|mm|m)?\\s*$", "").trim();
+                double v = Double.parseDouble(pStr);
                 out[i] = (int) Math.round(v);
                 if (out[i] <= 0 || out[i] > 200) return null;
             }

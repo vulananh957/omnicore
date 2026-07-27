@@ -90,7 +90,7 @@
                             <td class="right">
                                 <c:choose>
                                     <c:when test="${supplier.currentBalance > 0}">
-                                        <span class="amount debt-warning">${supplier.currentBalance} đ</span>
+                                        <span class="amount debt-warning"><fmt:formatNumber type="number" maxFractionDigits="0" value="${supplier.currentBalance}" /> đ</span>
                                     </c:when>
                                     <c:otherwise>
                                         <span class="amount no-debt">0 đ</span>
@@ -98,7 +98,7 @@
                                 </c:choose>
                             </td>
                             <td class="right">
-                                <span class="amount">${supplier.totalOrderedValue} đ</span>
+                                <span class="amount"><fmt:formatNumber type="number" maxFractionDigits="0" value="${supplier.totalOrderedValue}" /> đ</span>
                             </td>
                             <td>
                                 <button class="supplier-detail-btn" data-id="${supplier.supplierId}" onclick="viewSupplier(this.dataset.id)" title="Xem chi tiết">

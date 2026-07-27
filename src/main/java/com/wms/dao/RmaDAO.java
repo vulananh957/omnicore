@@ -47,6 +47,10 @@ public class RmaDAO extends BaseDAO {
         return queryOne(LOGGER, SELECT_BASE + "WHERE r.rma_id = ?", this::mapRow, rmaId);
     }
 
+    public RmaRequest findByOrderId(int orderId) {
+        return queryOne(LOGGER, SELECT_BASE + "WHERE r.order_id = ? ORDER BY r.requested_at DESC LIMIT 1", this::mapRow, orderId);
+    }
+
     /** status: 'APPROVED' or 'RESOLVED' (rejected) — matches rma_requests.status enum. */
     public boolean updateStatus(int rmaId, String status, String resolutionNote) {
         return update(LOGGER,

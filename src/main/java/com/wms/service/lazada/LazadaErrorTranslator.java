@@ -48,26 +48,87 @@ public class LazadaErrorTranslator {
             "Sản phẩm phải có ít nhất 1 ảnh chính.", "images")),
         Map.entry("BIZ_CHECK_EXIST_OUTER_IMAGE", new ErrorMapping(
             "Ảnh từ link ngoài không hợp lệ. Hệ thống đã tự động migrate.", "images")),
-        Map.entry("PLEASE_SELECT_LAST_LEVEL_CATEGORY", new ErrorMapping(
-            "Bạn phải chọn danh mục ở cấp cuối cùng (leaf category).", "category_id")),
-        Map.entry("PACKAGE_WEIGHT_EXCEEDS_LIMIT", new ErrorMapping(
-            "Cân nặng gói hàng không được vượt quá 40kg.", "weight_kg")),
-        Map.entry("PACKAGE_DIMENSION_EXCEEDS_LIMIT", new ErrorMapping(
-            "Tổng kích thước (Dài + Rộng + Cao) không được quá 300cm.", "dimensions")),
-        Map.entry("INVALID_SELLER_SKU", new ErrorMapping(
-            "Seller SKU không hợp lệ. Chỉ chứa chữ, số, dấu - hoặc _ (tối đa 50 ký tự).",
-            "seller_sku")),
-        Map.entry("PB_SELLER_SKU_DUPLICATE", new ErrorMapping(
-            "Seller SKU này đã tồn tại trên gian hàng. Vui lòng đổi sang mã khác.",
-            "seller_sku")),
-        Map.entry("BIZ_CHECK_BRAND_REQUIRED", new ErrorMapping(
-            "Bạn phải chọn thương hiệu cho sản phẩm.", "brand")),
+        Map.entry("E201", new ErrorMapping(
+            "Danh mục Lazada không hợp lệ. Vui lòng bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id")),
+        Map.entry("E030", new ErrorMapping(
+            "Yêu cầu rỗng — không có dữ liệu gửi đi.", "")),
+        Map.entry("E512", new ErrorMapping(
+            "Tìm kiếm SPU thất bại. Vui lòng thử lại.", "")),
+        Map.entry("BIZ_CHECK_MANGROVE_RULE_QC", new ErrorMapping(
+            "Danh mục này bị hạn chế đăng bán. Vui lòng chọn danh mục khác.", "category_id")),
+        Map.entry("BIZ_CHECK_SELLER_SKU_DUPLICATE", new ErrorMapping(
+            "Seller SKU này đã tồn tại trên gian hàng Lazada. Vui lòng đổi mã SKU khác.", "seller_sku")),
+        Map.entry("THD_IC_ERR_F_IC_INFRA_PRODUCT_036", new ErrorMapping(
+            "Seller SKU đã tồn tại trên Lazada. Vui lòng đổi mã SKU khác.", "seller_sku")),
+        Map.entry("BIZ_CHECK_CAT_PROP_MANDATORY", new ErrorMapping(
+            "Thiếu thuộc tính bắt buộc của danh mục. Vui lòng kiểm tra lại thông tin sản phẩm.", "category_id")),
+        Map.entry("THD_IC_F_IC_DOMAIN_PROPERTY_002", new ErrorMapping(
+            "Thiếu thuộc tính bắt buộc của danh mục. Vui lòng kiểm tra lại thông tin sản phẩm.", "category_id")),
+        Map.entry("CHK_SKU_PROPS_DUPLICATE", new ErrorMapping(
+            "Thuộc tính biến thể (màu sắc, kích thước) bị trùng lặp giữa các SKU. Vui lòng kiểm tra lại.", "")),
+        Map.entry("CHK_SKU_PROPS_NOT_IDENTICAL", new ErrorMapping(
+            "Thuộc tính biến thể không nhất quán. Mỗi SKU cần có cùng bộ thuộc tính.", "")),
+        Map.entry("BIZ_CHECK_SALEPROP_ATTRIBUTE_INVALID", new ErrorMapping(
+            "Thuộc tính biến thể không hợp lệ với danh mục đã chọn.", "")),
+        Map.entry("BIZ_CHECK_OFFICIAL_STORE_BRAND_UNAUTHORIZED", new ErrorMapping(
+            "Thương hiệu bạn chọn không được phép sử dụng cho loại gian hàng này. Vui lòng chọn thương hiệu khác hoặc đăng ký quyền sử dụng thương hiệu trên Seller Center.", "brand")),
+        Map.entry("BIZ_CHECK_CAT_PROP_SENSITIVE_WORDS", new ErrorMapping(
+            "Nội dung mô tả hoặc tên sản phẩm chứa từ nhạy cảm. Vui lòng kiểm tra lại.", "description")),
+        Map.entry("E4134", new ErrorMapping(
+            "Bạn phải chọn danh mục ở cấp cuối cùng (leaf category). Vui lòng bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id")),
+        Map.entry("Please select the last level category.", new ErrorMapping(
+            "Bạn phải chọn danh mục ở cấp cuối cùng (leaf category). Vui lòng bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id")),
+        Map.entry("BIZ_CHECK_MAX_PACKAGE_WEIGHT", new ErrorMapping(
+            "Cân nặng gói hàng vượt quá 40kg. Vui lòng kiểm tra lại.", "weight_kg")),
+        Map.entry("BIZ_CHECK_MAX_PACKAGE_DIMENISIONS", new ErrorMapping(
+            "Tổng kích thước (Dài + Rộng + Cao) vượt quá 300cm. Vui lòng kiểm tra lại.", "dimensions")),
+        Map.entry("THD_IC_ERR_F_IC_INFRA_SPU_036", new ErrorMapping(
+            "Mã sản phẩm (EAN/ISBN) đã tồn tại trên Lazada cho sản phẩm khác.", "")),
+        Map.entry("SELLER_SKU_INVALID", new ErrorMapping(
+            "Seller SKU chứa ký tự không hợp lệ. Chỉ dùng chữ, số, - , _ , .", "seller_sku")),
+        Map.entry("BIZ_CHECK_ITEM_HAS_REACH_LIMIT", new ErrorMapping(
+            "Gian hàng đã đạt giới hạn số lượng sản phẩm online. Vui lòng liên hệ Lazada để tăng hạn mức.", "")),
+        Map.entry("BIZ_CHECK_PACKAGE_DECIMAL_INVALID", new ErrorMapping(
+            "Giá trị kích thước hoặc cân nặng gói hàng không hợp lệ. Vui lòng kiểm tra lại.", "dimensions")),
+        Map.entry("CHK_CATPROP_CPV_REQUIRED", new ErrorMapping(
+            "Danh mục đã chọn yêu cầu thuộc tính bắt buộc trên Lazada. Vui lòng kiểm tra lại danh mục.", "category_id")),
+        Map.entry("BIZ_CHECK_PRICE_PRECISION_INVALID", new ErrorMapping(
+            "Giá bán có quá nhiều chữ số thập phân. Vui lòng nhập giá hợp lệ (VD: 150000).", "price")),
+        Map.entry("BIZ_CHECK_SPECIAL_PRICE_PRECISION_INVALID", new ErrorMapping(
+            "Giá khuyến mãi có quá nhiều chữ số thập phân. Vui lòng nhập giá hợp lệ.", "special_price")),
+        Map.entry("BIZ_CHECK_RESTRICTED_CATEGORY", new ErrorMapping(
+            "Bạn không được phép đăng bán danh mục này. Vui lòng chọn danh mục khác.", "category_id")),
+        Map.entry("BIZ_CHECK_MTEE_RISK_RULE_TRIGGER", new ErrorMapping(
+            "Nội dung hoặc giá sản phẩm vi phạm chính sách Lazada. Vui lòng kiểm tra lại.", "")),
+        Map.entry("Invalid Request Format", new ErrorMapping(
+            "Định dạng yêu cầu không hợp lệ. Vui lòng thử lại.", "")),
+        Map.entry("SellerNotActive", new ErrorMapping(
+            "Gian hàng Lazada đang không hoạt động. Vui lòng kiểm tra trạng thái gian hàng trên Seller Center.", "")),
+        Map.entry("BIZ_CHECK_PROP_SPECIAL_CHAR", new ErrorMapping(
+            "Tên hoặc mô tả sản phẩm chứa ký tự đặc biệt không được phép.", "name")),
         Map.entry("REQUIRED_NAME", new ErrorMapping(
             "Tên sản phẩm không được để trống và phải ≤ 255 ký tự.", "name")),
         Map.entry("REQUIRED_SHORT_DESC", new ErrorMapping(
             "Mô tả ngắn không được để trống và phải ≤ 255 ký tự.", "short_description")),
         Map.entry("category_id", new ErrorMapping(
-            "Danh mục chưa đúng (Lazada yêu cầu chọn danh mục lá — cấp sâu nhất). Bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id"))
+            "Danh mục chưa đúng (Lazada yêu cầu chọn danh mục lá — cấp sâu nhất). Bấm 'Đồng bộ danh mục' rồi chọn lại.", "category_id")),
+        Map.entry("E4139", new ErrorMapping(
+            "Sản phẩm phải có ít nhất 1 ảnh chính.", "images")),
+        // Generic top-level Lazada API codes
+        Map.entry("500", new ErrorMapping(
+            "Lazada tạm thời không phản hồi. Vui lòng thử lại sau vài phút.", "")),
+        Map.entry("5", new ErrorMapping(
+            "Định dạng yêu cầu không hợp lệ. Vui lòng thử lại.", "")),
+        Map.entry("901", new ErrorMapping(
+            "Yêu cầu quá nhiều lần — Lazada tạm khóa. Vui lòng chờ 1-2 phút rồi thử lại.", "")),
+        Map.entry("209", new ErrorMapping(
+            "Số lượng biến thể vượt quá giới hạn hoặc không hợp lệ. Vui lòng kiểm tra lại.", "")),
+        Map.entry("1000", new ErrorMapping(
+            "Lỗi nội bộ của Lazada. Vui lòng thử lại sau.", "")),
+        Map.entry("4105", new ErrorMapping(
+            "Seller SKU đã tồn tại trên gian hàng Lazada. Vui lòng đổi mã SKU khác.", "seller_sku")),
+        Map.entry("4129", new ErrorMapping(
+            "Tên hoặc mô tả chứa ký tự đặc biệt không được phép (^~<>|). Vui lòng kiểm tra lại.", "description"))
     );
 
     /** Translates a single Lazada error code, or returns a generic message if unknown. */
@@ -76,10 +137,17 @@ public class LazadaErrorTranslator {
             if (ERROR_MAP.containsKey(errorCode)) {
                 return ERROR_MAP.get(errorCode);
             }
-            if (errorCode.contains("MTEE_RISK") || errorCode.contains("POLICY") || errorCode.contains("CATEGORY")) {
+            // Partial match for SKU duplicate codes (various prefixes exist)
+            String ec = errorCode.toUpperCase(java.util.Locale.ROOT);
+            if (ec.contains("DUPLICATE") && ec.contains("SKU")) {
+                return new ErrorMapping(
+                    "Seller SKU này đã tồn tại trên gian hàng Lazada. Vui lòng đổi mã SKU khác.",
+                    "seller_sku");
+            }
+            if (ec.contains("MTEE_RISK") || ec.contains("POLICY") || ec.contains("CATEGORY") || ec.contains("MANGROVE")) {
                 String msg = cleanMessage(fallbackMessage);
                 return new ErrorMapping(
-                    (msg != null && !msg.isBlank()) ? msg : "Đăng sản phẩm thất bại do chọn sai danh mục. Vui lòng cập nhật lại danh mục phù hợp và thử lại.",
+                    (msg != null && !msg.isBlank()) ? msg : "Đăng sản phẩm thất bại do chính sách danh mục. Vui lòng cập nhật lại danh mục phù hợp và thử lại.",
                     "category_id");
             }
         }

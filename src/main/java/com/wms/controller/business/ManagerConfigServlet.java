@@ -61,7 +61,7 @@ public class ManagerConfigServlet extends BaseController {
 
             if (marginLow == null || marginBreakeven == null || marginLoss == null) {
                 setFlashError(req, "Vui lòng nhập đầy đủ 3 ngưỡng bằng số.");
-                redirect(resp, "/business/config");
+                redirect(req, resp, "/business/config");
                 return;
             }
 
@@ -77,7 +77,7 @@ public class ManagerConfigServlet extends BaseController {
             setFlashError(req, "Dữ liệu không hợp lệ: " + e.getMessage());
         }
 
-        redirect(resp, "/business/config");
+        redirect(req, resp, "/business/config");
     }
 
     private boolean isManager(HttpServletRequest req) {

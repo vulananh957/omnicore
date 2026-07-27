@@ -51,7 +51,7 @@ public final class DatabaseConfig {
 
     private static void overrideFromEnv(String envKey, String propKey) {
         String val = System.getenv(envKey);
-        if (val != null && !val.isBlank()) {
+        if (val != null) {
             PROP.setProperty(propKey, val);
         }
     }

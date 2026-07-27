@@ -38,9 +38,13 @@ public class SalesMasterSKUServlet extends BaseController {
 
         consumeFlash(req);
         try {
-            req.setAttribute("products", productService.findAll());
+            List<Product> products = productService.findAll();
+            req.setAttribute("products", products);
+            setJsonAttr(req, "productsJson", products);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "SalesMasterSKUServlet: Failed to load product data", e);
+            req.setAttribute("products", List.of());
+            req.setAttribute("productsJson", "[]");
         }
 
         try {
@@ -103,7 +107,9 @@ public class SalesMasterSKUServlet extends BaseController {
                 p.setBarcode(req.getParameter("barcode"));
                 p.setUnit(req.getParameter("unit"));
                 p.setWeightKg(parseDouble(req.getParameter("weight")));
-                p.setAttributesText(req.getParameter("dimensions"));
+                p.setDimensions(req.getParameter("dimensions"));
+                String attrParam = req.getParameter("attributesText");
+                p.setAttributesText(attrParam != null && !attrParam.isBlank() ? attrParam : req.getParameter("dimensions"));
                 p.setBasePrice(parseDouble(req.getParameter("basePrice")));
 
                 boolean ok = productService.createProduct(p, userId);
@@ -128,7 +134,9 @@ public class SalesMasterSKUServlet extends BaseController {
                     }
                 }
                 updates.setWeightKg(parseDouble(req.getParameter("weight")));
-                updates.setAttributesText(req.getParameter("dimensions"));
+                updates.setDimensions(req.getParameter("dimensions"));
+                String attrParam = req.getParameter("attributesText");
+                if (attrParam != null) updates.setAttributesText(attrParam);
                 updates.setBarcode(req.getParameter("barcode"));
                 updates.setUnit(req.getParameter("unit"));
                 updates.setBasePrice(parseDouble(req.getParameter("basePrice")));
@@ -147,7 +155,7 @@ public class SalesMasterSKUServlet extends BaseController {
                 if (!r.isSuccess()) {
                     setFlashError(req, r.getMessage());
                 } else {
-                    setFlashSuccess(req, "Xóa SKU thành công!");
+                    setFlashSuccess(req, "Đã xóa thành công SKU khỏi WMS và kênh bán hàng (Website)!");
                 }
                 resp.sendRedirect(req.getContextPath() + "/sales/master-sku");
 

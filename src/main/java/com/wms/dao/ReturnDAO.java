@@ -564,10 +564,12 @@ public class ReturnDAO {
                     + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
             psScrap = conn.prepareStatement(sqlInsertScrap);
 
+            List<Integer> restockedProductIds = new ArrayList<>();
             for (ReturnItem item : qcItems) {
                 String decision = item.getQcDecision();
                 if ("PASS".equalsIgnoreCase(decision)) {
                     allDefective = false;
+                    restockedProductIds.add(item.getProductId());
                     // A. Increment inventory (Auto Restock on Pass)
                     psInventory.setInt(1, item.getProductId());
                     psInventory.setInt(2, warehouseId);
@@ -597,6 +599,9 @@ public class ReturnDAO {
                     psLedger.setInt(6, userId > 0 ? userId : 1);
                     psLedger.setString(7, "Restock hàng hoàn trả (RMA #" + returnId + ")");
                     psLedger.executeUpdate();
+
+                    // D. Record change in inventory_change_log to trigger realtime push to Web/Lazada
+                    new InventoryDAO().logDeductionForPush(conn, item.getProductId(), 0, 0);
 
                 } else if ("FAIL".equalsIgnoreCase(decision) || "defective".equalsIgnoreCase(decision)) {
                     // Defective -> Scrap
@@ -632,6 +637,18 @@ public class ReturnDAO {
             }
 
             conn.commit();
+
+            // 5. Sync stock totals to channel_products & trigger immediate push for all restocked products
+            try {
+                com.wms.dao.ProductDAO pDao = new com.wms.dao.ProductDAO();
+                for (int pId : restockedProductIds) {
+                    pDao.syncStockTotals(pId);
+                }
+                com.wms.scheduler.LazadaInventoryPushScheduler.triggerPushNowAsync();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "approveRestock: failed to sync stock totals for return " + returnId, e);
+            }
+
             LOGGER.info("ReturnDAO.approveRestock: returnId=" + returnId + " nextStatus=" + nextStatus);
             return true;
 

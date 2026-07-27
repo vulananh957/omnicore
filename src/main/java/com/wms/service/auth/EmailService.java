@@ -62,14 +62,15 @@ public class EmailService {
             return false;
         }
 
-        String subject = "[OmniCore WMS] Ma OTP dang nhap";
+        String subject = "[OmniCore WMS] Ma xac thuc OTP dat lai mat khau";
         String html = buildOtpHtml(user, otpCode, expiresAtMillis);
-        LOGGER.info("EmailService: OTP email sent to " + user.getEmail() + " | OTP=" + otpCode);
         try {
             sendHtml(user.getEmail(), subject, html);
+            LOGGER.warning("===> [EmailService] GỬI OTP THÀNH CÔNG tới " + user.getEmail() + " | Mã OTP: [" + otpCode + "] <===");
+            System.out.println("===> [EmailService] GỬI OTP THÀNH CÔNG tới " + user.getEmail() + " | Mã OTP: [" + otpCode + "] <===");
             return true;
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "EmailService: Failed to send OTP email to " + user.getEmail() + " | OTP=" + otpCode, e);
+            LOGGER.log(Level.SEVERE, "EmailService: LỖI khi gửi email OTP tới " + user.getEmail() + " | OTP=" + otpCode, e);
             return false;
         }
     }

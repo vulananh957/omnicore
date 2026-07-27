@@ -66,7 +66,8 @@ public class OrderDAO extends BaseDAO {
                     int customerId = rsOrders.getInt("customer_id");
                     order.setCustomerId(rsOrders.wasNull() ? null : customerId);
                     
-                    order.setWarehouseId(rsOrders.getInt("warehouse_id"));
+                    int whId = rsOrders.getInt("warehouse_id");
+                    order.setWarehouseId(whId);
                     order.setWarehouseName(rsOrders.getString("warehouse_name"));
                     
                     String rawChannel = rsOrders.getString("channel");
@@ -206,6 +207,9 @@ public class OrderDAO extends BaseDAO {
             if (trackingLower.startsWith("tkt") || trackingLower.contains("tiktok")) return "TikTok";
             if (trackingLower.startsWith("vtp") || trackingLower.contains("viettel")) return "Website";
             if (trackingLower.startsWith("spx") || trackingLower.contains("shopee")) return "Shopee";
+        }
+        if ("WEBSITE".equalsIgnoreCase(rawChannel)) {
+            return "Website";
         }
         if ("ONLINE".equalsIgnoreCase(rawChannel)) {
             return "Lazada"; // Mặc định là Lazada cho các đơn ONLINE khác nếu không phân tích được
@@ -360,6 +364,15 @@ public class OrderDAO extends BaseDAO {
         return update(LOGGER,
             "UPDATE orders SET status = 'DISPUTED', updated_at = CURRENT_TIMESTAMP "
           + "WHERE order_id = ? AND web_order_ref IS NOT NULL AND status IN ('DELIVERED', 'COMPLETED')",
+            orderId) > 0;
+    }
+
+    /** Customer cancelled a PENDING order — reason (from checkout picker) saved into `note` so Sales sees it. */
+    public boolean markCancelledByOrderId(int orderId, String cancellationReason) {
+        return update(LOGGER,
+            "UPDATE orders SET status = 'CANCELLED', note = ?, updated_at = CURRENT_TIMESTAMP "
+          + "WHERE order_id = ? AND web_order_ref IS NOT NULL AND status = 'PENDING'",
+            "Khách hủy đơn: " + (cancellationReason == null || cancellationReason.isBlank() ? "(không có lý do)" : cancellationReason),
             orderId) > 0;
     }
 

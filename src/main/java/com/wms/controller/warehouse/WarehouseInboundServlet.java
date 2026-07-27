@@ -140,7 +140,7 @@ public class WarehouseInboundServlet extends BaseController {
             } catch (Exception e) {
                 setFlashError(req, "Lỗi cơ sở dữ liệu: " + e.getMessage());
             }
-            redirect(resp, "/warehouse/inbound");
+            redirect(req, resp, "/warehouse/inbound");
             return;
 
         } else if ("receive".equals(action)) {
@@ -158,7 +158,7 @@ public class WarehouseInboundServlet extends BaseController {
 
             if (inboundIdStr == null || inboundIdStr.trim().isEmpty()) {
                 setFlashError(req, "Thiếu ID phiếu nhập.");
-                redirect(resp, "/warehouse/inbound");
+                redirect(req, resp, "/warehouse/inbound");
                 return;
             }
 
@@ -173,7 +173,7 @@ public class WarehouseInboundServlet extends BaseController {
                 int myWarehouseId = currentWarehouseId(req);
                 if (io == null || io.getWarehouseId() != myWarehouseId) {
                     setFlashError(req, "Bạn không có quyền nhận hàng cho phiếu nhập thuộc kho khác.");
-                    redirect(resp, "/warehouse/inbound");
+                    redirect(req, resp, "/warehouse/inbound");
                     return;
                 }
                 List<InboundService.ReceiptItem> items = new ArrayList<>();
@@ -207,14 +207,14 @@ public class WarehouseInboundServlet extends BaseController {
             } catch (Exception e) {
                 setFlashError(req, "Dữ liệu không hợp lệ: " + e.getMessage());
             }
-            redirect(resp, "/warehouse/inbound");
+            redirect(req, resp, "/warehouse/inbound");
             return;
         } else if ("markPurchased".equals(action)) {
             // Xác nhận đã mua hàng → chuyển PENDING → PURCHASED.
             String inboundIdStr = req.getParameter("inboundId");
             if (inboundIdStr == null || inboundIdStr.trim().isEmpty()) {
                 setFlashError(req, "Thiếu ID phiếu mua hàng.");
-                redirect(resp, "/warehouse/inbound");
+                redirect(req, resp, "/warehouse/inbound");
                 return;
             }
             try {
@@ -223,7 +223,7 @@ public class WarehouseInboundServlet extends BaseController {
                 int myWarehouseId = currentWarehouseId(req);
                 if (io == null || io.getWarehouseId() != myWarehouseId) {
                     setFlashError(req, "Bạn không có quyền xác nhận phiếu mua hàng thuộc kho khác.");
-                    redirect(resp, "/warehouse/inbound");
+                    redirect(req, resp, "/warehouse/inbound");
                     return;
                 }
                 InboundService.ValidationResult result = inboundService.markPurchased(
@@ -236,14 +236,14 @@ public class WarehouseInboundServlet extends BaseController {
             } catch (Exception e) {
                 setFlashError(req, "Lỗi: " + e.getMessage());
             }
-            redirect(resp, "/warehouse/inbound");
+            redirect(req, resp, "/warehouse/inbound");
             return;
         } else if ("complete".equals(action)) {
             // Hoàn thành phiếu nhập: IN_PROGRESS → RECEIVED (khi đã nhận đủ hàng).
             String inboundIdStr = req.getParameter("inboundId");
             if (inboundIdStr == null || inboundIdStr.trim().isEmpty()) {
                 setFlashError(req, "Thiếu ID phiếu nhập.");
-                redirect(resp, "/warehouse/inbound");
+                redirect(req, resp, "/warehouse/inbound");
                 return;
             }
             try {
@@ -252,12 +252,12 @@ public class WarehouseInboundServlet extends BaseController {
                 int myWarehouseId = currentWarehouseId(req);
                 if (io == null || io.getWarehouseId() != myWarehouseId) {
                     setFlashError(req, "Bạn không có quyền thao tác trên phiếu thuộc kho khác.");
-                    redirect(resp, "/warehouse/inbound");
+                    redirect(req, resp, "/warehouse/inbound");
                     return;
                 }
                 if (!InboundOrder.STATUS_IN_PROGRESS.equals(io.getStatus())) {
                     setFlashError(req, "Chỉ phiếu đang kiểm đếm mới có thể hoàn thành.");
-                    redirect(resp, "/warehouse/inbound");
+                    redirect(req, resp, "/warehouse/inbound");
                     return;
                 }
                 InboundService.ValidationResult result = inboundService.completeInbound(
@@ -270,10 +270,10 @@ public class WarehouseInboundServlet extends BaseController {
             } catch (Exception e) {
                 setFlashError(req, "Lỗi: " + e.getMessage());
             }
-            redirect(resp, "/warehouse/inbound");
+            redirect(req, resp, "/warehouse/inbound");
             return;
         } else {
-            redirect(resp, "/warehouse/inbound");
+            redirect(req, resp, "/warehouse/inbound");
         }
     }
 

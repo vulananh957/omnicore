@@ -6,6 +6,7 @@ import com.wms.dao.ProductImageDAO;
 import com.wms.model.Channel;
 import com.wms.model.Product;
 import com.wms.service.channel.LazadaChannelGateway;
+import com.wms.service.lazada.CatboxImageUploader;
 import com.wms.service.lazada.LazadaProductService;
 import com.wms.service.lazada.LazadaProductService.PushResult;
 import com.wms.service.sales.ChannelService;
@@ -32,10 +33,21 @@ import java.util.UUID;
  * SalesChannelProductsServlet — Handles the "Sản phẩm theo kênh" page for Sales Staff.
  * Maps to /sales/channel-products.
  */
+import com.wms.dao.CategoryMappingDAO;
+import com.wms.dao.ChannelProductDAO;
+import com.wms.dao.LazadaCategoryDAO;
+import com.wms.dao.ProductDAO;
+import com.wms.model.ChannelProduct;
+import com.wms.model.ProductImage;
+import com.wms.service.lazada.LazadaCategorySyncService;
+import com.wms.service.lazada.LazadaCategorySyncService.SyncResult;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 public class SalesChannelProductsServlet extends BaseController {
 
-    private static final java.util.logging.Logger LOGGER =
-            java.util.logging.Logger.getLogger(SalesChannelProductsServlet.class.getName());
+    private static final Logger LOGGER =
+            Logger.getLogger(SalesChannelProductsServlet.class.getName());
 
     private final ChannelService channelService = new ChannelService();
     private final ProductService productService = new ProductService();
@@ -75,8 +87,8 @@ public class SalesChannelProductsServlet extends BaseController {
         // Load channel products from DB so the page always shows real data
         // (previously relied on localStorage which is cleared on new browser/device)
         try {
-            List<com.wms.model.ChannelProduct> channelProducts =
-                    new com.wms.dao.ChannelProductDAO().findAll();
+            List<ChannelProduct> channelProducts =
+                    new ChannelProductDAO().findAll();
             req.setAttribute("channelProductsList", channelProducts);
             req.setAttribute("channelProductsJson", JsonUtil.toJson(channelProducts));
         } catch (Exception e) {
@@ -112,12 +124,26 @@ public class SalesChannelProductsServlet extends BaseController {
                 double bufferStock = Double.parseDouble(bufferStockStr);
                 boolean updated = channelService.updateBufferStock(channelId, bufferStock);
                 if (updated) {
-                    writeJson(resp, "{\"success\":true}");
+                    Channel ch = new ChannelDAO().findById(channelId);
+                    if (ch != null) {
+                        new Thread(() -> {
+                            try {
+                                if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                                    new WebsiteProductService().syncAllProductStock(ch);
+                                } else if ("Lazada".equalsIgnoreCase(ch.getPlatform())) {
+                                    new com.wms.service.marketplace.MarketplaceSyncService().triggerStockSyncForChannel(ch);
+                                }
+                            } catch (Exception ex) {
+                                LOGGER.log(java.util.logging.Level.WARNING, "Failed to auto re-push stock after bufferStock update for channel " + channelId, ex);
+                            }
+                        }).start();
+                    }
+                    writeJson(resp, "{\"success\":true,\"message\":\"Đã lưu tồn đệm an toàn vào CSDL và kích hoạt đồng bộ lại tồn kho lên sàn!\"}");
                 } else {
                     writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
                 }
             } catch (Exception e) {
-                writeJson(resp, "{\"success\":false,\"message\":\"" + e.getMessage() + "\"}");
+                writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("pull".equals(action)) {
             // Lazada end-to-end: pull marketplace products (synchronous for direct UI response)
@@ -140,7 +166,7 @@ public class SalesChannelProductsServlet extends BaseController {
                     writeJson(resp, "{\"success\":false,\"message\":\"Kéo sản phẩm thất bại: " + esc(r.error) + "\"}");
                 }
             } catch (Exception ex) {
-                LOGGER.log(java.util.logging.Level.WARNING, "channel-products pull: failed", ex);
+                LOGGER.log(Level.WARNING, "channel-products pull: failed", ex);
                 writeJson(resp, "{\"success\":false,\"message\":\"Lỗi hệ thống: " + esc(ex.getMessage()) + "\"}");
             }
 
@@ -161,12 +187,12 @@ public class SalesChannelProductsServlet extends BaseController {
                 writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
                 return;
             }
-                com.wms.dao.ChannelProductDAO cpDao = new com.wms.dao.ChannelProductDAO();
+                ChannelProductDAO cpDao = new ChannelProductDAO();
 
-                com.wms.model.ChannelProduct cp = cpDao.findByProductAndChannel(productId, channelId);
-                com.wms.model.Product prod = new com.wms.dao.ProductDAO().findById(productId);
+                ChannelProduct cp = cpDao.findByProductAndChannel(productId, channelId);
+                Product prod = new ProductDAO().findById(productId);
                 if (cp == null) {
-                    cp = new com.wms.model.ChannelProduct();
+                    cp = new ChannelProduct();
                     cp.setChannelId(channelId);
                     cp.setProductId(productId);
                     if (prod != null) cp.setChannelSkuCode(prod.getSkuCode());
@@ -204,7 +230,22 @@ public class SalesChannelProductsServlet extends BaseController {
                 }
                 String qtyParam = req.getParameter("quantity");
                 if (qtyParam != null && !qtyParam.isBlank()) {
-                    cp.setChannelStock(new java.math.BigDecimal(qtyParam));
+                    try {
+                        BigDecimal channelStock = new BigDecimal(qtyParam.trim());
+                        double availableQty = (prod != null && prod.getQtyOnHand() != null) ? prod.getQtyOnHand() : 0.0;
+                        if (channelStock.compareTo(BigDecimal.ZERO) < 0) {
+                            writeJson(resp, "{\"success\":false,\"message\":\"Số lượng sản phẩm không được dưới 0.\"}");
+                            return;
+                        }
+                        if (channelStock.compareTo(BigDecimal.valueOf(availableQty)) > 0) {
+                            writeJson(resp, "{\"success\":false,\"message\":\"Số lượng (" + channelStock + ") vượt quá tồn kho khả dụng (" + (int)availableQty + ").\"}");
+                            return;
+                        }
+                        cp.setChannelStock(channelStock);
+                    } catch (NumberFormatException e) {
+                        writeJson(resp, "{\"success\":false,\"message\":\"Số lượng không hợp lệ.\"}");
+                        return;
+                    }
                 }
                 String descParam = req.getParameter("description");
                 if (descParam != null) cp.setDescription(descParam);
@@ -258,18 +299,22 @@ public class SalesChannelProductsServlet extends BaseController {
                     }
                 }
 
-                PushResult r;
+                    PushResult r;
                 try {
                     LOGGER.info("pushProduct START: channelId=" + channelId + " productId=" + productId);
                     long t0 = System.currentTimeMillis();
-                    if ("Website".equalsIgnoreCase(ch.getPlatform())) {
-                        com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    String platform = ch.getPlatform();
+                    if ("Website".equalsIgnoreCase(platform)) {
+                        WebsiteProductService wps = new WebsiteProductService();
                         boolean ok = wps.pushProduct(ch, productId, customImageUrls);
                         if (ok) {
                             r = PushResult.success(String.valueOf(productId), null, null);
                         } else {
                             r = PushResult.failure("PUSH_FAILED", "Không thể kết nối hoặc đẩy sản phẩm sang Website.");
                         }
+                    } else if ("Shopee".equalsIgnoreCase(platform) || "Tiktok".equalsIgnoreCase(platform) || "TikTok".equalsIgnoreCase(platform)) {
+                        r = PushResult.failure("NOT_IMPLEMENTED",
+                                "Kênh " + platform + " chưa hỗ trợ đẩy sản phẩm từ giao diện này. Vui lòng liên hệ Admin.");
                     } else {
                         r = new LazadaProductService().pushProduct(
                                 ch, productId, customImageUrls, customImageBase64s, cp);
@@ -277,7 +322,7 @@ public class SalesChannelProductsServlet extends BaseController {
                     long elapsed = System.currentTimeMillis() - t0;
                     LOGGER.info("pushProduct DONE in " + elapsed + "ms: success=" + r.success + " code=" + r.code);
                 } catch (Exception ex) {
-                    LOGGER.log(java.util.logging.Level.WARNING, "pushProduct THREW", ex);
+                    LOGGER.log(Level.WARNING, "pushProduct THREW", ex);
                     r = PushResult.failure("EXCEPTION",
                         ex.getClass().getSimpleName() + ": " + ex.getMessage());
                 }
@@ -288,28 +333,73 @@ public class SalesChannelProductsServlet extends BaseController {
                 LOGGER.warning("channel-products push: invalid channelId or productId: " + e.getMessage());
                 writeJson(resp, "{\"success\":false,\"message\":\"Invalid channel or product: " + esc(e.getMessage()) + "\"}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING,
+                LOGGER.log(Level.WARNING,
                         "channel-products push: failed", e);
+                writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
+            }
+        } else if ("pushAllToWebsite".equals(action)) {
+            // "Push tất cả sản phẩm" — batch push every product to the Website channel via
+            // WebsiteProductService.pushProductBatch() (1 HTTP call instead of N). That method
+            // existed already but had zero callers anywhere in the codebase until this action.
+            try {
+                int channelId = Integer.parseInt(req.getParameter("channelId"));
+                Channel ch = new ChannelDAO().findById(channelId);
+                if (ch == null) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
+                    return;
+                }
+                if (!"Website".equalsIgnoreCase(ch.getPlatform())) {
+                    writeJson(resp, "{\"success\":false,\"message\":\"Chỉ áp dụng cho kênh Website.\"}");
+                    return;
+                }
+
+                List<Product> allProducts = productService.findAll();
+                List<Integer> productIds = new java.util.ArrayList<>();
+                for (Product p : allProducts) {
+                    productIds.add(p.getProductId());
+                }
+
+                LOGGER.info("pushAllToWebsite START: channelId=" + channelId + " totalProducts=" + productIds.size());
+                long t0 = System.currentTimeMillis();
+                int successCount = new WebsiteProductService().pushProductBatch(ch, productIds);
+                long elapsed = System.currentTimeMillis() - t0;
+                LOGGER.info("pushAllToWebsite DONE in " + elapsed + "ms: success=" + successCount + "/" + productIds.size());
+
+                writeJson(resp, "{\"success\":true,\"message\":\"Đã đẩy " + successCount + "/" + productIds.size()
+                        + " sản phẩm sang Website.\",\"successCount\":" + successCount
+                        + ",\"total\":" + productIds.size() + "}");
+            } catch (NumberFormatException e) {
+                writeJson(resp, "{\"success\":false,\"message\":\"Invalid channelId\"}");
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "channel-products pushAllToWebsite: failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("getProductDetail".equals(action)) {
             handleGetProductDetail(req, resp);
         } else if ("delete".equals(action)) {
             try {
-                int id = Integer.parseInt(req.getParameter("id"));
-                com.wms.model.ChannelProduct cp = new com.wms.dao.ChannelProductDAO().findById(id);
+                String idStr = req.getParameter("id");
+                int id = 0;
+                try {
+                    id = Integer.parseInt(idStr);
+                } catch (NumberFormatException e) {
+                    writeJson(resp, "{\"success\":true,\"message\":\"Đã xóa sản phẩm khỏi danh sách.\"}");
+                    return;
+                }
+                ChannelProduct cp = new ChannelProductDAO().findById(id);
                 if (cp == null) {
-                    writeJson(resp, "{\"success\":false,\"message\":\"Sản phẩm kênh không tồn tại.\"}");
+                    writeJson(resp, "{\"success\":true,\"message\":\"Sản phẩm kênh không còn tồn tại trong cơ sở dữ liệu, đã dọn dẹp khỏi danh sách.\"}");
                     return;
                 }
                 Channel ch = new ChannelDAO().findById(cp.getChannelId());
                 if (ch == null) {
-                    writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy kênh cấu hình.\"}");
+                    new ChannelProductDAO().delete(id);
+                    writeJson(resp, "{\"success\":true,\"message\":\"Đã xóa sản phẩm kênh khỏi hệ thống.\"}");
                     return;
                 }
                 LazadaProductService.DeleteResult r;
                 if ("Website".equalsIgnoreCase(ch.getPlatform())) {
-                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    WebsiteProductService wps = new WebsiteProductService();
                     boolean ok = wps.deleteProduct(ch, id);
                     if (ok) {
                         r = new LazadaProductService.DeleteResult(true, "0", "Xóa sản phẩm khỏi Website thành công!");
@@ -325,7 +415,7 @@ public class SalesChannelProductsServlet extends BaseController {
                     writeJson(resp, "{\"success\":false,\"message\":\"Xóa thất bại: " + esc(r.message) + "\"}");
                 }
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "channel-products delete failed", e);
+                LOGGER.log(Level.WARNING, "channel-products delete failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"Lỗi: " + esc(e.getMessage()) + "\"}");
             }
         } else if ("edit".equals(action)) {
@@ -334,18 +424,18 @@ public class SalesChannelProductsServlet extends BaseController {
                 BigDecimal price = new BigDecimal(req.getParameter("price"));
                 String description = req.getParameter("description");
 
-                com.wms.dao.ChannelProductDAO cpDao = new com.wms.dao.ChannelProductDAO();
-                com.wms.model.ChannelProduct cp = cpDao.findById(id);
+                ChannelProductDAO cpDao = new ChannelProductDAO();
+                ChannelProduct cp = cpDao.findById(id);
                 if (cp == null) {
                     writeJson(resp, "{\"success\":false,\"message\":\"Sản phẩm kênh không tồn tại.\"}");
                     return;
                 }
-                com.wms.model.Channel ch = new com.wms.dao.ChannelDAO().findById(cp.getChannelId());
+                Channel ch = new ChannelDAO().findById(cp.getChannelId());
                 if (ch == null) {
                     writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy kênh cấu hình.\"}");
                     return;
                 }
-                com.wms.model.Product prod = new com.wms.dao.ProductDAO().findById(cp.getProductId());
+                Product prod = new ProductDAO().findById(cp.getProductId());
 
                 // ── 1. Category & brand from modal ────────────────────────────
                 String lzCatParam = req.getParameter("lazadaCategoryId");
@@ -425,12 +515,9 @@ public class SalesChannelProductsServlet extends BaseController {
                     }
                 }
 
-                // Pass null for cpFromServlet — all fields already persisted to DB.
-                // Passing price/description separately is redundant since cpFromServlet
-                // was the source, and the service will reload from DB anyway.
                 PushResult r;
                 if ("Website".equalsIgnoreCase(ch.getPlatform())) {
-                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    WebsiteProductService wps = new WebsiteProductService();
                     boolean ok = wps.updateProduct(ch, id, cp != null ? cp.getChannelPrice() : null, cp != null ? cp.getDescription() : null);
                     if (ok) {
                         r = PushResult.success(cp != null ? cp.getChannelItemId() : "", null, null);
@@ -438,8 +525,12 @@ public class SalesChannelProductsServlet extends BaseController {
                         r = PushResult.failure("UPDATE_FAILED", "Không thể cập nhật sản phẩm lên Website storefront.");
                     }
                 } else {
+                    // Pass price and description from the request so the service sends the
+                    // user's fresh values instead of reading stale DB values.
+                    // The 3rd arg (cpFromServlet) is null because all fields are already
+                    // persisted to DB by cpDao.update(cp) above.
                     r = new LazadaProductService().updateProduct(
-                            ch, id, null, null, null, imageUrls, imageBase64s);
+                            ch, id, null, price, description, imageUrls, imageBase64s);
                 }
                 String rendered = renderPushResultJson(r);
                 LOGGER.info("=== PUSH RESPONSE === " + rendered);
@@ -447,14 +538,14 @@ public class SalesChannelProductsServlet extends BaseController {
             } catch (NumberFormatException e) {
                 writeJson(resp, "{\"success\":false,\"message\":\"Định dạng số hoặc giá bán không hợp lệ.\"}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "channel-products edit failed", e);
+                LOGGER.log(Level.WARNING, "channel-products edit failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"Lỗi: " + esc(e.getMessage()) + "\"}");
             }
         } else if ("loadLazadaLeaves".equals(action)) {
             // GET — return cached leaves from lazada_categories (UC-B2C09)
             try {
                 int channelId = Integer.parseInt(req.getParameter("channelId"));
-                var leaves = new com.wms.dao.LazadaCategoryDAO().findLeaves(channelId);
+                var leaves = new LazadaCategoryDAO().findLeaves(channelId);
                 StringBuilder json = new StringBuilder("{\"success\":true,\"leaves\":[");
                 for (int i = 0; i < leaves.size(); i++) {
                     var c = leaves.get(i);
@@ -466,7 +557,7 @@ public class SalesChannelProductsServlet extends BaseController {
                 json.append("],\"total\":").append(leaves.size()).append("}");
                 writeJson(resp, json.toString());
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "loadLazadaLeaves failed", e);
+                LOGGER.log(Level.WARNING, "loadLazadaLeaves failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("getBrands".equals(action)) {
@@ -489,7 +580,7 @@ public class SalesChannelProductsServlet extends BaseController {
                 String respJson = new LazadaChannelGateway().getBrands(ch, countryCode, 100);
                 writeJson(resp, "{\"success\":true,\"brandsResponse\":" + respJson + "}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "getBrands failed", e);
+                LOGGER.log(Level.WARNING, "getBrands failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("uploadImageBase64".equals(action)) {
@@ -503,6 +594,7 @@ public class SalesChannelProductsServlet extends BaseController {
                     writeJson(resp, "{\"success\":false,\"message\":\"No base64 data\"}");
                     return;
                 }
+
                 // Strip data:image/...;base64, prefix if present
                 String b64 = base64Data;
                 int commaIdx = b64.indexOf(',');
@@ -517,19 +609,31 @@ public class SalesChannelProductsServlet extends BaseController {
                     else if (lower.endsWith(".webp")) ext = ".webp";
                     else if (lower.endsWith(".gif")) ext = ".gif";
                 }
-                String name = UUID.randomUUID().toString().replace("-", "") + ext;
+                String safeName = UUID.randomUUID().toString().replace("-", "") + ext;
+
+                // Strategy 1: upload directly to imgBB for a truly public URL (Lazada can reach it)
+                CatboxImageUploader relay = new CatboxImageUploader();
+                String publicUrl = relay.upload(imageBytes, safeName);
+                if (publicUrl != null && !publicUrl.isBlank()) {
+                    LOGGER.info("uploadImageBase64: imgBB/catbox relay success => " + publicUrl);
+                    writeJson(resp, "{\"success\":true,\"url\":\"" + publicUrl + "\"}");
+                    return;
+                }
+
+                // Strategy 2 (last resort): save locally — this URL will only work if the
+                // WMS server is publicly reachable from the outside internet.
                 Path uploadRoot = Paths.get(
                         System.getProperty("user.home"), "wms-uploads", "publish-images");
                 Files.createDirectories(uploadRoot);
-                Path target = uploadRoot.resolve(name);
+                Path target = uploadRoot.resolve(safeName);
                 Files.write(target, imageBytes);
-                String publicUrl = req.getContextPath() + "/publish-images/" + name;
-                LOGGER.info("uploadImageBase64: saved " + target + " size=" + imageBytes.length);
-                writeJson(resp, "{\"success\":true,\"url\":\"" + publicUrl + "\"}");
+                String localUrl = req.getContextPath() + "/publish-images/" + safeName;
+                LOGGER.warning("uploadImageBase64: no public relay succeeded, falling back to local URL: " + localUrl);
+                writeJson(resp, "{\"success\":true,\"url\":\"" + localUrl + "\"}");
             } catch (java.lang.IllegalArgumentException e) {
                 writeJson(resp, "{\"success\":false,\"message\":\"Invalid base64 data: " + esc(e.getMessage()) + "\"}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "uploadImageBase64 failed", e);
+                LOGGER.log(Level.WARNING, "uploadImageBase64 failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("getCategoryMapping".equals(action)) {
@@ -537,7 +641,7 @@ public class SalesChannelProductsServlet extends BaseController {
             try {
                 int channelId = Integer.parseInt(req.getParameter("channelId"));
                 int wmsCategoryId = Integer.parseInt(req.getParameter("wmsCategoryId"));
-                var mappings = new com.wms.dao.CategoryMappingDAO().findPrimaryForWms(channelId, wmsCategoryId);
+                var mappings = new CategoryMappingDAO().findPrimaryForWms(channelId, wmsCategoryId);
                 if (mappings.isEmpty()) {
                     writeJson(resp, "{\"success\":true,\"found\":false,\"mappings\":[]}");
                     return;
@@ -554,7 +658,7 @@ public class SalesChannelProductsServlet extends BaseController {
             } catch (NumberFormatException e) {
                 writeJson(resp, "{\"success\":false,\"message\":\"Invalid channelId or wmsCategoryId\"}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "getCategoryMapping failed", e);
+                LOGGER.log(Level.WARNING, "getCategoryMapping failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("syncLazadaCategories".equals(action)) {
@@ -566,13 +670,13 @@ public class SalesChannelProductsServlet extends BaseController {
                     writeJson(resp, "{\"success\":false,\"message\":\"Channel not found\"}");
                     return;
                 }
-                com.wms.service.lazada.LazadaCategorySyncService svc = new com.wms.service.lazada.LazadaCategorySyncService();
-                com.wms.service.lazada.LazadaCategorySyncService.SyncResult r = svc.syncCategories(ch);
+                LazadaCategorySyncService svc = new LazadaCategorySyncService();
+                SyncResult r = svc.syncCategories(ch);
                 writeJson(resp, "{\"success\":" + r.success
                         + ",\"count\":" + r.count
                         + ",\"message\":\"" + esc(r.message) + "\"}");
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.WARNING, "syncLazadaCategories failed", e);
+                LOGGER.log(Level.WARNING, "syncLazadaCategories failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.getMessage()) + "\"}");
             }
         } else if ("debugPush".equals(action)) {
@@ -588,7 +692,7 @@ public class SalesChannelProductsServlet extends BaseController {
                 LOGGER.info("=== DEBUG PUSH START channel=" + channelId + " product=" + productId + " ===");
                 PushResult r;
                 if ("Website".equalsIgnoreCase(ch.getPlatform())) {
-                    com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+                    WebsiteProductService wps = new WebsiteProductService();
                     boolean ok = wps.pushProduct(ch, productId);
                     if (ok) {
                         r = PushResult.success(String.valueOf(productId), null, null);
@@ -602,7 +706,7 @@ public class SalesChannelProductsServlet extends BaseController {
                         + " msg=" + r.message + " ===");
                 writeJson(resp, renderPushResultJson(r));
             } catch (Exception e) {
-                LOGGER.log(java.util.logging.Level.SEVERE, "debugPush failed", e);
+                LOGGER.log(Level.SEVERE, "debugPush failed", e);
                 writeJson(resp, "{\"success\":false,\"message\":\"" + esc(e.toString()) + "\"}");
             }
         } else {
@@ -682,7 +786,7 @@ public class SalesChannelProductsServlet extends BaseController {
         }
     }
      private void handleGetProductDetail(HttpServletRequest req, HttpServletResponse resp)
-             throws jakarta.servlet.ServletException, java.io.IOException {
+            throws jakarta.servlet.ServletException, java.io.IOException {
         try {
             int productId = Integer.parseInt(req.getParameter("productId"));
             Product p = productService.findById(productId);
@@ -690,43 +794,68 @@ public class SalesChannelProductsServlet extends BaseController {
                 writeJson(resp, "{\"success\":false,\"message\":\"Không tìm thấy Master SKU.\"}");
                 return;
             }
-            
+
             List<String> imageUrls = new java.util.ArrayList<>();
-            
-            // Try fetching live images from Lazada first if channelProductId is provided
+            String description = null;
+            ChannelProduct cp = null;
+            Channel ch = null;
+
             String cpIdParam = req.getParameter("channelProductId");
             if (cpIdParam != null && !cpIdParam.isBlank()) {
                 try {
                     int cpId = Integer.parseInt(cpIdParam);
-                    com.wms.model.ChannelProduct cp = new com.wms.dao.ChannelProductDAO().findById(cpId);
+                    cp = new ChannelProductDAO().findById(cpId);
                     if (cp != null && cp.getChannelItemId() != null && !cp.getChannelItemId().isBlank()) {
-                        com.wms.model.Channel ch = new com.wms.dao.ChannelDAO().findById(cp.getChannelId());
+                        ch = new ChannelDAO().findById(cp.getChannelId());
                         if (ch != null) {
-                            List<String> lazadaImages = new LazadaProductService().fetchLazadaExistingImages(ch, cp.getChannelItemId());
+                            LazadaProductService lazService = new LazadaProductService();
+                            List<String> lazadaImages = lazService.fetchLazadaExistingImages(ch, cp.getChannelItemId());
                             if (lazadaImages != null && !lazadaImages.isEmpty()) {
                                 imageUrls.addAll(lazadaImages);
+                            }
+                            // Fetch description from Lazada when DB description and shortDescription are both null
+                            String masterDesc = p.getShortDescription();
+                            String channelDesc = cp.getDescription();
+                            String channelShortDesc = cp.getShortDescription();
+                            if ((masterDesc == null || masterDesc.isBlank())
+                                    && (channelDesc == null || channelDesc.isBlank())
+                                    && (channelShortDesc == null || channelShortDesc.isBlank())) {
+                                description = lazService.fetchLazadaDescription(ch, cp.getChannelItemId());
                             }
                         }
                     }
                 } catch (Exception e) {
-                    LOGGER.warning("Failed to fetch live Lazada images for detail: " + e.getMessage());
+                    LOGGER.warning("Failed to fetch live Lazada data for detail: " + e.getMessage());
                 }
             }
-            
+
             // Fallback: master product images
             if (imageUrls.isEmpty()) {
-                List<com.wms.model.ProductImage> images = new ProductImageDAO().findByProductId(productId);
-                for (com.wms.model.ProductImage img : images) {
+                List<ProductImage> images = new ProductImageDAO().findByProductId(productId);
+                for (ProductImage img : images) {
                     if (img.getImageUrl() != null && !img.getImageUrl().isBlank()) {
                         imageUrls.add(img.getImageUrl());
                     }
                 }
             }
-            
+
+            // Resolve description: prefer explicit fields, fall back to Lazada or empty
+            if (description == null || description.isBlank()) {
+                description = p.getShortDescription();
+                if (description == null || description.isBlank()) {
+                    if (cp != null && cp.getDescription() != null && !cp.getDescription().isBlank()) {
+                        description = cp.getDescription();
+                    } else if (cp != null && cp.getShortDescription() != null && !cp.getShortDescription().isBlank()) {
+                        description = cp.getShortDescription();
+                    }
+                }
+            }
+            if (description == null) description = "";
+
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("success", true);
             result.put("productId", productId);
-            result.put("description", p.getShortDescription() != null ? p.getShortDescription() : "");
+            result.put("description", description);
             result.put("images", imageUrls);
             writeJson(resp, JsonUtil.toJson(result));
         } catch (Exception e) {

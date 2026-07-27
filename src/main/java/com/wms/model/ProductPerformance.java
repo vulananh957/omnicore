@@ -53,6 +53,7 @@ public class ProductPerformance {
         private String channelPlatform;
         private String externalSku;
         private String lazadaProductId;     // For building Lazada URL
+        private int productId;              // Internal product ID for Online Shop URL
 
         public ChannelLink() {}
 
@@ -61,6 +62,14 @@ public class ProductPerformance {
             this.channelPlatform = channelPlatform;
             this.externalSku = externalSku;
             this.lazadaProductId = lazadaProductId;
+        }
+
+        public ChannelLink(String channelName, String channelPlatform, String externalSku, String lazadaProductId, int productId) {
+            this.channelName = channelName;
+            this.channelPlatform = channelPlatform;
+            this.externalSku = externalSku;
+            this.lazadaProductId = lazadaProductId;
+            this.productId = productId;
         }
 
         public String getChannelName() { return channelName; }
@@ -75,15 +84,19 @@ public class ProductPerformance {
         public String getLazadaProductId() { return lazadaProductId; }
         public void setLazadaProductId(String lazadaProductId) { this.lazadaProductId = lazadaProductId; }
 
+        public int getProductId() { return productId; }
+        public void setProductId(int productId) { this.productId = productId; }
+
         /**
-         * Build Lazada product URL from Lazada_Product_ID.
-         * Format: https://www.lazada.vn/products/i{productId}.html
+         * Build external product URL for Lazada or Online Shop.
          */
         public String getExternalUrl() {
             if ("Lazada".equalsIgnoreCase(channelPlatform) && lazadaProductId != null && !lazadaProductId.isEmpty()) {
                 return "https://www.lazada.vn/products/i" + lazadaProductId + ".html";
             }
-            // Can extend for other platforms here
+            if ("Website".equalsIgnoreCase(channelPlatform) || "Own Website".equalsIgnoreCase(channelName)) {
+                return "https://shop.isp392.click/products/" + productId;
+            }
             return null;
         }
     }

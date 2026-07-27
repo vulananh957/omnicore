@@ -417,6 +417,7 @@ public class SkuMappingDAO {
                    + "LEFT JOIN products s ON sm.sku_id = s.product_id "
                    + "LEFT JOIN channel_products cp ON sm.sku_id = cp.product_id AND sm.channel_id = cp.channel_id "
                    + "WHERE sm.sku_id IN (" + placeholders + ") "
+                   + "  AND sm.channel_id = ? "
                    + "  AND sm.sync_status IN ('SYNCED','PENDING') "
                    + "  AND cp.channel_item_id IS NOT NULL AND cp.channel_item_id != '' "
                    + "  AND c.is_active = 1";
@@ -457,14 +458,11 @@ public class SkuMappingDAO {
         if (productIds == null || productIds.isEmpty()) return rows;
 
         String placeholders = String.join(",", java.util.Collections.nCopies(productIds.size(), "?"));
-        // Join sku_mappings → channel_products to get lazada_product_id (channel_item_id)
-        String sql = "SELECT sm.sku_id, c.channel_name, c.platform, cp.lazada_sku_id, cp.channel_item_id "
-                   + "FROM sku_mappings sm "
-                   + "JOIN channels c ON sm.channel_id = c.channel_id "
-                   + "LEFT JOIN channel_products cp ON sm.sku_id = cp.product_id AND sm.channel_id = cp.channel_id "
-                   + "WHERE sm.sku_id IN (" + placeholders + ") "
-                   + "  AND sm.sync_status IN ('SYNCED','PENDING') "
-                   + "  AND cp.channel_item_id IS NOT NULL AND cp.channel_item_id != '' "
+        String sql = "SELECT cp.product_id, c.channel_name, c.platform, cp.channel_sku_code, cp.channel_item_id "
+                   + "FROM channel_products cp "
+                   + "JOIN channels c ON cp.channel_id = c.channel_id "
+                   + "WHERE cp.product_id IN (" + placeholders + ") "
+                   + "  AND cp.status = 'ACTIVE' "
                    + "  AND c.is_active = 1";
 
         try (Connection conn = DBConnection.getConnection();
@@ -474,11 +472,11 @@ public class SkuMappingDAO {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     rows.add(new Object[]{
-                        rs.getInt("sku_id"),
+                        rs.getInt("product_id"),
                         rs.getString("channel_name"),
                         rs.getString("platform"),
-                        rs.getString("lazada_sku_id"),   // r[3] = externalSku
-                        rs.getString("channel_item_id")    // r[4] = lazadaProductId
+                        rs.getString("channel_sku_code"),
+                        rs.getString("channel_item_id")
                     });
                 }
             }

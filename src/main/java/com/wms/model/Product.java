@@ -27,9 +27,13 @@ public class Product {
     private String categoryName;
     private Integer createdBy;
     private String creatorName;
+    private String dimensions;
     private String attributesText;
     private Double weightKg;
     private Double qtyOnHand = 0.0;
+    private Double qtyAvailable = 0.0;
+    private Double qtyHolding = 0.0;
+    private Double qtyPending = 0.0;
     private Double basePrice = 0.0;
     private Double macPrice = 0.0;  // Moving Average Cost — recalculated on each inbound receipt
     // ROP: Reorder Point — auto-calculated nightly by RopScheduler.
@@ -224,6 +228,7 @@ public class Product {
         this.creatorName = creatorName;
     }
 
+    @JsonProperty("attributesText")
     public String getAttributesText() {
         return attributesText;
     }
@@ -246,6 +251,15 @@ public class Product {
 
     public void setQtyOnHand(Double qtyOnHand) {
         this.qtyOnHand = qtyOnHand;
+    }
+
+    @JsonProperty("qtyAvailable")
+    public Double getQtyAvailable() {
+        return qtyAvailable != null ? qtyAvailable : qtyOnHand;
+    }
+
+    public void setQtyAvailable(Double qtyAvailable) {
+        this.qtyAvailable = qtyAvailable;
     }
 
     public List<LocationConfig> getLocationConfigs() {
@@ -277,12 +291,37 @@ public class Product {
 
     @JsonProperty("dimensions")
     public String getDimensions() {
+        if (dimensions != null && !dimensions.isBlank()) {
+            return dimensions;
+        }
         return attributesText != null ? attributesText : "N/A";
     }
+
+    public void setDimensions(String dimensions) {
+        this.dimensions = dimensions;
+    }
+
+
 
     @JsonProperty("weight")
     public String getWeight() {
         return weightKg != null ? weightKg + " kg" : "N/A";
+    }
+
+    public Double getQtyHolding() {
+        return qtyHolding;
+    }
+
+    public void setQtyHolding(Double qtyHolding) {
+        this.qtyHolding = qtyHolding != null ? qtyHolding : 0.0;
+    }
+
+    public Double getQtyPending() {
+        return qtyPending;
+    }
+
+    public void setQtyPending(Double qtyPending) {
+        this.qtyPending = qtyPending != null ? qtyPending : 0.0;
     }
 
     public Double getBasePrice() {

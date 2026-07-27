@@ -11,6 +11,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -52,6 +54,7 @@ public class SchemaInitListener implements ServletContextListener {
             ensureLazadaStockPushLogTable();
             ensureSkuMappingsTable();
             ensureMappingExceptionsTable();
+            ensureCategoryMappingsTable();
             ensureInventoryTable();
             ensureInventoryLedgerTable();
             ensureOrdersTable();
@@ -75,12 +78,16 @@ public class SchemaInitListener implements ServletContextListener {
             ensureLazadaShipmentProvidersTable();
             ensureNotificationsTable();
             ensureMockShippingCarriersTable();
+            ensureWebStorefrontTables();
             ensureInventoryDeductionLogTable();
             ensureChannelSyncAuditTable();
             ensureLazadaRtsLogTable();
+            ensureInventoryChangeLogTable();
+            ensureAuditLogTables();
             migrateChannelsColumns();
             ensureIndexes();
             seedDefaultData();
+            syncAllProductStockTotals();
             LOGGER.info("SchemaInitListener: Schema initialisation completed successfully.");
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "SchemaInitListener: FAILED to initialise schema. "
@@ -98,7 +105,10 @@ public class SchemaInitListener implements ServletContextListener {
 
     private void createTableIfNotExists(Connection conn, String tableName, String createSql) throws SQLException {
         DatabaseMetaData md = conn.getMetaData();
-        try (ResultSet rs = md.getTables(null, null, tableName, new String[]{"TABLE"})) {
+        // Scope to this connection's own catalog — a null catalog makes MySQL Connector/J
+        // search every database the DB user can see, so a same-named table in another
+        // schema on this server (e.g. omnicore_web) would falsely read as "already exists".
+        try (ResultSet rs = md.getTables(conn.getCatalog(), null, tableName, new String[]{"TABLE"})) {
             if (!rs.next()) {
                 try (Statement st = conn.createStatement()) {
                     st.executeUpdate(createSql);
@@ -191,7 +201,13 @@ public class SchemaInitListener implements ServletContextListener {
     private void addColumnIfMissing(Connection conn, DatabaseMetaData md,
                                    String table, String column, String definition)
             throws SQLException {
-        try (ResultSet rs = md.getColumns(null, null, table, column)) {
+        // Scope to this connection's own catalog (not null) — this server also hosts
+        // omnicore_web, which has its own same-named "products" table with its own
+        // "qty_available" column. A null catalog makes MySQL Connector/J's getColumns()
+        // search every database the DB user can see, so that unrelated column in
+        // omnicore_web.products was making this check think wms_hub.products already
+        // had it, silently skipping the ALTER TABLE.
+        try (ResultSet rs = md.getColumns(conn.getCatalog(), null, table, column)) {
             if (!rs.next()) {
                 try (Statement st = conn.createStatement()) {
                     st.executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
@@ -347,8 +363,36 @@ public class SchemaInitListener implements ServletContextListener {
                 "DECIMAL(12,4) NOT NULL DEFAULT 0 COMMENT 'Safety Stock = (D_max×L_max) − (D_avg×L_avg)'");
             addColumnIfMissing(conn, md, "products", "rop_calculated",
                 "DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT 'Reorder Point = (D_avg×L_avg) + Safety_Stock'");
+            // Cached aggregate stock (Hybrid Inventory Sync, in progress) — InventoryDAO.addInventory()
+            // and ProductDAO.syncStockTotals() write SUM(inventory.qty_on_hand/qty_available) here for
+            // website/omnichannel reads. These columns were missing, which made every UPDATE against
+            // them throw "Unknown column", rolling back addInventory()'s whole transaction (including
+            // the correct inventory-table write) — GRN receipts looked successful (MAC updated) but the
+            // stock quantity silently never landed. See CHANGELOG for the 2026-07-19 fix.
+            addColumnIfMissing(conn, md, "products", "qty_on_hand",
+                "DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT 'Cached SUM(inventory.qty_on_hand) across warehouses'");
+            addColumnIfMissing(conn, md, "products", "qty_available",
+                "DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT 'Cached SUM(inventory.qty_available) across warehouses'");
             // Status workflow is gone: drop the legacy columns if they still exist.
             dropProductApprovalColumnsIfExist(conn, md);
+            backfillProductStockTotals(conn);
+        }
+    }
+
+    /**
+     * Re-derives products.qty_on_hand/qty_available from SUM(inventory.*) for every product.
+     * Idempotent and cheap — safe to run on every boot. Needed once after adding the two
+     * columns above (existing products would otherwise sit at the DEFAULT 0 forever), and
+     * also self-heals any product whose cache drifted from a past addInventory() failure.
+     */
+    private void backfillProductStockTotals(Connection conn) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.executeUpdate(
+                "UPDATE products p LEFT JOIN ( "
+                + "  SELECT product_id, SUM(qty_on_hand) AS qoh, SUM(qty_available) AS qa "
+                + "  FROM inventory GROUP BY product_id "
+                + ") i ON i.product_id = p.product_id "
+                + "SET p.qty_on_hand = COALESCE(i.qoh, 0), p.qty_available = COALESCE(i.qa, 0)");
         }
     }
 
@@ -361,7 +405,7 @@ public class SchemaInitListener implements ServletContextListener {
         // Only run the safety UPDATE if the column still exists (first-time migration).
         // On subsequent boots the column is already gone — skip the UPDATE to avoid SQL error.
         boolean statusColExists = false;
-        try (java.sql.ResultSet rs = md.getColumns(null, null, "products", "status")) {
+        try (java.sql.ResultSet rs = md.getColumns(conn.getCatalog(), null, "products", "status")) {
             statusColExists = rs.next();
         }
         if (statusColExists) {
@@ -380,7 +424,7 @@ public class SchemaInitListener implements ServletContextListener {
 
     private void dropColumnIfExists(Connection conn, DatabaseMetaData md, String table, String column) {
         try (java.sql.Statement st = conn.createStatement()) {
-            java.sql.ResultSet rs = md.getColumns(null, null, table, column);
+            java.sql.ResultSet rs = md.getColumns(conn.getCatalog(), null, table, column);
             boolean exists = rs.next();
             rs.close();
             if (exists) {
@@ -411,7 +455,12 @@ public class SchemaInitListener implements ServletContextListener {
         try (Connection conn = DBConnection.getConnection()) {
             createTableIfNotExists(conn, "product_images",
                 "CREATE TABLE product_images (image_id INT AUTO_INCREMENT PRIMARY KEY, product_id INT NOT NULL, image_url VARCHAR(500) NOT NULL, is_primary TINYINT(1) NOT NULL DEFAULT 0, sort_order INT NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            seedDefaultProductImages(conn);
         }
+    }
+
+    private void seedDefaultProductImages(Connection conn) throws SQLException {
+        // Disabled auto-seeding fake covers — products created without images must stay empty.
     }
 
     private void ensureChannelsTable() throws SQLException {
@@ -638,6 +687,14 @@ public class SchemaInitListener implements ServletContextListener {
         try (Connection conn = DBConnection.getConnection()) {
             createTableIfNotExists(conn, "suppliers",
                 "CREATE TABLE suppliers (supplier_id INT AUTO_INCREMENT PRIMARY KEY, supplier_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, contact_person VARCHAR(100) DEFAULT NULL, phone VARCHAR(20) DEFAULT NULL, email VARCHAR(100) DEFAULT NULL, address VARCHAR(500) DEFAULT NULL, credit_limit DECIMAL(15,2) DEFAULT 0.00, payment_terms VARCHAR(50) DEFAULT NULL, status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX idx_supplier_code (supplier_code), INDEX idx_supplier_status (status), INDEX idx_supplier_name (name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate(
+                    "INSERT IGNORE INTO suppliers (supplier_code, name, contact_person, phone, email, address, credit_limit, payment_terms, status) VALUES " +
+                    "('NCC-2401-001', 'Công ty TNHH Phân Phối Tiêu Dùng Việt Nam', 'Nguyễn Văn Hùng', '0903123456', 'hung.nv@vitieudung.com.vn', '123 Nguyễn Văn Cừ, Q.5, TP.HCM', 500000000.00, 'NET30', 'ACTIVE'), " +
+                    "('NCC-2401-002', 'Nhà Cung Cấp Thiết Bị Điện Tử Tân Phát', 'Trần Thị Mai', '0918987654', 'mai.tran@tanphatelec.vn', '456 Lê Đại Hành, Q.11, TP.HCM', 1000000000.00, 'NET60', 'ACTIVE'), " +
+                    "('NCC-2401-003', 'Công ty Cổ Phần May Mặc Hưng Thịnh', 'Phạm Quốc Bảo', '0977112233', 'bao.pq@hungthinhgarment.com', '789 KCN Tân Bình, Tân Phú, TP.HCM', 300000000.00, 'NET15', 'ACTIVE'), " +
+                    "('NCC-2401-004', 'Công ty TNHH Hóa Mỹ Phẩm Thiên Nhiên', 'Lê Hoàng Anh', '0933445566', 'hoanganh@thiennhienbio.vn', '12 Đường số 7, KDC Nam Long, Q.7, TP.HCM', 200000000.00, 'NET30', 'ACTIVE')");
+            }
         }
     }
 
@@ -684,7 +741,34 @@ public class SchemaInitListener implements ServletContextListener {
     private void ensureMockShippingCarriersTable() throws SQLException {
         try (Connection conn = DBConnection.getConnection()) {
             createTableIfNotExists(conn, "mock_shipping_carriers",
-                "CREATE TABLE mock_shipping_carriers (carrier_id INT AUTO_INCREMENT PRIMARY KEY, carrier_name VARCHAR(100) NOT NULL, fee DECIMAL(12,2) NOT NULL DEFAULT 0, is_active TINYINT(1) NOT NULL DEFAULT 1, display_order INT DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                "CREATE TABLE mock_shipping_carriers (carrier_id INT AUTO_INCREMENT PRIMARY KEY, carrier_name VARCHAR(100) NOT NULL UNIQUE, fee DECIMAL(12,2) NOT NULL DEFAULT 0, is_active TINYINT(1) NOT NULL DEFAULT 1, display_order INT DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            // Idempotent migration: add UNIQUE index on carrier_name if not present (fix for legacy tables without it)
+            DatabaseMetaData md = conn.getMetaData();
+            boolean uniqueExists = false;
+            try (java.sql.ResultSet idxRs = md.getIndexInfo(null, null, "mock_shipping_carriers", true, false)) {
+                while (idxRs.next()) {
+                    String idxName = idxRs.getString("INDEX_NAME");
+                    String colName = idxRs.getString("COLUMN_NAME");
+                    if ("carrier_name".equalsIgnoreCase(colName) && idxName != null && !idxName.equalsIgnoreCase("PRIMARY")) {
+                        uniqueExists = true;
+                        break;
+                    }
+                }
+            }
+            if (!uniqueExists) {
+                // Remove duplicate rows first (keep lowest carrier_id per name)
+                try (Statement st = conn.createStatement()) {
+                    st.executeUpdate(
+                        "DELETE t1 FROM mock_shipping_carriers t1 " +
+                        "INNER JOIN mock_shipping_carriers t2 " +
+                        "WHERE t1.carrier_name = t2.carrier_name AND t1.carrier_id > t2.carrier_id");
+                    try {
+                        st.executeUpdate("ALTER TABLE mock_shipping_carriers ADD UNIQUE KEY uq_carrier_name (carrier_name)");
+                    } catch (Exception ignored) {}
+                }
+            }
+
             try (Statement st = conn.createStatement()) {
                 st.executeUpdate(
                     "INSERT IGNORE INTO mock_shipping_carriers (carrier_name, fee, display_order) VALUES " +
@@ -694,8 +778,73 @@ public class SchemaInitListener implements ServletContextListener {
                     "('J&T Express Mock', 18000, 4)");
                 st.executeUpdate(
                     "INSERT IGNORE INTO system_config (config_key, config_value, description, is_active) VALUES " +
-                    "('website.mock_shipping.enabled', '0', 'Bat/tat mo phong don vi van chuyen cho kenh Website (chon hang o checkout, tem van don gia)', 1)");
+                    "('website.mock_shipping.enabled', '1', 'Bat/tat mo phong don vi van chuyen cho kenh Website (chon hang o checkout, tem van don gia)', 1)");
             }
+        }
+    }
+
+    /**
+     * Ensures omnicore-web storefront tables exist in the database (customers, web_saved_carts,
+     * web_orders, web_order_status_history).
+     */
+    private void ensureWebStorefrontTables() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "customers",
+                "CREATE TABLE customers (" +
+                "customer_id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "email VARCHAR(100) NOT NULL UNIQUE, " +
+                "password_hash VARCHAR(255) NOT NULL, " +
+                "full_name VARCHAR(100) NOT NULL, " +
+                "phone VARCHAR(20), " +
+                "default_detailed_address VARCHAR(255), " +
+                "default_ward VARCHAR(100), " +
+                "default_city VARCHAR(100), " +
+                "active TINYINT(1) DEFAULT 1, " +
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            createTableIfNotExists(conn, "web_saved_carts",
+                "CREATE TABLE web_saved_carts (" +
+                "customer_id INT PRIMARY KEY, " +
+                "items_json JSON NOT NULL, " +
+                "saved_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
+                "FOREIGN KEY (customer_id) REFERENCES customers(customer_id) ON DELETE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            createTableIfNotExists(conn, "web_orders",
+                "CREATE TABLE web_orders (" +
+                "order_id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "customer_id INT NOT NULL, " +
+                "web_order_ref VARCHAR(32) NOT NULL UNIQUE, " +
+                "omnicore_order_id INT, " +
+                "status VARCHAR(32) NOT NULL DEFAULT 'PENDING', " +
+                "status_cache VARCHAR(32) NOT NULL DEFAULT 'PENDING', " +
+                "sync_status VARCHAR(16) NOT NULL DEFAULT 'PENDING', " +
+                "sync_retry_count INT NOT NULL DEFAULT 0, " +
+                "last_sync_attempt_at DATETIME, " +
+                "total_amount DECIMAL(12,2) NOT NULL, " +
+                "recipient_name VARCHAR(100) NOT NULL, " +
+                "recipient_phone VARCHAR(20) NOT NULL, " +
+                "shipping_address TEXT NOT NULL, " +
+                "items_snapshot JSON NOT NULL, " +
+                "tracking_number VARCHAR(64), " +
+                "cancellation_reason TEXT, " +
+                "cancelled_at DATETIME, " +
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
+                "FOREIGN KEY (customer_id) REFERENCES customers(customer_id) ON DELETE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            createTableIfNotExists(conn, "web_order_status_history",
+                "CREATE TABLE web_order_status_history (" +
+                "history_id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "order_id INT NOT NULL, " +
+                "status VARCHAR(32) NOT NULL, " +
+                "note TEXT, " +
+                "changed_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                "FOREIGN KEY (order_id) REFERENCES web_orders(order_id) ON DELETE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
 
@@ -1021,6 +1170,36 @@ public class SchemaInitListener implements ServletContextListener {
         }
     }
 
+    /**
+     * category_mappings — WMS category ↔ Lazada leaf category links (UC-B2C09).
+     * Written by CategoryMappingDAO, read by SkuMappingDAO.findAll()'s LEFT JOIN
+     * (lazada_category_name column) — that join was silently throwing
+     * "Table 'category_mappings' doesn't exist" on every call, which SkuMappingDAO
+     * catches internally and turns into an empty list, so the whole SKU Mapping
+     * page showed 0 mappings even when sku_mappings had real rows.
+     */
+    private void ensureCategoryMappingsTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "category_mappings",
+                "CREATE TABLE category_mappings ("
+                + "mapping_id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "channel_id INT NOT NULL, "
+                + "wms_category_id INT NOT NULL, "
+                + "lazada_category_id BIGINT NOT NULL, "
+                + "lazada_name VARCHAR(255), "
+                + "is_primary TINYINT(1) NOT NULL DEFAULT 0, "
+                + "created_by INT DEFAULT NULL, "
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                + "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+                + "UNIQUE KEY uk_mappings (channel_id, wms_category_id, lazada_category_id), "
+                + "FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE, "
+                + "FOREIGN KEY (wms_category_id) REFERENCES categories(category_id) ON DELETE CASCADE, "
+                + "FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL, "
+                + "INDEX idx_cm_wms_category (wms_category_id)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
     private void ensureInventoryDeductionLogTable() throws SQLException {
         try (Connection conn = DBConnection.getConnection()) {
             // Drop old table if it exists to reset FK constraints
@@ -1050,6 +1229,92 @@ public class SchemaInitListener implements ServletContextListener {
         }
     }
 
+    /**
+     * 3 bảng AuditLogDAO ghi vào (2026-07-19 cleanup) — không bảng nào trong 3 bảng này
+     * từng tồn tại trong DB, nên logApiAuth()/logDeductionAttempt()/logSyncError() đã fail
+     * âm thầm (catch SQLException, chỉ log WARNING) ở MỌI môi trường từ trước tới giờ. Đây
+     * là audit/compliance log (theo javadoc AuditLogDAO) nên dùng createTableIfNotExists,
+     * không DROP+recreate — không muốn mất lịch sử audit mỗi lần restart.
+     */
+    private void ensureAuditLogTables() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "api_audit_log",
+                "CREATE TABLE api_audit_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "channel VARCHAR(30), "
+                + "method VARCHAR(10), "
+                + "path VARCHAR(255), "
+                + "remote_ip VARCHAR(45), "
+                + "signature_valid TINYINT(1) NOT NULL, "
+                + "reason VARCHAR(255), "
+                + "logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "INDEX idx_channel (channel), "
+                + "INDEX idx_logged_at (logged_at)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            createTableIfNotExists(conn, "deduction_audit_log",
+                "CREATE TABLE deduction_audit_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "order_id INT, "
+                + "order_ref VARCHAR(50), "
+                + "product_id INT, "
+                + "channel VARCHAR(30), "
+                + "qty_requested INT, "
+                + "qty_available INT, "
+                + "deduct_success TINYINT(1) NOT NULL, "
+                + "reason VARCHAR(255), "
+                + "logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "INDEX idx_order_ref (order_ref), "
+                + "INDEX idx_product (product_id)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            createTableIfNotExists(conn, "sync_error_log",
+                "CREATE TABLE sync_error_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "from_system VARCHAR(30), "
+                + "to_system VARCHAR(30), "
+                + "endpoint VARCHAR(255), "
+                + "error_message VARCHAR(500), "
+                + "http_status INT, "
+                + "logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "INDEX idx_logged_at (logged_at)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    /**
+     * Nguồn dữ liệu thật cho InventoryPushScheduler (BUG-01 fix, 2026-07-19) — ghi bởi
+     * deductWithLock()/restoreDeductedStock() trong cùng transaction với thay đổi ton kho.
+     * Không DROP+recreate như 2 bảng log phía trên: đây là dữ liệu vận hành (driver cho việc
+     * quyết định push gì mỗi 5s), không phải audit phụ — mất dữ liệu này khi restart sẽ làm
+     * batch đầu tiên sau restart không thấy thay đổi nào (an toàn, chỉ trễ 1 chu kỳ, không sai).
+     */
+    private void ensureInventoryChangeLogTable() throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            createTableIfNotExists(conn, "inventory_change_log",
+                "CREATE TABLE inventory_change_log ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "product_id INT NOT NULL, "
+                + "qty_before INT NOT NULL, "
+                + "qty_after INT NOT NULL, "
+                + "changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE, "
+                + "INDEX idx_changed_at (changed_at), "
+                + "INDEX idx_product (product_id)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    /**
+     * Cleanup note (2026-07-19): schema used to be channel_product_id/order_id/order_ref/
+     * status(ENUM PUSH|PULL|...)/sync_timestamp — but {@link com.wms.service.channel.ChannelSyncAudit},
+     * the only actual reader/writer, has always inserted channel_id/operation/ref_code/
+     * request_data/response_data/error_message. Every single call was failing silently
+     * ("Unknown column 'channel_id'"), so this table has never recorded a row. Column set
+     * below matches ChannelSyncAudit.log() for real; operation is a free-form VARCHAR (not
+     * an ENUM) since that class's own javadoc says it covers STOCK_PUSH/PACK/RTS/RMA_UPDATE/
+     * WEBHOOK/etc. — a fixed PUSH/PULL/UPDATE/DELETE/RTS enum would reject most of those.
+     */
     private void ensureChannelSyncAuditTable() throws SQLException {
         try (Connection conn = DBConnection.getConnection()) {
             try (Statement st = conn.createStatement()) {
@@ -1059,16 +1324,18 @@ public class SchemaInitListener implements ServletContextListener {
             createTableIfNotExists(conn, "channel_sync_audit",
                 "CREATE TABLE channel_sync_audit ("
                 + "id INT AUTO_INCREMENT PRIMARY KEY, "
-                + "channel_product_id INT, "
-                + "order_id INT, "
-                + "order_ref VARCHAR(50), "
-                + "operation ENUM('PUSH', 'PULL', 'UPDATE', 'DELETE', 'RTS') NOT NULL, "
-                + "status ENUM('SUCCESS', 'FAILED', 'PENDING') DEFAULT 'PENDING', "
+                + "channel_id INT, "
+                + "operation VARCHAR(30) NOT NULL, "
+                + "ref_code VARCHAR(100), "
+                + "http_status INT, "
+                + "request_data TEXT, "
+                + "response_data TEXT, "
                 + "error_message VARCHAR(500), "
-                + "sync_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                + "duration_ms BIGINT, "
+                + "synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 + "INDEX idx_operation (operation), "
-                + "INDEX idx_status (status), "
-                + "INDEX idx_order (order_ref)"
+                + "INDEX idx_channel (channel_id), "
+                + "INDEX idx_ref (ref_code)"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
@@ -1079,18 +1346,32 @@ public class SchemaInitListener implements ServletContextListener {
                 st.executeUpdate("DROP TABLE IF EXISTS lazada_rts_log");
             }
 
+            // Schema rewritten to match what LazadaOrderDAO.insertRtsLog() actually writes
+            // (channel_id, order_id, lazada_order_id, package_id, status, response_excerpt) —
+            // the old definition here (order_ref/warehouse_id/response_text) never matched the
+            // code's INSERT, so every RTS attempt failed silently with "Unknown column".
             createTableIfNotExists(conn, "lazada_rts_log",
                 "CREATE TABLE lazada_rts_log ("
                 + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "channel_id INT NOT NULL, "
                 + "order_id INT NOT NULL, "
-                + "order_ref VARCHAR(50) NOT NULL, "
-                + "warehouse_id INT, "
+                + "lazada_order_id VARCHAR(50) NOT NULL, "
+                + "package_id VARCHAR(100), "
+                + "status ENUM('SUCCESS', 'FAILED') NOT NULL, "
+                + "response_excerpt TEXT, "
                 + "rts_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-                + "status ENUM('INITIATED', 'SUCCESS', 'FAILED') DEFAULT 'INITIATED', "
-                + "response_text TEXT, "
-                + "INDEX idx_order (order_ref), "
+                + "INDEX idx_order (lazada_order_id), "
                 + "INDEX idx_status (status)"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+    }
+
+    private void syncAllProductStockTotals() {
+        try {
+            new com.wms.dao.ProductDAO().syncAllStockTotals();
+            LOGGER.info("SchemaInitListener: Synced product & channel_product stock totals.");
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "SchemaInitListener: Failed to sync product stock totals", e);
         }
     }
 }

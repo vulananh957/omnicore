@@ -75,7 +75,9 @@ public class UserManagementServlet extends BaseController {
         String status = req.getParameter("status");
 
         List<User> usersList = userService.findAllFiltered(search, role, status);
+        List<Role> rolesList = userService.findAllRoles();
         req.setAttribute("usersList", usersList);
+        req.setAttribute("rolesList", rolesList);
 
         req.setAttribute("pageTitle", "Quản lý Tài khoản & Phân quyền");
         req.setAttribute("pageSubtitle", "Danh sách người dùng, thay đổi phân quyền và trạng thái hoạt động");

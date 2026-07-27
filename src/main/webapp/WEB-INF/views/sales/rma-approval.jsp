@@ -3,6 +3,16 @@
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 
+<style>
+    .omni-pagination a.omni-page-btn,
+    .omni-pagination span.omni-page-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        box-sizing: border-box;
+    }
+</style>
 <div style="max-width: 60rem; margin: 0 auto; padding-bottom: 2rem;">
 
     <c:choose>
@@ -74,4 +84,38 @@
             </c:forEach>
         </c:otherwise>
     </c:choose>
+
+    <c:if test="${rmaTotalPages > 1}">
+        <div class="omni-pagination">
+            <c:choose>
+                <c:when test="${rmaCurrentPage > 1}">
+                    <a class="omni-page-btn" href="?page=${rmaCurrentPage - 1}">&laquo; Trước</a>
+                </c:when>
+                <c:otherwise>
+                    <span class="omni-page-btn" style="opacity:.4;pointer-events:none;">&laquo; Trước</span>
+                </c:otherwise>
+            </c:choose>
+
+            <c:forEach begin="1" end="${rmaTotalPages}" var="p">
+                <c:choose>
+                    <c:when test="${p == rmaCurrentPage}">
+                        <span class="omni-page-btn active">${p}</span>
+                    </c:when>
+                    <c:otherwise>
+                        <a class="omni-page-btn" href="?page=${p}">${p}</a>
+                    </c:otherwise>
+                </c:choose>
+            </c:forEach>
+
+            <c:choose>
+                <c:when test="${rmaCurrentPage < rmaTotalPages}">
+                    <a class="omni-page-btn" href="?page=${rmaCurrentPage + 1}">Sau &raquo;</a>
+                </c:when>
+                <c:otherwise>
+                    <span class="omni-page-btn" style="opacity:.4;pointer-events:none;">Sau &raquo;</span>
+                </c:otherwise>
+            </c:choose>
+            <span class="omni-page-info">Trang ${rmaCurrentPage}/${rmaTotalPages}</span>
+        </div>
+    </c:if>
 </div>

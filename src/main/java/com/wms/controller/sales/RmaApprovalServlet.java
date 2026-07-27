@@ -32,7 +32,20 @@ public class RmaApprovalServlet extends BaseController {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
         List<RmaRequest> pending = rmaDAO.findPendingForWebsite();
-        req.setAttribute("pendingRmaList", pending);
+
+        int pageSize = 10;
+        int totalItems = pending.size();
+        int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) pageSize));
+        int page = parseId(req.getParameter("page"));
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        int start = (page - 1) * pageSize;
+        int end = Math.min(start + pageSize, totalItems);
+        List<RmaRequest> pageItems = start < end ? pending.subList(start, end) : java.util.Collections.emptyList();
+
+        req.setAttribute("pendingRmaList", pageItems);
+        req.setAttribute("rmaCurrentPage", page);
+        req.setAttribute("rmaTotalPages", totalPages);
         req.setAttribute("pageTitle",    "Yêu Cầu Hoàn Trả (Website)");
         req.setAttribute("pageSubtitle", "Duyệt yêu cầu trả hàng do khách gửi trực tiếp trên website, kèm ảnh/video bằng chứng");
         req.setAttribute("currentPage",  "sales-rma-approval");

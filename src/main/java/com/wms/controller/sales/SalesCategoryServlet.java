@@ -69,7 +69,7 @@ public class SalesCategoryServlet extends BaseController {
         boolean isWriteAction = action != null && (
             "create".equals(action) || "update".equals(action) ||
             "delete".equals(action) || "deactivate".equals(action) ||
-            "reactivate".equals(action)
+            "reactivate".equals(action) || "resync_all".equals(action)
         );
 
         if (isWriteAction && !isSalesStaff) {
@@ -97,6 +97,11 @@ public class SalesCategoryServlet extends BaseController {
             } else if ("reactivate".equals(action)) {
                 success = handleReactivate(req);
                 message = success ? "Kích hoạt lại danh mục thành công!" : "Kích hoạt lại thất bại.";
+            } else if ("resync_all".equals(action)) {
+                int total = categoryService.findAll().size();
+                int synced = categoryService.resyncAllToWebsite();
+                success = synced > 0 || total == 0;
+                message = "Đã đồng bộ " + synced + "/" + total + " danh mục sang Website.";
             } else {
                 message = "Hành động không hợp lệ.";
             }

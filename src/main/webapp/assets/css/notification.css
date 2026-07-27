@@ -6,7 +6,7 @@
 /* ── Bell Button ──────────────────────────────────────────────── */
 .notif-btn {
     position: relative;
-    z-index: 999;  /* must be above backdrop (998) so clicks reach the button */
+    z-index: 10;
     width: 36px; height: 36px;
     background: var(--alice);
     border: 1px solid var(--border);
@@ -235,20 +235,40 @@
     background: transparent;
 }
 
-/* ── When any modal is open: push notification bell behind the overlay ── */
+.notif-btn.notif-hidden-by-modal {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* ── When any modal or sidebar is open: completely hide and disable notification bell ── */
 body.modal-open .notif-btn,
 body.modal-open .notif-panel,
 body.modal-open .notif-backdrop,
-body:has(.op-modal-overlay.open) .notif-btn,
-body:has(.op-modal-overlay.open) .notif-panel,
-body:has(.op-modal-overlay.open) .notif-backdrop,
-body:has(.modal-overlay.active) .notif-btn,
-body:has(.modal-overlay.active) .notif-panel,
-body:has(.modal-overlay.active) .notif-backdrop {
-    z-index: 1 !important;
+body:has(.staff-overlay:not(.hidden-panel)) .notif-btn,
+body:has(.supplier-overlay:not(.hidden-panel)) .notif-btn,
+body:has(.warehouse-overlay:not(.hidden-panel)) .notif-btn,
+body:has(.category-overlay:not(.hidden-panel)) .notif-btn,
+body:has([id*="Modal"]:not([style*="display: none"])):not(:has([id*="Modal"][style*="display:none"])) .notif-btn,
+body:has([id*="Overlay"]:not([style*="display: none"])):not(:has([id*="Overlay"][style*="display:none"])) .notif-btn,
+body:has([class*="overlay"]:not([style*="display: none"]):not(.hidden-panel)) .notif-btn,
+body:has([class*="modal"]:not([style*="display: none"])) .notif-btn,
+body:has(.ic-modal-overlay:not([style*="display: none"])) .notif-btn,
+body:has(.op-modal-overlay:not([style*="display: none"])) .notif-btn,
+body:has(.zm-overlay:not([style*="display: none"])) .notif-btn,
+body:has(.modal-backdrop) .notif-btn {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: -1 !important;
 }
-body.modal-open .notif-panel.open,
-body:has(.op-modal-overlay.open) .notif-panel.open,
-body:has(.modal-overlay.active) .notif-panel.open {
+
+body.modal-open .notif-panel,
+body:has(.staff-overlay:not(.hidden-panel)) .notif-panel,
+body:has(.supplier-overlay:not(.hidden-panel)) .notif-panel,
+body:has([id*="Modal"]:not([style*="display: none"])) .notif-panel,
+body:has([id*="Overlay"]:not([style*="display: none"])) .notif-panel,
+body:has([class*="overlay"]:not([style*="display: none"])) .notif-panel {
     display: none !important;
+    z-index: -1 !important;
 }

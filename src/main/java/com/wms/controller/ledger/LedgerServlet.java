@@ -21,26 +21,29 @@ import java.util.List;
  */
 public class LedgerServlet extends BaseController {
 
+    // khởi tạo 2 service cần cho sổ kho
     private final LedgerService ledgerService = new LedgerService();
     private final com.wms.service.warehouse.WarehouseService warehouseService = new com.wms.service.warehouse.WarehouseService();
 
+    // lấy danh sách tất cả các chứng từ nhập, xuất, chuyển, kiểm kê
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
-        consumeFlash(req);
-        // AJAX: return the line items of one document as JSON (for the detail modal)
+        consumeFlash(req); 
+        // xử lý để xem chi tiết sản phẩm trong phiếu (api phụ)
         if ("items".equals(req.getParameter("ajax"))) {
             resp.setContentType("application/json;charset=UTF-8");
-            String docId = req.getParameter("docId");
-            String docType = req.getParameter("docType");
+            String docId = req.getParameter("docId"); // lấy id chứng từ
+            String docType = req.getParameter("docType"); // lấy loại chứng từ
             try {
                 List<java.util.Map<String, Object>> items = ledgerService.findDocumentItems(docId, docType);
                 resp.getWriter().write(JsonUtil.toJson(items));
+                // trả về chuỗi json chứa danh sách sản phẩm
             } catch (Exception e) {
                 resp.getWriter().write("[]");
             }
-            return;
+            return; // ngắt luồng ngay lập tức
         }
 
         try {

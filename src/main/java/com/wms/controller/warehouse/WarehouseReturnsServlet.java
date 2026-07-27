@@ -73,7 +73,7 @@ public class WarehouseReturnsServlet extends BaseController {
 
         if (action == null || action.trim().isEmpty()) {
             setFlashError(req, "Hành động không hợp lệ.");
-            redirect(resp, CONTEXT_PATH);
+            redirect(req, resp, CONTEXT_PATH);
             return;
         }
 
@@ -177,7 +177,7 @@ public class WarehouseReturnsServlet extends BaseController {
             setFlashError(req, "Lỗi hệ thống: " + e.getMessage());
         }
 
-        redirect(resp, CONTEXT_PATH);
+        redirect(req, resp, CONTEXT_PATH);
     }
 
     private int[] getUserContext(HttpServletRequest req) {

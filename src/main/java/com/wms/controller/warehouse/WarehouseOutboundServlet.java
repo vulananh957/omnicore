@@ -384,7 +384,7 @@ public class WarehouseOutboundServlet extends BaseController {
         }
     }
 
-    /** Creates a disposal (SCRAP) issue note. Saves only — no stock deduction. */
+    /** Creates a disposal (SCRAP) issue note and records it to inventory_ledger with APPROVED status. */
     private void handleDisposal(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String sku = req.getParameter("sku");
         String reason = req.getParameter("reason");

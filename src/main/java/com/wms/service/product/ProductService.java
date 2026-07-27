@@ -6,6 +6,7 @@ import com.wms.dao.CategoryDAO;
 import com.wms.dao.ProductDAO;
 import com.wms.model.Category;
 import com.wms.model.Product;
+import com.wms.service.notification.ProductChangeNotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,7 @@ public class ProductService {
     private final ProductDAO productDAO = new ProductDAO();
     private final CategoryDAO categoryDAO = new CategoryDAO();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ProductChangeNotificationService notificationService = new ProductChangeNotificationService();
 
     public List<Product> findAll() {
         return productDAO.findAll();
@@ -70,6 +72,9 @@ public class ProductService {
         if (updates.getAttributesText() != null) {
             existing.setAttributesText(updates.getAttributesText().trim());
         }
+        if (updates.getDimensions() != null) {
+            existing.setDimensions(updates.getDimensions().trim());
+        }
         if (updates.getWeightKg() != null) {
             existing.setWeightKg(updates.getWeightKg());
         }
@@ -89,6 +94,11 @@ public class ProductService {
             return UpdateResult.failure("Không thể cập nhật sản phẩm.");
         }
         log.info("Product updated: productId={}", productId);
+
+        // Emit notification if product is listed on any channel
+        String changeDetails = buildChangeDetails(existing, updates);
+        notificationService.notifyIfListed(existing, "UPDATE", changeDetails);
+
         return UpdateResult.success();
     }
 
@@ -130,11 +140,52 @@ public class ProductService {
             log.warn("Delete product failed: not found productId={}", productId);
             return DeleteResult.failure("Sản phẩm không tồn tại.");
         }
+
+        // 1. Notify and delete/deactivate product on all connected sales channels (Website storefront / Lazada)
+        try {
+            com.wms.dao.ChannelProductDAO cpDao = new com.wms.dao.ChannelProductDAO();
+            com.wms.dao.ChannelDAO channelDao = new com.wms.dao.ChannelDAO();
+            com.wms.service.website.WebsiteProductService wps = new com.wms.service.website.WebsiteProductService();
+            com.wms.service.lazada.LazadaProductService lps = new com.wms.service.lazada.LazadaProductService();
+
+            List<com.wms.model.ChannelProduct> cps = cpDao.findByProduct(productId);
+            if (cps != null && !cps.isEmpty()) {
+                for (com.wms.model.ChannelProduct cp : cps) {
+                    com.wms.model.Channel ch = channelDao.findById(cp.getChannelId());
+                    if (ch != null) {
+                        if ("Website".equalsIgnoreCase(ch.getPlatform())) {
+                            log.info("ProductService: deleting product {} from Website channel {}...", productId, ch.getChannelName());
+                            wps.deleteProduct(ch, cp.getId());
+                        } else if ("Lazada".equalsIgnoreCase(ch.getPlatform())) {
+                            log.info("ProductService: deleting product {} from Lazada channel {}...", productId, ch.getChannelName());
+                            lps.deleteProduct(ch, cp.getId());
+                        }
+                    }
+                }
+            }
+
+            // Also check all active Website channels to send direct storefront delete call for this product ID
+            List<com.wms.model.Channel> channels = channelDao.findAll();
+            if (channels != null) {
+                for (com.wms.model.Channel ch : channels) {
+                    if (ch != null && "Website".equalsIgnoreCase(ch.getPlatform())) {
+                        wps.deleteProductByProductId(ch, productId);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("ProductService: error notifying channels during deletion for productId={}: {}", productId, e.getMessage());
+        }
+
+        // 2. Cascade delete from WMS database
         boolean success = productDAO.delete(productId);
         if (!success) {
             log.error("Product delete DAO failed: productId={}", productId);
             return DeleteResult.failure("Không thể xóa sản phẩm.");
         }
+
+        // 3. Send change notification
+        notificationService.notifyIfListed(existing, "DELETE", "Xóa sản phẩm " + productId);
         log.info("Product deleted: productId={}", productId);
         return DeleteResult.success();
     }
@@ -192,5 +243,22 @@ public class ProductService {
 
         public boolean isSuccess() { return success; }
         public String getMessage() { return message; }
+    }
+
+    private String buildChangeDetails(Product existing, Product updates) {
+        java.util.List<String> changes = new java.util.ArrayList<>();
+        if (updates.getProductName() != null && !updates.getProductName().equals(existing.getProductName())) {
+            changes.add("name");
+        }
+        if (updates.getBasePrice() != null && updates.getBasePrice() != existing.getBasePrice()) {
+            changes.add("price");
+        }
+        if (updates.getCategoryId() != null && !updates.getCategoryId().equals(existing.getCategoryId())) {
+            changes.add("category");
+        }
+        if (updates.getAttributesText() != null && !updates.getAttributesText().equals(existing.getAttributesText())) {
+            changes.add("attributes");
+        }
+        return String.join(", ", changes.isEmpty() ? java.util.List.of("other") : changes);
     }
 }

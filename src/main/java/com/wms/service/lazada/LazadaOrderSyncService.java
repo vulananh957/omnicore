@@ -27,13 +27,20 @@ import com.wms.service.common.NotificationService;
 /**
  * LazadaOrderSyncService — extracted from LazadaSyncScheduler.
  *
- * <p>Contains all order-persistence logic that was previously inlined in the scheduler:
- * upsert orders, shipping details, order items (with SKU mapping), and soft-allocation.
+ * <p>
+ * Contains all order-persistence logic that was previously inlined in the
+ * scheduler:
+ * upsert orders, shipping details, order items (with SKU mapping), and
+ * soft-allocation.
  *
- * <p>This is a stateful service: caller must call {@link #setChannel(Channel)} before
+ * <p>
+ * This is a stateful service: caller must call {@link #setChannel(Channel)}
+ * before
  * each sync cycle, or pass the channel explicitly on each call.
  *
- * <p>All DB operations accept an external {@link Connection} so the caller controls
+ * <p>
+ * All DB operations accept an external {@link Connection} so the caller
+ * controls
  * the transaction boundary. On error, the caller is responsible for rollback.
  */
 public class LazadaOrderSyncService {
@@ -42,11 +49,13 @@ public class LazadaOrderSyncService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final NotificationService notificationService = new NotificationService();
 
-    /** The channel being synced — set once per sync cycle via {@link #setChannel}. */
+    /**
+     * The channel being synced — set once per sync cycle via {@link #setChannel}.
+     */
     private Channel currentChannel;
 
-    public LazadaOrderSyncService() {}
-
+    public LazadaOrderSyncService() {
+    }
 
     public void setChannel(Channel channel) {
         this.currentChannel = channel;
@@ -95,7 +104,7 @@ public class LazadaOrderSyncService {
         }
 
         upsertShippingDetails(conn, generatedId, detailData, orderCode);
-        
+
         // Populate/upsert lazada_orders table
         upsertLazadaOrderTable(detailData, orderCode, channelId);
 
@@ -116,8 +125,8 @@ public class LazadaOrderSyncService {
     }
 
     private int upsertOrder(Connection conn, String orderCode, int channelId,
-                            BigDecimal totalAmount, String feeBreakdown, Timestamp createdAt,
-                            String lazadaStatus) throws SQLException {
+            BigDecimal totalAmount, String feeBreakdown, Timestamp createdAt,
+            String lazadaStatus) throws SQLException {
         // Map Lazada status → WMS status for the orders table
         String wmsStatus = orderService.mapLazadaStatus(lazadaStatus);
         String sql = "INSERT INTO orders "
@@ -147,13 +156,15 @@ public class LazadaOrderSyncService {
 
             if (affected == 1) {
                 try (ResultSet rs = ps.getGeneratedKeys()) {
-                    if (rs.next()) return rs.getInt(1);
+                    if (rs.next())
+                        return rs.getInt(1);
                 }
             }
             return findOrderIdByCode(conn, orderCode);
         }
     }
 
+    // bóc tách địa chỉ giao hàng và người nhận từ lazada về và lưu vào database
     private void upsertShippingDetails(Connection conn, int orderId, JsonNode detail, String orderCode)
             throws SQLException {
         JsonNode addr = detail.path("address_shipping");
@@ -167,8 +178,10 @@ public class LazadaOrderSyncService {
                 "(địa chỉ chưa rõ)");
         String city = addr.path("city").asText();
         String postcode = addr.path("postcode").asText();
-        if (!city.isEmpty()) address += ", " + city;
-        if (!postcode.isEmpty()) address += " " + postcode;
+        if (!city.isEmpty())
+            address += ", " + city;
+        if (!postcode.isEmpty())
+            address += " " + postcode;
         String courier = firstNonEmpty(
                 detail.path("shipping_provider").asText(),
                 detail.path("shipment_provider").asText(),
@@ -191,7 +204,10 @@ public class LazadaOrderSyncService {
             ps.setString(2, recipientName);
             ps.setString(3, address);
             ps.setString(4, courier);
-            if (waybill.isEmpty()) ps.setNull(5, Types.VARCHAR); else ps.setString(5, waybill);
+            if (waybill.isEmpty())
+                ps.setNull(5, Types.VARCHAR);
+            else
+                ps.setString(5, waybill);
             ps.setString(6, shippingStatus);
             ps.executeUpdate();
         }
@@ -206,7 +222,7 @@ public class LazadaOrderSyncService {
     }
 
     private int upsertOrderItems(Connection conn, int orderId, JsonNode detail,
-                                 String orderCode) throws SQLException {
+            String orderCode) throws SQLException {
         JsonNode items = detail.path("order_items");
         if (!items.isArray() || items.isEmpty()) {
             items = detail.path("data");
@@ -240,11 +256,14 @@ public class LazadaOrderSyncService {
                 + "ON DUPLICATE KEY UPDATE qty = VALUES(qty), unit_price = VALUES(unit_price), actual_price = VALUES(actual_price)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             for (JsonNode itemNode : items) {
+                // ánh xạ sku và lưu danh sách sản phẩm mua
                 String externalSku = stripNull(itemNode.path("sku").asText());
                 double qty = itemNode.path("quantity").asDouble(1);
-                if (qty <= 0) qty = 1;
+                if (qty <= 0)
+                    qty = 1;
                 double unitPrice = itemNode.path("item_price").asDouble(0);
-                if (unitPrice == 0) unitPrice = itemNode.path("price").asDouble(0);
+                if (unitPrice == 0)
+                    unitPrice = itemNode.path("price").asDouble(0);
 
                 // Skip items with no SKU mapping — do NOT fall back to a dummy placeholder
                 if (externalSku.isEmpty()) {
@@ -277,7 +296,7 @@ public class LazadaOrderSyncService {
                 loi.setShopSku(itemNode.path("shop_sku").asText());
                 loi.setProductName(itemNode.path("product_name").asText(itemNode.path("name").asText("Lazada Item")));
                 loi.setProductImage(itemNode.path("product_image").asText());
-                loi.setQuantity((int)qty);
+                loi.setQuantity((int) qty);
                 loi.setPaidPrice(BigDecimal.valueOf(itemNode.path("paid_price").asDouble(unitPrice)));
                 loi.setItemPrice(BigDecimal.valueOf(unitPrice));
                 loi.setSupplyPrice(BigDecimal.valueOf(itemNode.path("supply_price").asDouble(0.0)));
@@ -298,7 +317,7 @@ public class LazadaOrderSyncService {
         return count;
     }
 
-
+    // bóc tách thông tin giao hàng và người nhận từ lazada về
     private void upsertLazadaOrderTable(JsonNode detailData, String orderCode, int channelId) {
         try {
             LazadaOrder lo = new LazadaOrder();
@@ -306,10 +325,12 @@ public class LazadaOrderSyncService {
             String orderNum = detailData.path("order_number").asText();
             lo.setLazadaOrderNumber(orderNum.isEmpty() ? orderCode : orderNum);
             lo.setChannelId(channelId);
-            
-            // Lazada returns status as an array "statuses": ["canceled"] — use extractStatus()
+
+            // Lazada returns status as an array "statuses": ["canceled"] — use
+            // extractStatus()
             String status = orderService.extractStatus(detailData);
-            if (status.isEmpty()) status = "pending";
+            if (status.isEmpty())
+                status = "pending";
             lo.setStatus(status);
             if (isCancelledStatus(status)) {
                 lo.setWmsStatus("CANCELLED");
@@ -317,32 +338,36 @@ public class LazadaOrderSyncService {
                 lo.setWmsStatus("NEW");
 
             }
-            
+
             String firstName = detailData.path("address_shipping").path("first_name").asText();
             String lastName = detailData.path("address_shipping").path("last_name").asText();
             String recipientName = (firstName + " " + lastName).trim();
-            if (recipientName.isEmpty()) recipientName = "Lazada Customer";
+            if (recipientName.isEmpty())
+                recipientName = "Lazada Customer";
             lo.setCustomerName(recipientName);
             lo.setCustomerPhone(detailData.path("address_shipping").path("phone").asText());
-            
+
             String addr1 = detailData.path("address_shipping").path("address1").asText();
             String addr2 = detailData.path("address_shipping").path("address2").asText();
             String addr3 = detailData.path("address_shipping").path("address3").asText();
             java.util.List<String> addrParts = new java.util.ArrayList<>();
-            if (addr1 != null && !addr1.trim().isEmpty()) addrParts.add(addr1);
-            if (addr2 != null && !addr2.trim().isEmpty()) addrParts.add(addr2);
-            if (addr3 != null && !addr3.trim().isEmpty()) addrParts.add(addr3);
+            if (addr1 != null && !addr1.trim().isEmpty())
+                addrParts.add(addr1);
+            if (addr2 != null && !addr2.trim().isEmpty())
+                addrParts.add(addr2);
+            if (addr3 != null && !addr3.trim().isEmpty())
+                addrParts.add(addr3);
             String address = String.join(", ", addrParts);
             lo.setShippingAddress(address.isEmpty() ? "Lazada Address" : address);
             lo.setShippingCity(detailData.path("address_shipping").path("city").asText());
-            
+
             lo.setPrice(BigDecimal.valueOf(detailData.path("price").asDouble(0.0)));
             lo.setShippingFee(BigDecimal.valueOf(detailData.path("shipping_fee").asDouble(0.0)));
             lo.setVoucherSeller(BigDecimal.valueOf(detailData.path("voucher_seller").asDouble(0.0)));
             lo.setVoucherPlatform(BigDecimal.valueOf(detailData.path("voucher_platform").asDouble(0.0)));
             lo.setPaymentMethod(detailData.path("payment_method").asText("COD"));
             lo.setBuyerNote(detailData.path("buyer_note").asText(""));
-            
+
             String createdAtStr = detailData.path("created_at").asText();
             String updatedAtStr = detailData.path("updated_at").asText();
             if (createdAtStr != null && !createdAtStr.isEmpty()) {
@@ -352,20 +377,20 @@ public class LazadaOrderSyncService {
                 lo.setLazadaUpdatedAt(parseTimestamp(updatedAtStr).toLocalDateTime());
             }
             lo.setSyncedAt(java.time.LocalDateTime.now());
-            
+
             lazadaOrderDAO.upsertFromApi(lo);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to upsert lazada_orders table for order " + orderCode, e);
         }
     }
 
-
     private int findOrderIdByCode(Connection conn, String orderCode) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT order_id FROM orders WHERE order_code = ?")) {
             ps.setString(1, orderCode);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getInt("order_id");
+                if (rs.next())
+                    return rs.getInt("order_id");
             }
         }
         return -1;
@@ -392,7 +417,8 @@ public class LazadaOrderSyncService {
     }
 
     private JsonNode safeParse(String s) {
-        if (s == null || s.isEmpty()) return null;
+        if (s == null || s.isEmpty())
+            return null;
         try {
             return MAPPER.readTree(s);
         } catch (Exception e) {
@@ -407,7 +433,8 @@ public class LazadaOrderSyncService {
 
     private static String firstNonEmpty(String... candidates) {
         for (String c : candidates) {
-            if (c != null && !c.trim().isEmpty()) return c;
+            if (c != null && !c.trim().isEmpty())
+                return c;
         }
         return "";
     }
@@ -424,16 +451,17 @@ public class LazadaOrderSyncService {
         };
         for (String p : patterns) {
             try {
-                java.time.format.DateTimeFormatter fmt =
-                        java.time.format.DateTimeFormatter.ofPattern(p);
+                java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern(p);
                 if (p.contains("XXX") || p.contains("Z") && !p.endsWith("'Z'")) {
                     java.time.ZonedDateTime zdt = java.time.ZonedDateTime.parse(dateStr, fmt);
-                    return Timestamp.from(zdt.toInstant());
+                    java.time.ZonedDateTime vnZdt = zdt.withZoneSameInstant(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
+                    return Timestamp.valueOf(vnZdt.toLocalDateTime());
                 } else {
                     java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(dateStr, fmt);
                     return Timestamp.valueOf(ldt);
                 }
-            } catch (Exception ignore) {}
+            } catch (Exception ignore) {
+            }
         }
         return new Timestamp(System.currentTimeMillis());
     }
@@ -442,9 +470,11 @@ public class LazadaOrderSyncService {
         try {
             com.fasterxml.jackson.databind.node.ObjectNode node = MAPPER.createObjectNode();
             String shippingFee = detail.path("shipping_fee").asText();
-            if (shippingFee.isEmpty()) shippingFee = "0";
+            if (shippingFee.isEmpty())
+                shippingFee = "0";
             String voucherAmount = detail.path("voucher_amount").asText();
-            if (voucherAmount.isEmpty()) voucherAmount = "0";
+            if (voucherAmount.isEmpty())
+                voucherAmount = "0";
             node.put("shipping_fee", shippingFee);
             node.put("voucher_amount", voucherAmount);
             node.put("payment_method", detail.path("payment_method").asText());
@@ -455,16 +485,18 @@ public class LazadaOrderSyncService {
         }
     }
 
-    // ── Scheduler-facing API (called by LazadaSyncScheduler / LazadaOrderSyncScheduler) ──
+    // ── Scheduler-facing API (called by LazadaSyncScheduler /
+    // LazadaOrderSyncScheduler) ──
 
     private final LazadaOrderService orderService = new LazadaOrderService();
     private final LazadaOrderDAO lazadaOrderDAO = new LazadaOrderDAO();
 
     /**
-     * Fetches pending orders from Lazada API, upserts them into lazada_orders + lazada_order_items.
+     * Fetches pending orders from Lazada API, upserts them into lazada_orders +
+     * lazada_order_items.
      *
-     * @param channel  Lazada channel credentials
-     * @param limit    max orders to fetch per call
+     * @param channel Lazada channel credentials
+     * @param limit   max orders to fetch per call
      * @return number of new orders inserted
      */
     public int syncNewOrdersFromApi(Channel channel, int limit) {
@@ -489,12 +521,13 @@ public class LazadaOrderSyncService {
     /**
      * Fetches orders updated since the given instant, upserts status changes.
      *
-     * @param channel  Lazada channel credentials
-     * @param since    Instant from which to fetch updates (null = all)
+     * @param channel Lazada channel credentials
+     * @param since   Instant from which to fetch updates (null = all)
      * @return number of updated orders
      */
     public int syncExistingOrdersFromApi(Channel channel, Instant since) {
-        if (since == null) return 0;
+        if (since == null)
+            return 0;
         try {
             Long sinceMs = since.toEpochMilli();
             String json = orderService.getOrdersUpdatedAfter(channel, sinceMs, null);
@@ -509,12 +542,13 @@ public class LazadaOrderSyncService {
      * Batch-fetches line items for the given Lazada order IDs from Lazada API,
      * then upserts them into lazada_order_items.
      *
-     * @param channel   Lazada channel credentials
-     * @param orderIds  list of Lazada order_id strings (max 50 per API call)
+     * @param channel  Lazada channel credentials
+     * @param orderIds list of Lazada order_id strings (max 50 per API call)
      * @return number of items inserted
      */
     public int fetchOrderItemsFromApi(Channel channel, List<String> orderIds) {
-        if (orderIds == null || orderIds.isEmpty()) return 0;
+        if (orderIds == null || orderIds.isEmpty())
+            return 0;
         int total = 0;
         List<String> batch = new ArrayList<>();
         for (String oid : orderIds) {
@@ -524,7 +558,8 @@ public class LazadaOrderSyncService {
                 batch = new ArrayList<>();
             }
         }
-        if (!batch.isEmpty()) total += fetchOrderItemsBatch(channel, batch);
+        if (!batch.isEmpty())
+            total += fetchOrderItemsBatch(channel, batch);
         return total;
     }
 
@@ -533,7 +568,8 @@ public class LazadaOrderSyncService {
             String json = orderService.getOrderItems(channel, String.join(",", orderIds));
             JsonNode root = MAPPER.readTree(json);
             JsonNode items = root.path("data");
-            if (!items.isArray()) return 0;
+            if (!items.isArray())
+                return 0;
             int count = 0;
             for (JsonNode itemNode : items) {
                 LazadaOrderItem item = new LazadaOrderItem();
@@ -564,13 +600,16 @@ public class LazadaOrderSyncService {
     private int parseAndUpsertOrders(Channel channel, String json, int limit) throws Exception {
         JsonNode root = MAPPER.readTree(json);
         JsonNode orders = root.path("data").path("orders");
-        if (!orders.isArray()) return 0;
+        if (!orders.isArray())
+            return 0;
         int count = 0;
         int channelId = channel.getChannelId();
         for (JsonNode orderNode : orders) {
-            if (count >= limit) break;
+            if (count >= limit)
+                break;
             long orderId = orderNode.path("order_id").asLong();
-            if (orderId <= 0) continue;
+            if (orderId <= 0)
+                continue;
             String orderCode = String.valueOf(orderId);
 
             String lazadaStatus = orderService.extractStatus(orderNode);
@@ -597,14 +636,15 @@ public class LazadaOrderSyncService {
                 continue;
             }
 
-            // For new orders, save to BOTH orders and lazada_orders tables using saveOneOrder
+            // For new orders, save to BOTH orders and lazada_orders tables using
+            // saveOneOrder
             String detailJson = null;
             try {
                 detailJson = orderService.getOrderDetail(channel, orderCode);
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "parseAndUpsertOrders: getOrderDetail failed for " + orderCode, e);
             }
-            
+
             try (Connection conn = com.wms.util.DBConnection.getConnection()) {
                 conn.setAutoCommit(false);
                 setChannel(channel);
@@ -614,17 +654,19 @@ public class LazadaOrderSyncService {
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, "parseAndUpsertOrders: saveOneOrder failed for orderCode=" + orderCode, e);
             }
-            
-            // Left in PENDING status with no warehouse assigned so Sales Staff can manually assign it on WMS.
+
+            // Left in PENDING status with no warehouse assigned so Sales Staff can manually
+            // assign it on WMS.
         }
         return count;
     }
 
     private boolean isCancelledStatus(String status) {
-        if (status == null) return false;
+        if (status == null)
+            return false;
         String lower = status.toLowerCase();
-        return lower.equals("canceled") || lower.equals("cancelled") 
-            || lower.equals("order_cancelled") || lower.equals("failed");
+        return lower.equals("canceled") || lower.equals("cancelled")
+                || lower.equals("order_cancelled") || lower.equals("failed");
     }
 
     public void syncAllActiveChannels(int limit) {
@@ -640,46 +682,52 @@ public class LazadaOrderSyncService {
                     try {
                         LOGGER.info("LazadaOrderSyncService: Syncing active channel: " + channel.getChannelName());
                         syncNewOrdersFromApi(channel, limit);
-                        
+
                         try {
                             LOGGER.info("LazadaOrderSyncService: Syncing existing order updates in last 24 hours...");
-                            syncExistingOrdersFromApi(channel, java.time.Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS));
+                            syncExistingOrdersFromApi(channel,
+                                    java.time.Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS));
                         } catch (Exception ex) {
-                            LOGGER.warning("LazadaOrderSyncService: failed to sync existing orders: " + ex.getMessage());
+                            LOGGER.warning(
+                                    "LazadaOrderSyncService: failed to sync existing orders: " + ex.getMessage());
                         }
-                        
+
                         // Fetch missing items
                         List<String> orderIds = new ArrayList<>();
                         String sql = """
-                            SELECT lo.lazada_order_id_str
-                            FROM lazada_orders lo
-                            LEFT JOIN lazada_order_items loi ON lo.lazada_order_id_str = loi.lazada_order_id_str
-                            WHERE lo.channel_id = ?
-                              AND lo.wms_status = 'NEW'
-                              AND lo.lazada_created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
-                              AND loi.item_id IS NULL
-                            ORDER BY lo.lazada_created_at ASC
-                            LIMIT ?
-                            """;
+                                SELECT lo.lazada_order_id_str
+                                FROM lazada_orders lo
+                                LEFT JOIN lazada_order_items loi ON lo.lazada_order_id_str = loi.lazada_order_id_str
+                                WHERE lo.channel_id = ?
+                                  AND lo.wms_status = 'NEW'
+                                  AND lo.lazada_created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                                  AND loi.item_id IS NULL
+                                ORDER BY lo.lazada_created_at ASC
+                                LIMIT ?
+                                """;
                         try (java.sql.Connection conn = com.wms.util.DBConnection.getConnection();
-                             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                                java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
                             ps.setInt(1, channel.getChannelId());
                             ps.setInt(2, limit);
                             try (java.sql.ResultSet rs = ps.executeQuery()) {
-                                while (rs.next()) orderIds.add(rs.getString(1));
+                                while (rs.next())
+                                    orderIds.add(rs.getString(1));
                             }
                         }
                         if (!orderIds.isEmpty()) {
                             fetchOrderItemsFromApi(channel, orderIds);
                         }
-                        
+
                         // Update last sync time
-                        new com.wms.dao.ChannelDAO().updateLastOrderSyncAt(channel.getChannelId(), java.time.LocalDateTime.now());
+                        new com.wms.dao.ChannelDAO().updateLastOrderSyncAt(channel.getChannelId(),
+                                java.time.LocalDateTime.now());
                     } catch (Exception e) {
-                        LOGGER.log(Level.WARNING, "LazadaOrderSyncService: Failed to sync channel " + channel.getChannelName(), e);
+                        LOGGER.log(Level.WARNING,
+                                "LazadaOrderSyncService: Failed to sync channel " + channel.getChannelName(), e);
                     }
                 } else {
-                    LOGGER.info("LazadaOrderSyncService: Skipping sync for channel " + channel.getChannelName() + " (synced < 10 seconds ago)");
+                    LOGGER.info("LazadaOrderSyncService: Skipping sync for channel " + channel.getChannelName()
+                            + " (synced < 10 seconds ago)");
                 }
             }
         } catch (Exception e) {
@@ -689,5 +737,7 @@ public class LazadaOrderSyncService {
 
     // ── Result type ────────────────────────────────────────────────
 
-    public enum SyncResult { NEW, UPDATED, SKIPPED }
+    public enum SyncResult {
+        NEW, UPDATED, SKIPPED
+    }
 }

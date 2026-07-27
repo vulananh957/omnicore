@@ -19,8 +19,10 @@ public class BusinessDashboardServlet extends BaseController {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
+        // bắt tham số lọc
         String period = req.getParameter("period");
-        if (period == null || period.trim().isEmpty()) period = "30ngay";
+        if (period == null || period.trim().isEmpty())
+            period = "30ngay"; // mặc định hiển thị 30 ngày gần nhất
         req.setAttribute("period", period);
 
         try {
@@ -32,7 +34,8 @@ public class BusinessDashboardServlet extends BaseController {
             req.setAttribute("channelsJson", "[]");
         }
 
-        // Load KPI data
+        // lấy kpi và thống kê từ lớp service (trách nhiệm tính toán thuộc về
+        // orderService, servlet không tự tính)
         try {
             java.math.BigDecimal totalRevenue = orderService.getTotalRevenue(period);
             int totalOrders = orderService.getTotalOrders(period);
@@ -49,6 +52,7 @@ public class BusinessDashboardServlet extends BaseController {
             List<java.util.Map<String, Object>> orderStatus = orderService.getOrderStatusBreakdown(period);
             List<java.util.Map<String, Object>> topProducts = orderService.getTopProductsDetailed(period, 50);
 
+            // truyền dữ liệu xuống jsp
             req.setAttribute("totalRevenue", totalRevenue);
             req.setAttribute("totalOrders", totalOrders);
             req.setAttribute("avgOrderValue", avgOrderValue);
@@ -64,6 +68,7 @@ public class BusinessDashboardServlet extends BaseController {
             req.setAttribute("orderStatus", orderStatus);
             req.setAttribute("topProducts", topProducts);
 
+            // ép kiểu json để javascript ở front end vẽ được chart
             setJsonAttr(req, "dailyDataJson", dailyData);
             setJsonAttr(req, "categoryDataJson", categoryData);
             setJsonAttr(req, "orderStatusJson", orderStatus);
@@ -76,16 +81,18 @@ public class BusinessDashboardServlet extends BaseController {
         }
 
         // Page metadata for the layout
-        req.setAttribute("pageTitle",    "Bảng Điều Khiển Hệ Thống Bán Hàng");
+        req.setAttribute("pageTitle", "Bảng Điều Khiển Hệ Thống Bán Hàng");
         req.setAttribute("pageSubtitle", "Quản lý bán hàng đa kênh - Theo dõi doanh thu và xu hướng");
-        req.setAttribute("currentPage",  "dashboard");
+        req.setAttribute("currentPage", "dashboard");
 
-        // Tell the layout which body fragment to include
+        // đưa dữ liệu vào khung giao diện layout để tránh lặp lại header/sidebar trên
+        // nhiều trang
+        // nhúng nội dung file business.jsp vào giữa khung dashboard-layout.jsp
         req.setAttribute("contentPage",
-            "/WEB-INF/views/dashboard/business.jsp");
+                "/WEB-INF/views/dashboard/business.jsp");
 
-        // Forward to the shell layout
+        // dùng chung khung dashboard-layout.jsp
         req.getRequestDispatcher("/WEB-INF/views/layout/dashboard-layout.jsp")
-           .forward(req, resp);
+                .forward(req, resp);
     }
 }

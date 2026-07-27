@@ -168,6 +168,9 @@ public class OrderService {
                 boolean ok = orderDAO.updateOrderStatusAndWarehouse(orderCode, "CANCELLED", 0, trimmedNote);
                 if (ok) {
                     log.info("Order rejected: orderCode={} reason={}", orderCode, trimmedNote);
+                    if (order != null) {
+                        inventoryDAO.restoreDeductedStock(order.getOrderId());
+                    }
                     // Hủy fulfillment + outbound để warehouse staff không còn thấy phiếu.
                     cascadeCancelOrder(orderCode);
                     return ActionResult.success("Từ chối đơn hàng thành công.");
@@ -251,9 +254,6 @@ public class OrderService {
                 if (current == null) {
                     log.warn("Confirm delivered failed: order not found orderCode={}", orderCode);
                     return ActionResult.failure("Không tìm thấy đơn hàng: " + orderCode);
-                }
-                if (current.getWebOrderRef() == null || current.getWebOrderRef().isBlank()) {
-                    return ActionResult.failure("Xác nhận giao hàng thủ công chỉ áp dụng cho đơn Website. Đơn sàn TMĐT tự cập nhật qua webhook.");
                 }
                 String st = (current.getStatus() == null ? "" : current.getStatus()).toUpperCase();
                 boolean isSelfDelivery = (current.getShipmentProvider() == null || current.getShipmentProvider().isBlank());

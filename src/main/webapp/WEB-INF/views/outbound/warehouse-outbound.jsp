@@ -35,6 +35,13 @@
     request.setAttribute("fulfillmentRequestsJson", mapper.valueToTree(fulfillmentRequests).toString());
 %>
 
+<!-- Server-side JSON script tags (prevents JS syntax errors from unescaped quotes/newlines in Vietnamese text) -->
+<script id="db-outbound-orders-data" type="application/json">${outboundOrdersJson}</script>
+<script id="db-fulfillment-requests-data" type="application/json">${fulfillmentRequestsJson}</script>
+<script id="db-products-data" type="application/json">${productsJson}</script>
+<script id="db-scrap-products-data" type="application/json">${scrapProductsJson}</script>
+<script id="db-inventory-stock-data" type="application/json">${inventoryStockJson}</script>
+
 <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/css/outbound--warehouse-outbound.css"/>
 
 <!-- ══ TOAST NOTIFICATION ═══════════════════════════════════ -->
@@ -174,6 +181,7 @@
 <div class="outbound-list" id="outboundOrdersContainer">
     <!-- Rendered dynamically -->
 </div>
+<div id="outboundPagination"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -631,14 +639,21 @@
         }
     }
 
-    // Real-time inventory stock from DB (authoritative source for stock validation)
-    var DB_INVENTORY_STOCK = [];
-    try {
-        var rawInv = '<c:out value="${inventoryStockJson}" escapeXml="false"/>';
-        if (rawInv && rawInv.trim() && rawInv.indexOf('inventoryStockJson') === -1) {
-            DB_INVENTORY_STOCK = JSON.parse(rawInv);
+    function safeGetJsonFromScript(elementId, fallbackValue) {
+        var el = document.getElementById(elementId);
+        if (!el || !el.textContent || !el.textContent.trim()) return fallbackValue;
+        var content = el.textContent.trim();
+        if (content.indexOf('\x24{') === 0 || content.indexOf('$' + '{') === 0) return fallbackValue;
+        try {
+            return JSON.parse(content);
+        } catch (e) {
+            console.warn('warehouse-outbound: Failed to parse JSON from #' + elementId, e);
+            return fallbackValue;
         }
-    } catch(e) { DB_INVENTORY_STOCK = []; }
+    }
+
+    // Real-time inventory stock from DB (authoritative source for stock validation)
+    var DB_INVENTORY_STOCK = safeGetJsonFromScript('db-inventory-stock-data', []);
 
     // Seed data for first bootstrap
     var pickOrders = [];
@@ -685,29 +700,17 @@
     var disposalEvidenceName = "";
 
     // Product list from the database (for the disposal SKU dropdown)
-    var DB_PRODUCTS = [];
-    try {
-        var rawProductsJson = '<c:out value="${productsJson}" escapeXml="false"/>';
-        if (rawProductsJson && rawProductsJson.trim() && rawProductsJson.indexOf('productsJson') === -1) {
-            DB_PRODUCTS = JSON.parse(rawProductsJson).map(function(p) {
-                return { sku: p.sku || p.skuCode || '', name: p.name || p.productName || '' };
-            });
-        }
-    } catch (e) { DB_PRODUCTS = []; }
+    var DB_PRODUCTS = safeGetJsonFromScript('db-products-data', []).map(function(p) {
+        return { sku: p.sku || p.skuCode || '', name: p.name || p.productName || '' };
+    });
 
-    var SCRAP_PRODUCTS = [];
-    try {
-        var rawScrapProductsJson = '<c:out value="${scrapProductsJson}" escapeXml="false"/>';
-        if (rawScrapProductsJson && rawScrapProductsJson.trim() && rawScrapProductsJson.indexOf('scrapProductsJson') === -1) {
-            SCRAP_PRODUCTS = JSON.parse(rawScrapProductsJson).map(function(p) {
-                return {
-                    sku: p.skuCode || '',
-                    name: p.productName || '',
-                    scrapQty: p.scrapQty || 0
-                };
-            });
-        }
-    } catch (e) { SCRAP_PRODUCTS = []; }
+    var SCRAP_PRODUCTS = safeGetJsonFromScript('db-scrap-products-data', []).map(function(p) {
+        return {
+            sku: p.skuCode || '',
+            name: p.productName || '',
+            scrapQty: p.scrapQty || 0
+        };
+    });
 
     function submitPostAction(action, params) {
         var form = document.createElement('form');
@@ -824,16 +827,7 @@
     // Bootstrap data initialization
     function initLocalStorageData() {
         // Bind server-side outbound orders if available from servlet
-        var SERVER_OUTBOUND_ORDERS = [];
-        try {
-            var rawJson = '<c:out value="${outboundOrdersJson}" escapeXml="false"/>';
-            if (rawJson && rawJson.trim() && rawJson.indexOf('outboundOrdersJson') === -1) {
-                SERVER_OUTBOUND_ORDERS = JSON.parse(rawJson);
-            }
-        } catch(e) {
-            console.warn('warehouse-outbound: No server outbound order data');
-        }
-
+        var SERVER_OUTBOUND_ORDERS = safeGetJsonFromScript('db-outbound-orders-data', []);
         var mappedServerOrders = SERVER_OUTBOUND_ORDERS.map(mapDbOrderToFrontend);
 
         // Picked state and restocked state both come from the DB now (outbound_items.picked_qty,
@@ -842,15 +836,7 @@
         pickOrders = mappedServerOrders;
 
         // Load fulfillment requests from servlet (already fetched server-side)
-        var SERVER_FULFILLMENT = [];
-        try {
-            var frJson = '<c:out value="${fulfillmentRequestsJson}" escapeXml="false"/>';
-            if (frJson && frJson.trim() && frJson.indexOf('fulfillmentRequestsJson') === -1) {
-                SERVER_FULFILLMENT = JSON.parse(frJson);
-            }
-        } catch(e) {
-            console.warn('warehouse-outbound: No server fulfillment data');
-        }
+        var SERVER_FULFILLMENT = safeGetJsonFromScript('db-fulfillment-requests-data', []);
 
         fulfillmentRequests = SERVER_FULFILLMENT.map(function(fr) {
             return {
@@ -986,6 +972,11 @@
 
     // Main orders list render
     function renderOrders() {
+        OmniPagination.reset('outboundOrders');
+        renderOrdersPage();
+    }
+
+    function renderOrdersPage() {
         var container = document.getElementById('outboundOrdersContainer');
 
         var filtered = pickOrders.filter(function(o) {
@@ -1001,10 +992,13 @@
             container.innerHTML = '<div style="background:#fff; border: 1px solid var(--border); padding: 48px; text-align:center; color:rgba(16,55,92,0.4); font-size:13px; border-radius:var(--radius-card);">' +
                 'Không tìm thấy phiếu xuất kho phù hợp.' +
             '</div>';
+            document.getElementById('outboundPagination').innerHTML = '';
             return;
         }
 
-        var html = filtered.map(function(order) {
+        var paginationResult = OmniPagination.paginate('outboundOrders', filtered);
+
+        var html = paginationResult.items.map(function(order) {
             var sc = STATUS_CONFIG[order.status] || STATUS_CONFIG.draft;
             var isExpanded = expandedOrderId === order.id;
             var totalQty = 0;
@@ -1256,6 +1250,11 @@
         }).join('');
 
         container.innerHTML = html;
+
+        OmniPagination.renderControls('outboundPagination', paginationResult.currentPage, paginationResult.totalPages, function (newPage) {
+            OmniPagination.setPage('outboundOrders', newPage);
+            renderOrdersPage();
+        });
     }
 
     function saveState() {
@@ -1272,7 +1271,7 @@
         } else {
             expandedOrderId = orderId;
         }
-        renderOrders();
+        renderOrdersPage();
     };
 
     // Toolbar search triggers
@@ -2063,7 +2062,7 @@
             return;
         }
 
-        // Persist disposal note to DB (warehouse_issues SCRAP, DRAFT — no stock deduction yet).
+        // Persist disposal note to DB (warehouse_issues SCRAP, APPROVED — recorded to ledger & auto-approved).
         closeDisposalModal();
         submitPostAction('disposal', {
             sku: selectedDisposalSku,

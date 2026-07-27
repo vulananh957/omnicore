@@ -33,17 +33,19 @@ public final class ChannelSyncAudit {
                            Integer httpStatus, String requestExcerpt, String responseExcerpt,
                            String errorMessage, Long durationMs) {
         String sql = "INSERT INTO channel_sync_audit "
-                + "(channel_id, operation, ref_code, "
-                + " request_data, response_data, error_message) "
-                + "VALUES (?, ?, ?, ?, ?, ?)";
+                + "(channel_id, operation, ref_code, http_status, "
+                + " request_data, response_data, error_message, duration_ms) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, channelId);
             ps.setString(2, operation);
             ps.setString(3, referenceCode);
-            ps.setString(4, trim(requestExcerpt));
-            ps.setString(5, trim(responseExcerpt));
-            ps.setString(6, errorMessage);
+            if (httpStatus != null) ps.setInt(4, httpStatus); else ps.setNull(4, Types.INTEGER);
+            ps.setString(5, trim(requestExcerpt));
+            ps.setString(6, trim(responseExcerpt));
+            ps.setString(7, errorMessage);
+            if (durationMs != null) ps.setLong(8, durationMs); else ps.setNull(8, Types.BIGINT);
             ps.executeUpdate();
         } catch (SQLException e) {
             // Audit must never break the business call; just log and move on.

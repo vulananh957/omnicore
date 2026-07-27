@@ -430,6 +430,12 @@
                         text-align: right;
                     }
 
+                    /* Status column — center the badge so pills of different label lengths
+                       (Đã hủy vs Chờ xác nhận) line up as a column instead of ragged-left */
+                    .om-status-cell {
+                        text-align: center;
+                    }
+
                     /* Status badge */
                     .om-status-badge {
                         display: inline-flex;
